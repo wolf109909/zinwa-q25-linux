@@ -2,6 +2,7 @@
 # Zinwa Q25 ST21NFC I2C NFC Controller Driver
 
 ifneq ($(KERNELRELEASE),)
+ccflags-y += -I$(src)/../include
 obj-m += st21nfc.o
 else
 KDIR ?= /lib/modules/$(shell uname -r)/build

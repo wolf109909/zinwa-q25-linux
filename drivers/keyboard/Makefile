@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 # Out-of-tree Kbuild Makefile for Zinwa Q25 Keyboard & Trackpad drivers (bbqX0kbd & q20_keyboard)
 
+ccflags-y += -I$(src)/../include
 ccflags-$(CONFIG_DRM_MEDIATEK_V2) += -I$(srctree)/drivers/gpu/drm/mediatek/mediatek_v2/
 
 obj-$(CONFIG_KEYBOARD_BBQX0_KEYBOARD) += bbqX0kbd.o

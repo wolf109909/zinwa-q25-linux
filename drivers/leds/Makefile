@@ -2,6 +2,7 @@
 # Zinwa Q25 Camera Flash / Torch V4L2 Subdev Drivers
 
 ifneq ($(KERNELRELEASE),)
+ccflags-y += -I$(src)/../include
 obj-m += flashlight-gpio-v4l2.o
 obj-m += aw36518.o
 else

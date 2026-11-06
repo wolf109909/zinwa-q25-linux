@@ -1,0 +1,28 @@
+From 35d21354a4eb2327023dc4494af4e03047911aa5 Mon Sep 17 00:00:00 2001
+From: Arseniy Velikanov <me@adomerle.pw>
+Date: Sun, 24 Aug 2025 08:05:42 +0400
+Subject: [PATCH 11/23] drm: gpu: panfrost: enable DVFS on MT6789
+
+Signed-off-by: Arseniy Velikanov <me@adomerle.pw>
+---
+ drivers/gpu/drm/panfrost/panfrost_drv.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/panfrost/panfrost_drv.c b/drivers/gpu/drm/panfrost/panfrost_drv.c
+index 0e175e225..063c161c2 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_drv.c
++++ b/drivers/gpu/drm/panfrost/panfrost_drv.c
+@@ -1106,8 +1106,8 @@ static const char * const mediatek_pm_domains[] = { "core0", "core1", "core2",
+ static const char * const legacy_supplies[] = { "mali", "sram", NULL };
+ 
+ static const struct panfrost_compatible mediatek_mt6789_data = {
+-	.num_supplies = ARRAY_SIZE(legacy_supplies) - 1,
+-	.supply_names = legacy_supplies,
++	.num_supplies = ARRAY_SIZE(default_supplies) - 1,
++	.supply_names = default_supplies,
+ 	.num_pm_domains = 2,
+ 	.pm_domain_names = mediatek_pm_domains,
+ 	.pm_features = BIT(GPU_PM_CLK_DIS) | BIT(GPU_PM_VREG_OFF),
+-- 
+2.55.0
+

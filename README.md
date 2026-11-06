@@ -1,6 +1,6 @@
-# Zinwa Q25 — Mainline Linux 7.0 + CachyOS & Arch Linux ARM (`MT6789` / `MT8781`)
+# Zinwa Q25 — Mainline Linux 7.3 + CachyOS & Arch Linux ARM (`MT6789` / `MT8781`)
 
-Complete hardware enablement, forward-ported **Mainline Linux 7.0** out-of-tree kernel modules (DKMS/Kbuild), Mainline `7.0` DeviceTree (`mt8781-zinwa-q25.dts`), CachyOS BORE kernel packaging, and Arch Linux ARM userspace customizations for the **Zinwa Q25** (`Xelex` / `q20_v12_factory`, MediaTek Helio G99 `MT6789`, 12 GB LPDDR4X, 256 GB UFS).
+Complete hardware enablement, forward-ported **Mainline Linux 7.3 (`7.3.3`) & 7.0** out-of-tree kernel modules (DKMS/Kbuild), rebased MT6789 SoC + CachyOS BORE `7.3` patchset (`patches/`), Mainline DeviceTree (`mt8781-zinwa-q25.dts`), CachyOS BORE kernel packaging, and Arch Linux ARM userspace customizations for the **Zinwa Q25** (`Xelex` / `q20_v12_factory`, MediaTek Helio G99 `MT6789`, 12 GB LPDDR4X, 256 GB UFS).
 
 ---
 
@@ -8,9 +8,10 @@ Complete hardware enablement, forward-ported **Mainline Linux 7.0** out-of-tree 
 
 ```text
 zinwa-q25-linux/
-├── drivers/                  # Forward-ported out-of-tree Q25 drivers for Mainline Linux 7.0+ (Kbuild & DKMS)
+├── drivers/                  # Forward-ported out-of-tree Q25 drivers for Mainline Linux 7.0 – 7.3+ (Kbuild & DKMS)
 │   ├── Makefile              # Top-level Kbuild Makefile (builds all 11 .ko modules)
 │   ├── dkms.conf             # DKMS configuration for automatic module rebuilds on kernel upgrades
+│   ├── include/linux/        # Linux 7.3+ compatibility shims (e.g. of_gpio.h after upstream removal)
 │   ├── keyboard/             # BBQX0 I2C QWERTY keyboard + optical trackpad + MCU power/FW control
 │   │   ├── bbqX0kbd_main.c   # -> bbqX0kbd.ko (wallComputer,bbqX0kbd on &i2c6 @ 0x1f)
 │   │   └── q20_keyboard.c    # -> q20_keyboard.ko (wallComputer,pdrv_bbqX0kbd platform power/FW driver)
@@ -29,13 +30,17 @@ zinwa-q25-linux/
 │   └── leds/                 # V4L2 camera flash / torch subdev drivers
 │       ├── aw36518.c         # -> aw36518.ko (mediatek,aw36518)
 │       └── flashlight-gpio-v4l2.c # -> flashlight-gpio-v4l2.ko (mediatek,flashlightgpio)
+├── patches/
+│   ├── mt6789-soc/                   # 23 MT6789 / Helio G99 SoC patches rebased cleanly onto Linux 7.3.3
+│   └── cachyos-7.3/                  # CachyOS BORE scheduler patch rebased onto Linux 7.3.3
 ├── devicetree/
-│   ├── mt8781-zinwa-q25.dts          # Mainline Linux 7.0 DeviceTree for Zinwa Q25 with all peripherals wired
+│   ├── mt8781-zinwa-q25.dts          # Mainline Linux 7.0 / 7.3 DeviceTree for Zinwa Q25 with all peripherals wired
 │   └── vendor-q20_v12_factory.dts    # Original vendor 5.10 DeviceTree overlay for hardware reference
 ├── cachyos/
-│   ├── PKGBUILD                      # Arch Linux ARM PKGBUILD for linux-cachyos-q25 + zinwa-q25-dkms
+│   ├── PKGBUILD                      # Arch Linux ARM PKGBUILD for linux-cachyos-q25 (7.3.3) + zinwa-q25-dkms
 │   ├── cachyos-mt6789.config         # CachyOS BORE + Landlock + cgroups + Panfrost + ZSTD config fragment
-│   └── config-mt6789-mainline-7.0.aarch64 # Full Linux 7.0 MT6789 base kernel configuration
+│   ├── config-mt6789-mainline-7.3.aarch64 # Full Linux 7.3.3 MT6789 + BORE kernel configuration
+│   └── config-mt6789-mainline-7.0.aarch64 # Full Linux 7.0.0 MT6789 + BORE kernel configuration
 └── userspace/
     ├── keyd/q25-qwerty-en.conf       # Physical keyboard & toolbelt keyd remapping (Tab, Esc/Ctrl, Sym layer)
     ├── bin/                          # Q25 CLI utilities (arch, bright, q25-status, q25-hotspot)
@@ -47,9 +52,9 @@ zinwa-q25-linux/
 
 ---
 
-## Out-of-Tree Hardware Drivers (`drivers/`) — Ported to Linux `7.0`
+## Out-of-Tree Hardware Drivers (`drivers/`) — Ported to Linux `7.3.3` & `7.0`
 
-All 11 hardware kernel modules from the vendor `5.10` kernel (`LineageOS/android_kernel_xelex_mt6789` / `JamiKettunen/android_kernel_zinwa_mt6789`) have been decoupled from legacy Android/MTK vendor frameworks and forward-ported to compile cleanly with **0 errors and 0 warnings** against **Mainline Linux `7.0`** (`7.0.0-cachyos-q25`):
+All 11 hardware kernel modules from the vendor `5.10` kernel (`LineageOS/android_kernel_xelex_mt6789` / `JamiKettunen/android_kernel_zinwa_mt6789`) have been decoupled from legacy Android/MTK vendor frameworks and forward-ported to compile cleanly with **0 errors and 0 warnings** against **Mainline Linux `7.3.3`** (`7.3.3-cachyos-q25`) as well as **Linux `7.0`**:
 
 | Module (`.ko`) | Bus / Address | Compatible String | Hardware Function & Porting Highlights |
 | :--- | :--- | :--- | :--- |

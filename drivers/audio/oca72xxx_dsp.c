@@ -23,7 +23,7 @@
 #include "oca72xxx_log.h"
 #include "oca72xxx_dsp.h"
 
-static DEFINE_MUTEX(g_dsp_lock);
+static __maybe_unused DEFINE_MUTEX(g_dsp_lock);
 static unsigned int g_spin_value;
 
 static int g_rx_topo_id = OCA_RX_DEFAULT_TOPO_ID;

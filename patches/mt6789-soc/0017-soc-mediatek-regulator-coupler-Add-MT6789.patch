@@ -1,0 +1,27 @@
+From 64068f85bc9086f2914ce11eb039e501a3490cd3 Mon Sep 17 00:00:00 2001
+From: Arseniy Velikanov <me@adomerle.pw>
+Date: Sun, 24 Aug 2025 08:05:21 +0400
+Subject: [PATCH 17/23] soc: mediatek: regulator-coupler: Add MT6789
+
+Signed-off-by: Arseniy Velikanov <me@adomerle.pw>
+---
+ drivers/soc/mediatek/mtk-regulator-coupler.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/soc/mediatek/mtk-regulator-coupler.c b/drivers/soc/mediatek/mtk-regulator-coupler.c
+index 0b6a28841..21b7febdb 100644
+--- a/drivers/soc/mediatek/mtk-regulator-coupler.c
++++ b/drivers/soc/mediatek/mtk-regulator-coupler.c
+@@ -145,7 +145,8 @@ static struct mediatek_regulator_coupler mediatek_coupler = {
+ 
+ static int mediatek_regulator_coupler_init(void)
+ {
+-	if (!of_machine_is_compatible("mediatek,mt8183") &&
++	if (!of_machine_is_compatible("mediatek,mt6789") &&
++	    !of_machine_is_compatible("mediatek,mt8183") &&
+ 	    !of_machine_is_compatible("mediatek,mt8186") &&
+ 	    !of_machine_is_compatible("mediatek,mt8188") &&
+ 	    !of_machine_is_compatible("mediatek,mt8192"))
+-- 
+2.55.0
+

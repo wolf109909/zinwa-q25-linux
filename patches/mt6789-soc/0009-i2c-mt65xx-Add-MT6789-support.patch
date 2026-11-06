@@ -1,0 +1,45 @@
+From 558fb167d5a451ebf2fb6b74a68d3ba75ca3bfe5 Mon Sep 17 00:00:00 2001
+From: Arseniy Velikanov <me@adomerle.pw>
+Date: Thu, 9 Jan 2025 14:28:34 +0400
+Subject: [PATCH 09/23] i2c: mt65xx: Add MT6789 support
+
+Signed-off-by: Arseniy Velikanov <me@adomerle.pw>
+---
+ drivers/i2c/busses/i2c-mt65xx.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/drivers/i2c/busses/i2c-mt65xx.c b/drivers/i2c/busses/i2c-mt65xx.c
+index 307925fb7..cdc03bcaf 100644
+--- a/drivers/i2c/busses/i2c-mt65xx.c
++++ b/drivers/i2c/busses/i2c-mt65xx.c
+@@ -404,6 +404,19 @@ static const struct mtk_i2c_compatible mt6589_compat = {
+ 	.max_dma_support = 32,
+ };
+ 
++static const struct mtk_i2c_compatible mt6789_compat = {
++	.regs = mt_i2c_regs_v3,
++	.pmic_i2c = 0,
++	.dcm = 0,
++	.auto_restart = 1,
++	.aux_len_reg = 1,
++	.timing_adjust = 1,
++	.dma_sync = 1,
++	.ltiming_adjust = 1,
++	.apdma_sync = 1,
++	.max_dma_support = 36,
++};
++
+ static const struct mtk_i2c_compatible mt7622_compat = {
+ 	.quirks = &mt7622_i2c_quirks,
+ 	.regs = mt_i2c_regs_v1,
+@@ -527,6 +540,7 @@ static const struct of_device_id mtk_i2c_of_match[] = {
+ 	{ .compatible = "mediatek,mt2712-i2c", .data = &mt2712_compat },
+ 	{ .compatible = "mediatek,mt6577-i2c", .data = &mt6577_compat },
+ 	{ .compatible = "mediatek,mt6589-i2c", .data = &mt6589_compat },
++	{ .compatible = "mediatek,mt6789-i2c", .data = &mt6789_compat },
+ 	{ .compatible = "mediatek,mt7622-i2c", .data = &mt7622_compat },
+ 	{ .compatible = "mediatek,mt7981-i2c", .data = &mt7981_compat },
+ 	{ .compatible = "mediatek,mt7986-i2c", .data = &mt7986_compat },
+-- 
+2.55.0
+

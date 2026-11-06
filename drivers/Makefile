@@ -11,9 +11,10 @@ obj-m += nfc/
 obj-m += leds/
 else
 KDIR ?= /lib/modules/$(shell uname -r)/build
+KBUILD_MODPOST_WARN ?= $(if $(wildcard $(KDIR)/Module.symvers),0,1)
 
 all:
-	$(MAKE) -C $(KDIR) M=$(CURDIR) modules
+	$(MAKE) -C $(KDIR) M=$(CURDIR) KBUILD_MODPOST_WARN=$(KBUILD_MODPOST_WARN) modules
 
 modules_install:
 	$(MAKE) -C $(KDIR) M=$(CURDIR) modules_install

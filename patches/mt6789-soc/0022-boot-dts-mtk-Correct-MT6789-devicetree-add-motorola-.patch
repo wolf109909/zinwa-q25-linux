@@ -1,0 +1,1118 @@
+From c3e9cf514b69174766c2619ca1789aa30aeca863 Mon Sep 17 00:00:00 2001
+From: Alicja Michalska <ellyqw@mainlining.org>
+Date: Wed, 15 Apr 2026 04:57:09 +0200
+Subject: [PATCH 22/23] boot/dts/mtk: Correct MT6789 devicetree, add
+ motorola-vicky
+
+Disable larbs for now as we don't have working DSI, add missing ulposc
+clock and DTS for Motorola Moto G72 (vicky) with MT6789 SoC.
+
+Signed-off-by: Alicja Michalska <ellyqw@mainlining.org>
+---
+ arch/arm64/boot/dts/mediatek/Makefile         |   1 +
+ .../dts/mediatek/mt6789-motorola-vicky.dts    | 815 ++++++++++++++++++
+ arch/arm64/boot/dts/mediatek/mt6789.dtsi      |  37 +-
+ .../dt-bindings/power/mediatek,mt6789-power.h |  20 +
+ 4 files changed, 871 insertions(+), 2 deletions(-)
+ create mode 100644 arch/arm64/boot/dts/mediatek/mt6789-motorola-vicky.dts
+ create mode 100644 include/dt-bindings/power/mediatek,mt6789-power.h
+
+diff --git a/arch/arm64/boot/dts/mediatek/Makefile b/arch/arm64/boot/dts/mediatek/Makefile
+index a86fb313b..122bc992e 100644
+--- a/arch/arm64/boot/dts/mediatek/Makefile
++++ b/arch/arm64/boot/dts/mediatek/Makefile
+@@ -2,6 +2,7 @@
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt2712-evb.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt6755-evb.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt6779-evb.dtb
++dtb-$(CONFIG_ARCH_MEDIATEK) += mt6789-motorola-vicky.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt6795-evb.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt6795-sony-xperia-m5.dtb
+ dtb-$(CONFIG_ARCH_MEDIATEK) += mt6797-evb.dtb
+diff --git a/arch/arm64/boot/dts/mediatek/mt6789-motorola-vicky.dts b/arch/arm64/boot/dts/mediatek/mt6789-motorola-vicky.dts
+new file mode 100644
+index 000000000..697ac0fb9
+--- /dev/null
++++ b/arch/arm64/boot/dts/mediatek/mt6789-motorola-vicky.dts
+@@ -0,0 +1,815 @@
++// SPDX-License-Identifier: GPL-2.0
++
++/dts-v1/;
++
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/regulator/mediatek,mt6397-regulator.h>
++#include <dt-bindings/pinctrl/mediatek,mt6789-pinfunc.h>
++#include "mt6789.dtsi"
++
++/ {
++	model = "Motorola Moto G72";
++	chassis-type = "handset";
++	compatible = "motorola,vicky", "mediatek,mt6789";
++
++	#address-cells = <2>;
++	#size-cells = <2>;
++
++	aliases {
++		serial0 = &uart0;
++	};
++
++	chosen {
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++
++		stdout-path = "serial0:921600n1";
++
++		framebuffer@fe0d0000 {
++			compatible = "simple-framebuffer";
++			reg = <0 0xfe0d0000 0 ((1080 + 16) * 2400 * 4)>;
++			width = <1080>;
++			height = <2400>;
++			stride = <((1080 + 16) * 4)>;
++			format = "a8r8g8b8";
++		};
++	};
++
++	reserved-memory {
++		#address-cells = <2>;
++		#size-cells = <2>;
++
++		wifi_mem: wifi@bf000000 {
++			reg = <0 0xbf000000 0 0x600000>;
++			no-map;
++		};
++
++		emi_mem: consys_emi@7d000000 {
++			reg = <0 0x7d000000 0 0x500000>;
++			no-map;
++		};
++
++		sspm_ap_mem: sspm_ap@9f560000 {
++			reg = <0 0x9f560000 0 0x110000>;
++			no-map;
++		};
++
++		apmdc_mem: ap_md_c_smem@8c000000 {
++			reg = <0 0x8c000000 0 0x16a0000>;
++			no-map;
++		};
++
++		apmdnc_mem: ap_md_nc_smem@8e000000 {
++			reg = <0 0x8e000000 0 0xe00000>;
++			no-map;
++		};
++
++		md_mem: md_mem@e3200000 {
++			reg = <0 0xe3200000 0 0xe00000>;
++			no-map;
++		};
++
++		md2_mem: md_mem2@de800000 {
++			reg = <0 0xde800000 0 0x2b10000>;
++			no-map;
++		};
++
++		md3_mem: md_mem3@ddc00000 {
++			reg = <0 0xddc00000 0 0x430000>;
++			no-map;
++		};
++
++		md4_mem: md_mem4@dc000000 {
++			reg = <0 0xdc000000 0 0x1490000>;
++			no-map;
++		};
++
++		ccci_mem: ccci_tag@bf9f0000 {
++			reg = <0 0xbf9f0000 0 0x10000>;
++			no-map;
++		};
++
++		scp_mem: scp_share@8f000000 {
++			reg = <0 0x8f000000 0 0x5a0000>;
++			compatible = "shared-dma-pool";
++			no-map;
++		};
++
++		scp_res_mem: scp@bfa00000 {
++			reg = <0 0xbfa00000 0 0x400000>;
++			no-map;
++		};
++
++		dfdmcu_mem: dfdmcu_dump@fd000000 {
++			reg = <0x00 0xfd000000 0x00 0x100000>;
++			no-map;
++		};
++
++		crypto_mem: crypto_hw@48401000 {
++			reg = <0 0x48401000 0 0x1000>;
++			no-map;
++		};
++
++		tee_mem: tee@70000000 {
++			reg = <0 0x70000000 0 0x4600000>;
++			no-map;
++		};
++
++		tee_sec_mem: tee_sec@7de00000 {
++			reg = <0 0x7de00000 0 0x800000>;
++			no-map;
++		};
++
++		mcupm_mem: mcupm@7feb0000 {
++			reg = <0 0x7feb0000 0 0x100000>;
++			no-map;
++		};
++
++		sspm_mem: sspm@9fe70000 {
++			reg = <0 0x9fe70000 0 0x180000>;
++			no-map;
++		};
++
++		bl31_mem: bl31@48200000 {
++			reg = <0 0x48200000 0 0x200000>;
++			no-map;
++		};
++
++		fb_mem: framebuffer@fe0d0000 {
++			reg = <0 0xfe0d0000 0 0x1f2f000>;
++			no-map;
++		};
++
++		aee_lk_mem: aee_lk@50700000 {
++			reg = <0 0x50700000 0 0x800000>;
++			no-map;
++		};
++
++//		boottag_mem: pl_boottag@48600000 {
++//			reg = <0 0x48600000 0 0x100000>;
++//			no-map;
++//		};
++
++		drambuf_mem: pl_drambuf@48500000 {
++			reg = <0 0x48500000 0 0x100000>;
++			no-map;
++		};
++
++//		minirdump_mem: minirdump@48170000 {
++//			reg = <0 0x48170000 0 0x10000>;
++//			no-map;
++//		};
++
++//		pstore_mem: pstore@48090000 {
++//			reg = <0 0x48090000 0 0xe0000>;
++//			no-map;
++//		};
++
++//		aee_kinfo_mem: aee_kinfo@48080000 {
++//			reg = <0 0x48080000 0 0x10000>;
++//			no-map;
++//		};
++
++//		atf_log_mem: atf_log@bfe00000 {
++//			reg = <0 0xbfe00000 0 0x200000>;
++//			no-map;
++//		};
++
++//		log_mem: log_store@7ffbf000 {
++//			reg = <0 0x7ffbf000 0 0x40000>;
++//			no-map;
++//		};
++
++//		gz_log_mem: gz_log@7e600000 {
++//			reg = <0 0x7e600000 0 0x41000>;
++//			no-map;
++//		};
++
++		unmap_mem: unmap@7e800000 {
++			reg = <0 0x7e800000 0 0x400000>;
++			no-map;
++		};
++
++		gz_mem: gz@7ec00000 {
++			reg = <0 0x7ec00000 0 0x1200000>;
++			no-map;
++		};
++
++		mbist_mem: emi_mbist@7ffff000 {
++			reg = <0 0x7ffff000 0 0x1000>;
++			no-map;
++		};
++
++		// This SoC likely uses two DRAM banks,
++		// so each bank needs 4K of reserved memory per bank.
++		// ( Speculation, quotation needed :P )
++//		dram1_mem: dram-controller1@3ffff000 {
++//			reg = <0x2 0x3ffff000 0 0x1000>;
++//			no-map;
++//		};
++
++//		dram0_mem: dram-controller0@3ffff000 {
++//			reg = <0x1 0x3ffff000 0 0x1000>;
++//			no-map;
++//		};
++
++		dram_mem: dram-controller0@3ffff000 {
++			reg = <0x0 0x3ffff000 0 0x2000>;
++			no-map;
++		};
++
++	};
++
++	reg_vsys: regulator-vsys {
++		compatible = "regulator-fixed";
++		regulator-name = "vsys";
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
++	reg_avdd: regulator-avdd {
++		compatible = "regulator-fixed";
++		regulator-name = "vreg_avdd";
++		gpio = <&pio 12 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
++	reg_vio: regulator-vio {
++		compatible = "regulator-fixed";
++		regulator-name = "vreg_vio";
++		gpio = <&pio 46 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
++	vsync_dummy: regulator-te {
++		compatible = "regulator-fixed";
++		regulator-name = "vreg_te";
++		gpio = <&pio 83 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
++	reg_vci: regulator-vci {
++		compatible = "regulator-fixed";
++		regulator-name = "vreg_vci";
++		gpio = <&pio 110 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-always-on;
++		regulator-boot-on;
++	};
++
++	reg_dvdd: regulator-dvdd {
++		compatible = "regulator-fixed";
++		regulator-name = "vreg_dvdd";
++		gpio = <&pio 154 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-always-on;
++		regulator-boot-on;
++	};
++};
++
++&pwrap {
++	status = "okay";
++
++	pmic: pmic {
++		compatible = "mediatek,mt6358";
++		interrupt-controller;
++		interrupts-extended = <&pio 137 IRQ_TYPE_LEVEL_HIGH>;
++		#interrupt-cells = <2>;
++
++		mt6366_regulator: mt6366-regulator {
++			compatible = "mediatek,mt6366-regulator", "mediatek,mt6358-regulator";
++
++			vsys-ldo1-supply = <&reg_vsys>;
++			vsys-ldo2-supply = <&reg_vsys>;
++			vsys-ldo3-supply = <&reg_vsys>;
++			vsys-vs1-supply = <&reg_vsys>;
++			vsys-vs2-supply = <&reg_vsys>;
++			vsys-vdram1-supply = <&reg_vsys>;
++			vsys-vcore-supply = <&reg_vsys>;
++			vsys-vpa-supply = <&reg_vsys>;
++			vsys-vproc11-supply = <&reg_vsys>;
++			vsys-vproc12-supply = <&reg_vsys>;
++			vsys-vgpu-supply = <&reg_vsys>;
++			vsys-vmodem-supply = <&reg_vsys>;
++			vs1-ldo1-supply = <&mt6366_vs1_reg>;
++			vs2-ldo1-supply = <&mt6366_vdram1_reg>;
++			vs2-ldo2-supply = <&mt6366_vs2_reg>;
++			vs2-ldo3-supply = <&mt6366_vs2_reg>;
++
++			mt6366_vdram1_reg: vdram1 {
++				regulator-name = "vdram1";
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <2087500>;
++				regulator-ramp-delay = <12500>;
++				regulator-enable-ramp-delay = <0>;
++				regulator-always-on;
++				regulator-allowed-modes = <MT6397_BUCK_MODE_AUTO
++				                           MT6397_BUCK_MODE_FORCE_PWM>;
++			};
++
++			mt6366_vcore_reg: vcore {
++				regulator-name = "vcore";
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <1293750>;
++				regulator-ramp-delay = <6250>;
++				regulator-enable-ramp-delay = <200>;
++				regulator-always-on;
++				regulator-allowed-modes = <MT6397_BUCK_MODE_AUTO
++				                           MT6397_BUCK_MODE_FORCE_PWM>;
++			};
++
++			mt6366_vpa_reg: vpa {
++				regulator-name = "vpa";
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <3650000>;
++				regulator-ramp-delay = <50000>;
++				regulator-enable-ramp-delay = <250>;
++				regulator-allowed-modes = <MT6397_BUCK_MODE_AUTO
++				                           MT6397_BUCK_MODE_FORCE_PWM>;
++			};
++
++			mt6366_vproc11_reg: vproc11 {
++				regulator-name = "vproc11";
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <1293750>;
++				regulator-ramp-delay = <6250>;
++				regulator-enable-ramp-delay = <200>;
++				regulator-always-on;
++				regulator-allowed-modes = <MT6397_BUCK_MODE_AUTO
++				                           MT6397_BUCK_MODE_FORCE_PWM>;
++			};
++
++			mt6366_vproc12_reg: vproc12 {
++				regulator-name = "vproc12";
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <1293750>;
++				regulator-ramp-delay = <6250>;
++				regulator-enable-ramp-delay = <200>;
++				regulator-always-on;
++				regulator-allowed-modes = <MT6397_BUCK_MODE_AUTO
++				                           MT6397_BUCK_MODE_FORCE_PWM>;
++			};
++
++			mt6366_vgpu_reg: vgpu {
++				regulator-name = "vgpu";
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <1293750>;
++				regulator-ramp-delay = <6250>;
++				regulator-enable-ramp-delay = <200>;
++				regulator-allowed-modes = <MT6397_BUCK_MODE_AUTO
++				                           MT6397_BUCK_MODE_FORCE_PWM>;
++
++				regulator-coupled-with = <&mt6366_vsram_gpu_reg>;
++				regulator-coupled-max-spread = <100000>;
++			};
++
++			mt6366_vs2_reg: vs2 {
++				regulator-name = "vs2";
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <2087500>;
++				regulator-ramp-delay = <12500>;
++				regulator-enable-ramp-delay = <0>;
++				regulator-always-on;
++			};
++
++			mt6366_vmodem_reg: vmodem {
++				regulator-name = "vmodem";
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <1293750>;
++				regulator-ramp-delay = <6250>;
++				regulator-enable-ramp-delay = <900>;
++				regulator-always-on;
++				regulator-allowed-modes = <MT6397_BUCK_MODE_AUTO
++				                           MT6397_BUCK_MODE_FORCE_PWM>;
++			};
++
++			mt6366_vs1_reg: vs1 {
++				regulator-name = "vs1";
++				regulator-min-microvolt = <1000000>;
++				regulator-max-microvolt = <2587500>;
++				regulator-ramp-delay = <12500>;
++				regulator-enable-ramp-delay = <0>;
++				regulator-always-on;
++			};
++
++			/* LPDDR4X, always on */
++			mt6366_vdram2_reg: vdram2 {
++				regulator-name = "vdram2";
++				regulator-min-microvolt = <600000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-enable-ramp-delay = <3300>;
++				regulator-always-on;
++			};
++
++			mt6366_vsim1_reg: vsim1 {
++				regulator-name = "vsim1";
++				regulator-min-microvolt = <1700000>;
++				regulator-max-microvolt = <3100000>;
++				regulator-enable-ramp-delay = <540>;
++			};
++
++			mt6366_vibr_reg: vibr {
++				regulator-name = "vibr";
++				regulator-min-microvolt = <1200000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-enable-ramp-delay = <60>;
++			};
++
++			mt6366_vrf12_reg: vrf12 {
++				regulator-name = "vrf12";
++				regulator-min-microvolt = <1200000>;
++				regulator-max-microvolt = <1200000>;
++				regulator-enable-ramp-delay = <120>;
++				regulator-always-on;
++				regulator-boot-on;
++			};
++
++			mt6366_vio18_reg: vio18 {
++				regulator-name = "vio18";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-enable-ramp-delay = <2700>;
++				regulator-always-on;
++				regulator-boot-on;
++			};
++
++			mt6366_vusb_reg: vusb {
++				regulator-name = "vusb";
++				regulator-min-microvolt = <3000000>;
++				regulator-max-microvolt = <3100000>;
++				regulator-enable-ramp-delay = <270>;
++				regulator-always-on;
++			};
++
++			mt6366_vcamio_reg: vcamio {
++				regulator-name = "vcamio";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-enable-ramp-delay = <325>;
++			};
++
++			mt6366_vcamd_reg: vcamd {
++				regulator-name = "vcamd";
++				regulator-min-microvolt = <900000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-enable-ramp-delay = <325>;
++			};
++
++			mt6366_vcn18_reg: vcn18 {
++				regulator-name = "vcn18";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-enable-ramp-delay = <270>;
++				regulator-boot-on;
++				regulator-always-on;
++			};
++
++			mt6366_vfe28_reg: vfe28 {
++				regulator-name = "vfe28";
++				regulator-min-microvolt = <2800000>;
++				regulator-max-microvolt = <2800000>;
++				regulator-enable-ramp-delay = <270>;
++				regulator-boot-on;
++				regulator-always-on;
++			};
++
++			mt6366_vsram_proc11_reg: vsram-proc11 {
++				regulator-name = "vsram_proc11";
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <1293750>;
++				regulator-ramp-delay = <6250>;
++				regulator-enable-ramp-delay = <240>;
++				regulator-always-on;
++			};
++
++			mt6366_vcn28_reg: vcn28 {
++				regulator-name = "vcn28";
++				regulator-min-microvolt = <2800000>;
++				regulator-max-microvolt = <2800000>;
++				regulator-enable-ramp-delay = <270>;
++				regulator-boot-on;
++				regulator-always-on;
++			};
++
++			mt6366_vsram_others_reg: vsram-others {
++				regulator-name = "vsram_others";
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <1293750>;
++				regulator-ramp-delay = <6250>;
++				regulator-enable-ramp-delay = <240>;
++				regulator-always-on;
++			};
++
++			mt6366_vsram_core_reg: vsram-core {
++				regulator-name = "vsram_core";
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <1293750>;
++				regulator-enable-ramp-delay = <240>;
++				regulator-always-on;
++			};
++
++			mt6366_vsram_gpu_reg: vsram-gpu {
++				regulator-name = "vsram_gpu";
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <1293750>;
++				regulator-ramp-delay = <6250>;
++				regulator-enable-ramp-delay = <240>;
++
++				regulator-coupled-with = <&mt6366_vgpu_reg>;
++				regulator-coupled-max-spread = <100000>;
++			};
++
++			mt6366_vxo22_reg: vxo22 {
++				regulator-name = "vxo22";
++				regulator-min-microvolt = <2200000>;
++				regulator-max-microvolt = <2200000>;
++				regulator-enable-ramp-delay = <120>;
++				regulator-always-on;
++				regulator-boot-on;
++			};
++
++			mt6366_vefuse_reg: vefuse {
++				regulator-name = "vefuse";
++				regulator-min-microvolt = <1700000>;
++				regulator-max-microvolt = <1900000>;
++				regulator-enable-ramp-delay = <270>;
++			};
++
++			mt6366_vaux18_reg: vaux18 {
++				regulator-name = "vaux18";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-enable-ramp-delay = <270>;
++				regulator-always-on;
++				regulator-boot-on;
++			};
++
++			mt6366_vmch_reg: vmch {
++				regulator-name = "vmch";
++				regulator-min-microvolt = <2900000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-enable-ramp-delay = <60>;
++				regulator-always-on;
++			};
++
++			mt6366_vbif28_reg: vbif28 {
++				regulator-name = "vbif28";
++				regulator-min-microvolt = <2800000>;
++				regulator-max-microvolt = <2800000>;
++				regulator-enable-ramp-delay = <270>;
++			};
++
++			mt6366_vsram_proc12_reg: vsram-proc12 {
++				regulator-name = "vsram_proc12";
++				regulator-min-microvolt = <500000>;
++				regulator-max-microvolt = <1293750>;
++				regulator-ramp-delay = <6250>;
++				regulator-enable-ramp-delay = <240>;
++				regulator-always-on;
++			};
++
++			mt6366_vcama1_reg: vcama1 {
++				regulator-name = "vcama1";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <3000000>;
++				regulator-enable-ramp-delay = <325>;
++				regulator-boot-on;
++				regulator-always-on;
++			};
++
++			mt6366_vemc_reg: vemc {
++				regulator-name = "vemc";
++				regulator-min-microvolt = <2900000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-enable-ramp-delay = <60>;
++				regulator-boot-on;
++			};
++
++			mt6366_vio28_reg: vio28 {
++				regulator-name = "vio28";
++				regulator-min-microvolt = <2800000>;
++				regulator-max-microvolt = <2800000>;
++				regulator-enable-ramp-delay = <270>;
++				regulator-boot-on;
++				regulator-always-on;
++			};
++
++			mt6366_va12_reg: va12 {
++				regulator-name = "va12";
++				regulator-min-microvolt = <1200000>;
++				regulator-max-microvolt = <1200000>;
++				regulator-enable-ramp-delay = <270>;
++				regulator-always-on;
++			};
++
++			mt6366_vrf18_reg: vrf18 {
++				regulator-name = "vrf18";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <1800000>;
++				regulator-enable-ramp-delay = <120>;
++			};
++
++			mt6366_vcn33_reg: vcn33 {
++				regulator-name = "vcn33";
++				regulator-min-microvolt = <3300000>;
++				regulator-max-microvolt = <3500000>;
++				regulator-enable-ramp-delay = <270>;
++			};
++
++			mt6366_vcama2_reg: vcama2 {
++				regulator-name = "vcama2";
++				regulator-min-microvolt = <1800000>;
++				regulator-max-microvolt = <3000000>;
++				regulator-enable-ramp-delay = <325>;
++				regulator-boot-on;
++				regulator-always-on;
++			};
++
++			mt6366_vmc_reg: vmc {
++				regulator-name = "vmc";
++				regulator-min-microvolt = <2900000>;
++				regulator-max-microvolt = <3300000>;
++				regulator-enable-ramp-delay = <60>;
++				regulator-boot-on;
++				regulator-always-on;
++			};
++
++			mt6366_vldo28_reg: vldo28 {
++				regulator-name = "vldo28";
++				regulator-min-microvolt = <2800000>;
++				regulator-max-microvolt = <2800000>;
++				regulator-enable-ramp-delay = <270>;
++				regulator-boot-on;
++				regulator-always-on;
++			};
++
++			mt6366_vaud28_reg: vaud28 {
++				regulator-name = "vaud28";
++				regulator-min-microvolt = <2800000>;
++				regulator-max-microvolt = <2800000>;
++				regulator-enable-ramp-delay = <270>;
++				regulator-boot-on;
++				regulator-always-on;
++			};
++
++			mt6366_vsim2_reg: vsim2 {
++				regulator-name = "vsim2";
++				regulator-min-microvolt = <1700000>;
++				regulator-max-microvolt = <3100000>;
++				regulator-enable-ramp-delay = <540>;
++			};
++		};
++
++		mt6358_rtc: rtc {
++			compatible = "mediatek,mt6358-rtc";
++		};
++
++		mt6358_keys: keys {
++			compatible = "mediatek,mt6358-keys";
++
++			power-off-time-sec = <10>;
++			mediatek,long-press-mode = <1>;
++
++			power {
++				linux,keycodes = <KEY_POWER>;
++				wakeup-source;
++			};
++
++			home {
++				linux,keycodes = <KEY_VOLUMEUP>;
++			};
++		};
++	};
++};
++
++&usb2 {
++	status = "okay";
++
++	dr_mode = "peripheral";
++	maximum-speed = "high-speed";
++};
++
++&u2phy {
++	status = "okay";
++};
++
++&mmc1 {
++	status = "okay";
++
++	pinctrl-names = "default", "state_uhs";
++	pinctrl-0 = <&mmc1_pins_default>;
++	pinctrl-1 = <&mmc1_pins_default>;
++
++	bus-width = <4>;
++
++	max-frequency = <200000000>;
++
++	cap-sd-highspeed;
++	sd-uhs-sdr12;
++	sd-uhs-sdr25;
++	sd-uhs-sdr50;
++	sd-uhs-sdr104;
++	sd-uhs-ddr50;
++
++	cd-debounce-delay-ms = <0>;
++	cd-gpios = <&pio 7 GPIO_ACTIVE_HIGH>;
++
++	vmmc-supply = <&mt6366_vmch_reg>;
++	vqmmc-supply = <&mt6366_vmc_reg>;
++};
++
++&uart0 {
++	status = "okay";
++};
++
++&ufsphy {
++	status = "okay";
++};
++
++&ufs {
++	status = "okay";
++//	vcc-supply = <&mt6366_vemc_reg>;
++};
++
++&pio {
++	mmc1_pins_default: mmc1-pins-default-state {
++		pins-clk {
++			pinmux = <PINMUX_GPIO71__FUNC_MSDC1_CLK>;
++			drive-strength = <3>;
++			bias-pull-down = <MTK_PUPD_SET_R1R0_10>;
++		};
++
++		pins-cmd-dat {
++			pinmux = <PINMUX_GPIO73__FUNC_MSDC1_DAT0>,
++					 <PINMUX_GPIO74__FUNC_MSDC1_DAT1>,
++					 <PINMUX_GPIO75__FUNC_MSDC1_DAT2>,
++					 <PINMUX_GPIO76__FUNC_MSDC1_DAT3>,
++					 <PINMUX_GPIO72__FUNC_MSDC1_CMD>;
++			input-enable;
++			drive-strength = <3>;
++			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
++		};
++	};
++
++	mtkfb_pins_lcm_rst_out1_gpio: lcm_rst_out1_gpio {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO85__FUNC_GPIO85>;
++			slew-rate = <1>;
++			output-high;
++		};
++	};
++
++	mtkfb_pins_lcm_rst_out0_gpio: lcm_rst_out0_gpio {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO85__FUNC_GPIO85>;
++			slew-rate = <1>;
++			output-low;
++		};
++	};
++	mtkfb_pins_lcm_dsi_te: lcm_dsi_te {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO83__FUNC_DSI_TE>;
++		};
++	};
++
++	mtkfb_pins_oled_vci_en: oled_vci_en_gpio {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO110__FUNC_GPIO110>;
++			slew-rate = <1>;
++			output-low;
++		};
++	};
++
++	mtkfb_pins_oled_vio_en: oled_vio_en_gpio {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO46__FUNC_GPIO46>;
++			slew-rate = <1>;
++			output-low;
++		};
++	};
++
++	mtkfb_pins_oled_dvdd_en: oled_dvdd_en_gpio {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO154__FUNC_GPIO154>;
++			slew-rate = <1>;
++			output-low;
++		};
++	};
++
++	mtkfb_pins_oled_avdd_en: oled_avdd_en_gpio {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO12__FUNC_GPIO12>;
++			slew-rate = <1>;
++			output-low;
++		};
++	};
++};
++
+diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+index 2a9cd80ba..cf276a7f0 100644
+--- a/arch/arm64/boot/dts/mediatek/mt6789.dtsi
++++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+@@ -269,6 +269,13 @@ clk32k: oscillator-32k {
+ 		clock-output-names = "clk32k";
+ 	};
+ 
++	ulposc: clock-ulposc {
++		compatible = "fixed-clock";
++		#clock-cells = <0>;
++		clock-freqency = <260000000>;
++		clock-output-names = "ulposc";
++	};
++
+ 	gpu_opp_table: opp-table-gpu {
+ 		compatible = "operating-points-v2";
+ 		opp-shared;
+@@ -790,6 +797,7 @@ mutex: mutex@14001000 {
+ 			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
+ 			clocks = <&mmsys CLK_MM_DISP_MUTEX0>;
+ 			mediatek,gce-client-reg = <&gce0 SUBSYS_1400XXXX 0x1000 0x1000>;
++			status = "disabled";
+ 		};
+ 
+ 		smi_sub_comm_disp0: smi@1401b000 {
+@@ -802,6 +810,7 @@ smi_sub_comm_disp0: smi@1401b000 {
+ 			         <&mmsys CLK_MM_SMI_IOMMU>;
+ 			mediatek,smi = <&smi_common_disp>;
+ 			clock-names = "apb", "smi", "gals0", "gals1";
++			status = "disabled";
+ 		};
+ 
+ 		smi_sub_comm_disp1: smi@1401c000 {
+@@ -814,6 +823,7 @@ smi_sub_comm_disp1: smi@1401c000 {
+ 			         <&mmsys CLK_MM_SMI_IOMMU>;
+ 			mediatek,smi = <&smi_common_disp>;
+ 			clock-names = "apb", "smi", "gals0", "gals1";
++			status = "disabled";
+ 		};
+ 
+ 		smi_common_disp: smi@14002000 {
+@@ -825,6 +835,7 @@ smi_common_disp: smi@14002000 {
+ 			         <&mmsys CLK_MM_SMI_IOMMU>;
+ 			clock-names = "apb", "smi", "gals0", "gals1";
+ 			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
++			status = "disabled";
+ 		};
+ 
+ 		smi_sub_comm_img1: smi@1401e000 {
+@@ -837,6 +848,7 @@ smi_sub_comm_img1: smi@1401e000 {
+ 			         <&mmsys CLK_MM_SMI_GALS>,
+ 			         <&mmsys CLK_MM_SMI_IOMMU>;
+ 			clock-names = "apb", "smi", "gals0", "gals1";
++			status = "disabled";
+ 		};
+ 
+ 		smi_sub_comm_img0: smi@1502f000 {
+@@ -849,6 +861,7 @@ smi_sub_comm_img0: smi@1502f000 {
+ 			         <&imgsys CLK_IMGSYS_DIP>,
+ 			         <&imgsys CLK_IMGSYS_GALS>;
+ 			clock-names = "apb", "smi", "gals0", "gals1";
++			status = "disabled";
+ 		};
+ 
+ 		smi_sub_comm_ipe: smi@1b00e000 {
+@@ -861,6 +874,7 @@ smi_sub_comm_ipe: smi@1b00e000 {
+ 			         <&ipesys CLK_IPE_SMI_SUBCOM>,
+ 			         <&ipesys CLK_IPE_SMI_SUBCOM>;
+ 			clock-names = "apb", "smi", "gals0", "gals1";
++			status = "disabled";
+ 		};
+ 
+ 		smi_sub_comm_cam1: smi@1a00c000 {
+@@ -873,6 +887,7 @@ smi_sub_comm_cam1: smi@1a00c000 {
+ 			         <&camsys CLK_CAM_M_LARB14>,
+ 			         <&camsys CLK_CAM_M_CAM>;
+ 			clock-names = "apb", "smi", "gals0", "gals1";
++			status = "disabled";
+ 		};
+ 
+ 		smi_sub_comm_cam0: smi@1a00d000 {
+@@ -885,6 +900,7 @@ smi_sub_comm_cam0: smi@1a00d000 {
+ 			         <&camsys CLK_CAM_M_LARB13>,
+ 			         <&camsys CLK_CAM_M_CAM>;
+ 			clock-names = "apb", "smi", "gals0", "gals1";
++			status = "disabled";
+ 		};
+ 
+ 		larb0: smi@14003000 {
+@@ -898,6 +914,7 @@ larb0: smi@14003000 {
+ 			         <&mmsys CLK_MM_SMI_GALS>,
+ 			         <&mmsys CLK_MM_SMI_IOMMU>;
+ 			clock-names = "apb", "smi", "gals0", "gals1";
++			status = "disabled";
+ 		};
+ 
+ 		larb1: smi@14004000 {
+@@ -911,6 +928,7 @@ larb1: smi@14004000 {
+ 			         <&mmsys CLK_MM_SMI_GALS>,
+ 			         <&mmsys CLK_MM_SMI_IOMMU>;
+ 			clock-names = "apb", "smi", "gals0", "gals1";
++			status = "disabled";
+ 		};
+ 
+ 		larb2: smi@1f002000 {
+@@ -922,6 +940,7 @@ larb2: smi@1f002000 {
+ 			clocks = <&mdpsys CLK_MDP_SMI0>,
+ 			         <&mdpsys CLK_MDP_SMI0>;
+ 			clock-names = "apb","smi";
++			status = "disabled";
+ 		};
+ 
+ 		larb4: smi@1602e000 {
+@@ -933,6 +952,7 @@ larb4: smi@1602e000 {
+ 			clocks = <&vdecsys CLK_VDE2_LARB1_CKEN>,
+ 			         <&vdecsys CLK_VDE2_VDEC_CKEN>;
+ 			clock-names = "apb", "smi";
++			status = "disabled";
+ 		};
+ 
+ 		larb7: smi@17010000 {
+@@ -944,6 +964,7 @@ larb7: smi@17010000 {
+ 			clocks = <&vencsys CLK_VEN1_CKE0_LARB>,
+ 			         <&vencsys CLK_VEN1_CKE2_JPGENC>;
+ 			clock-names = "apb", "smi";
++			status = "disabled";
+ 		};
+ 
+ 		larb9: smi@1502e000 {
+@@ -955,6 +976,7 @@ larb9: smi@1502e000 {
+ 			clocks = <&imgsys CLK_IMGSYS_LARB9>,
+ 			         <&imgsys CLK_IMGSYS_LARB9>;
+ 			clock-names = "apb", "smi";
++			status = "disabled";
+ 		};
+ 
+ 		larb20: smi@1b00f000 {
+@@ -966,6 +988,7 @@ larb20: smi@1b00f000 {
+ 			clocks = <&ipesys CLK_IPE_LARB20>,
+ 			         <&ipesys CLK_IPE_LARB20>;
+ 			clock-names = "apb", "smi";
++			status = "disabled";
+ 		};
+ 
+ 		larb13: smi@1a001000 {
+@@ -977,6 +1000,7 @@ larb13: smi@1a001000 {
+ 			clocks = <&camsys CLK_CAM_M_LARB13>,
+ 			         <&camsys CLK_CAM_M_LARB13>;
+ 			clock-names = "apb", "smi";
++			status = "disabled";
+ 		};
+ 
+ 		larb14: smi@1a002000 {
+@@ -988,6 +1012,7 @@ larb14: smi@1a002000 {
+ 			clocks = <&camsys CLK_CAM_M_LARB14>,
+ 			         <&camsys CLK_CAM_M_LARB14>;
+ 			clock-names = "apb", "smi";
++			status = "disabled";
+ 		};
+ 
+ 		larb16: smi@1a00f000 {
+@@ -999,6 +1024,7 @@ larb16: smi@1a00f000 {
+ 			clocks = <&camsys_raw_a CLK_CAM_RA_LARBX>,
+ 			         <&camsys_raw_a CLK_CAM_RA_CAM>;
+ 			clock-names = "apb", "smi";
++			status = "disabled";
+ 		};
+ 
+ 		larb17: smi@1a010000 {
+@@ -1010,6 +1036,7 @@ larb17: smi@1a010000 {
+ 			clocks = <&camsys_raw_b CLK_CAM_RB_LARBX>,
+ 			         <&camsys_raw_b CLK_CAM_RB_CAM>;
+ 			clock-names = "apb", "smi";
++			status = "disabled";
+ 		};
+ 
+ 		dsc0: dsc@14012000 {
+@@ -1019,6 +1046,7 @@ dsc0: dsc@14012000 {
+ 			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
+ 			clocks = <&mmsys CLK_MM_DISP_DSC_WRAP0>;
+ 			mediatek,gce-client-reg = <&gce0 SUBSYS_1401XXXX 0x2000 0x1000>;
++			status = "disabled";
+ 		};
+ 
+ 		gpu: gpu@13000000 {
+@@ -1046,6 +1074,7 @@ mipi_tx0: dsi-phy@11f60000 {
+ 			#clock-cells = <0>;
+ 			#phy-cells = <0>;
+ 			clock-output-names = "mipi_tx0_pll";
++			status = "disabled";
+ 		};
+ 
+ 		dsi0: dsi@14013000 {
+@@ -1061,6 +1090,7 @@ dsi0: dsi@14013000 {
+ 			//resets = <&mmsys MT6789_MMSYS_SW0_RST_DSI>;
+ 			phys = <&mipi_tx0>;
+ 			phy-names = "dphy";
++			status = "disabled";
+ 		};
+ 
+ 		ovl0: ovl@14005000 {
+@@ -1070,6 +1100,7 @@ ovl0: ovl@14005000 {
+ 			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
+ 			clocks = <&mmsys CLK_MM_DISP_OVL0>;
+ 			mediatek,gce-client-reg = <&gce0 SUBSYS_1400XXXX 0x5000 0x1000>;
++			status = "disabled";
+ 		};
+ 
+ 		rdma0: rdma@14007000 {
+@@ -1080,6 +1111,7 @@ rdma0: rdma@14007000 {
+ 			clocks = <&mmsys CLK_MM_DISP_RDMA0>;
+ 			mediatek,rdma-fifo-size = <48992>;
+ 			mediatek,gce-client-reg = <&gce0 SUBSYS_1400XXXX 0x7000 0x1000>;
++			status = "disabled";
+ 		};
+ 
+ 		dither0: dither@14012000 {
+@@ -1089,6 +1121,7 @@ dither0: dither@14012000 {
+ 			power-domains = <&spm MT6789_POWER_DOMAIN_DISP>;
+ 			clocks = <&mmsys CLK_MM_DISP_DITHER0>;
+ 			mediatek,gce-client-reg = <&gce0 SUBSYS_1400XXXX 0xf000 0x1000>;
++			status = "disabled";
+ 		};
+ 
+ 		usb2: usb@11200000 {
+@@ -1138,8 +1171,8 @@ pio: pinctrl@10005000 {
+ 			      <0 0x11e60000 0 0x1000>,
+ 			      <0 0x11ea0000 0 0x1000>,
+ 			      <0 0x1000b000 0 0x1000>;
+-			reg-names = "base", "rb",  "bm", "br", "lm", "bl",
+-				    "rt", "eint";
++			reg-names = "iocfg0", "iocfg_rb", "iocfg_bm", "iocfg_br",
++					"iocfg_lm", "iocfg_bl", "iocfg_rt", "eint";
+ 			gpio-controller;
+ 			#gpio-cells = <2>;
+ 			gpio-ranges = <&pio 0 0 188>;
+diff --git a/include/dt-bindings/power/mediatek,mt6789-power.h b/include/dt-bindings/power/mediatek,mt6789-power.h
+new file mode 100644
+index 000000000..49c2635d4
+--- /dev/null
++++ b/include/dt-bindings/power/mediatek,mt6789-power.h
+@@ -0,0 +1,20 @@
++#ifndef _DT_BINDINGS_POWER_MT6789_POWER_H
++#define _DT_BINDINGS_POWER_MT6789_POWER_H
++
++#define MT6789_POWER_DOMAIN_MD	0
++#define MT6789_POWER_DOMAIN_CONN 1
++#define MT6789_POWER_DOMAIN_MFG0 2
++#define MT6789_POWER_DOMAIN_MFG1 3
++#define MT6789_POWER_DOMAIN_MFG2 4
++#define MT6789_POWER_DOMAIN_MFG3 5
++#define MT6789_POWER_DOMAIN_ISP 6
++#define MT6789_POWER_DOMAIN_IPE 7
++#define MT6789_POWER_DOMAIN_VDEC 8
++#define MT6789_POWER_DOMAIN_VENC 9
++#define MT6789_POWER_DOMAIN_DISP 10
++#define MT6789_POWER_DOMAIN_AUDIO 11
++#define MT6789_POWER_DOMAIN_CAM 12
++#define MT6789_POWER_DOMAIN_CAM_RAWA 13
++#define MT6789_POWER_DOMAIN_CAM_RAWB 14
++
++#endif /* _DT_BINDINGS_POWER_MT6789_POWER_H */
+-- 
+2.55.0
+

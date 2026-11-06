@@ -1,0 +1,29 @@
+From 26c0ea9330d77b446876571cd15be5da457fc929 Mon Sep 17 00:00:00 2001
+From: Arseniy Velikanov <me@adomerle.pw>
+Date: Wed, 20 Aug 2025 04:24:06 +0400
+Subject: [PATCH 12/23] arm64: dts: mediatek: mt6789: rename pinctrl regs
+
+Signed-off-by: Arseniy Velikanov <me@adomerle.pw>
+---
+ arch/arm64/boot/dts/mediatek/mt6789.dtsi | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+index 2caee480c..39c7ae2d4 100644
+--- a/arch/arm64/boot/dts/mediatek/mt6789.dtsi
++++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+@@ -1138,9 +1138,8 @@ pio: pinctrl@10005000 {
+ 			      <0 0x11e60000 0 0x1000>,
+ 			      <0 0x11ea0000 0 0x1000>,
+ 			      <0 0x1000b000 0 0x1000>;
+-			reg-names = "iocfg0", "iocfg_rb",  "iocfg_bm",
+-			            "iocfg_br", "iocfg_lm", "iocfg_bl",
+-			            "iocfg_rt", "eint";
++			reg-names = "base", "rb",  "bm", "br", "lm", "bl",
++				    "rt", "eint";
+ 			gpio-controller;
+ 			#gpio-cells = <2>;
+ 			gpio-ranges = <&pio 0 0 188>;
+-- 
+2.55.0
+

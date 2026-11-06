@@ -927,8 +927,13 @@ static int aw36518_probe(struct i2c_client *client,
 	flash->need_cooler = 0;
 	flash->target_current = AW36518_FLASH_BRT_MAX;
 	flash->ori_current = AW36518_TORCH_BRT_MAX;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(7, 3, 0)
+	flash->cdev = thermal_of_cooling_device_register(client->dev.of_node, 0,
+			"flashlight_cooler", flash, &aw36518_cooling_ops);
+#else
 	flash->cdev = thermal_of_cooling_device_register(client->dev.of_node,
 			"flashlight_cooler", flash, &aw36518_cooling_ops);
+#endif
 	if (IS_ERR(flash->cdev))
 		pr_info("register thermal failed\n");
 	rval = regmap_read(flash->regmap, REG_CHIPID, &reg_val);

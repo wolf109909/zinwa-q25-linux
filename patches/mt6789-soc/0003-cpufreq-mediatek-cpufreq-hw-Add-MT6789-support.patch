@@ -1,0 +1,43 @@
+From 930b66eed3ea997e4e4ca0faa28fc94c22128202 Mon Sep 17 00:00:00 2001
+From: Arseniy Velikanov <me@adomerle.pw>
+Date: Sat, 19 Jul 2025 11:58:17 +0400
+Subject: [PATCH 03/23] cpufreq: mediatek-cpufreq-hw: Add MT6789 support
+
+Signed-off-by: Arseniy Velikanov <me@adomerle.pw>
+---
+ drivers/cpufreq/mediatek-cpufreq-hw.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/drivers/cpufreq/mediatek-cpufreq-hw.c b/drivers/cpufreq/mediatek-cpufreq-hw.c
+index ae4500ab4..445d63e75 100644
+--- a/drivers/cpufreq/mediatek-cpufreq-hw.c
++++ b/drivers/cpufreq/mediatek-cpufreq-hw.c
+@@ -92,6 +92,17 @@ static const struct mtk_cpufreq_variant cpufreq_mtk_mt8196_variant = {
+ 	.is_hybrid_dvfs = true,
+ };
+ 
++static const struct mtk_cpufreq_variant cpufreq_mtk_mt6789_variant = {
++	.reg_offsets = {
++		[REG_FREQ_LUT_TABLE]	= 0x0,
++		[REG_FREQ_ENABLE]	= 0x84,
++		[REG_FREQ_PERF_STATE]	= 0x88,
++		[REG_FREQ_HW_STATE]	= 0x8c,
++		[REG_EM_POWER_TBL]	= 0x90,
++		[REG_FREQ_LATENCY]	= 0x114,
++	},
++};
++
+ static int __maybe_unused
+ mtk_cpufreq_get_cpu_power(struct device *cpu_dev, unsigned long *uW,
+ 			  unsigned long *KHz)
+@@ -422,6 +433,7 @@ static void mtk_cpufreq_hw_driver_remove(struct platform_device *pdev)
+ 
+ static const struct of_device_id mtk_cpufreq_hw_match[] = {
+ 	{ .compatible = "mediatek,cpufreq-hw", .data = &cpufreq_mtk_base_variant },
++	{ .compatible = "mediatek,mt6789-cpufreq-hw", .data = &cpufreq_mtk_mt6789_variant },
+ 	{ .compatible = "mediatek,mt8196-cpufreq-hw", .data = &cpufreq_mtk_mt8196_variant },
+ 	{}
+ };
+-- 
+2.55.0
+

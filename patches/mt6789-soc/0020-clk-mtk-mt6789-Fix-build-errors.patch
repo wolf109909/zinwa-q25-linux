@@ -1,0 +1,42 @@
+From 2232946e393972c48efd106a843f1f1413aead98 Mon Sep 17 00:00:00 2001
+From: Alicja Michalska <ellyqw@mainlining.org>
+Date: Wed, 15 Apr 2026 04:52:33 +0200
+Subject: [PATCH 20/23] clk/mtk/mt6789: Fix build errors
+
+This driver honestly needs a re-write, but at least it's going to build
+now.
+
+Signed-off-by: Alicja Michalska <ellyqw@mainlining.org>
+---
+ drivers/clk/mediatek/clk-mt6789-apmixed.c       | 2 +-
+ include/dt-bindings/clock/mediatek,mt6789-clk.h | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/clk/mediatek/clk-mt6789-apmixed.c b/drivers/clk/mediatek/clk-mt6789-apmixed.c
+index e6ea5d8d7..732b067c3 100644
+--- a/drivers/clk/mediatek/clk-mt6789-apmixed.c
++++ b/drivers/clk/mediatek/clk-mt6789-apmixed.c
+@@ -162,7 +162,7 @@ static int clk_mt6789_apmixed_probe(struct platform_device *pdev)
+ 
+ 	fhctl_parse_dt(fhctl_node, pllfhs, ARRAY_SIZE(pllfhs));
+ 
+-	r = mtk_clk_register_pllfhs(node, plls, ARRAY_SIZE(plls),
++	r = mtk_clk_register_pllfhs(&pdev->dev, plls, ARRAY_SIZE(plls),
+ 				    pllfhs, ARRAY_SIZE(pllfhs), clk_data);
+ 	if (r)
+ 		goto free_apmixed_data;
+diff --git a/include/dt-bindings/clock/mediatek,mt6789-clk.h b/include/dt-bindings/clock/mediatek,mt6789-clk.h
+index 5bcb1bd84..77f3ad1c6 100644
+--- a/include/dt-bindings/clock/mediatek,mt6789-clk.h
++++ b/include/dt-bindings/clock/mediatek,mt6789-clk.h
+@@ -21,6 +21,7 @@
+ #define CLK_APMIXED_APLL1	11
+ #define CLK_APMIXED_APLL2	12
+ #define CLK_APMIXED_USBPLL	13
++#define CLK_APMIXED_NR_CLK  13
+ 
+ #define CLK_TOP_MFGPLL	0
+ #define CLK_TOP_MAINPLL_D4	1
+-- 
+2.55.0
+

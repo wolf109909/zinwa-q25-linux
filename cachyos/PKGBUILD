@@ -1,5 +1,5 @@
 # Maintainer: Max Sun <wolf109909@github.com>
-# Arch Linux ARM PKGBUILD for Zinwa Q25 Mainline Linux 7.0 + CachyOS BORE + Out-of-Tree Drivers
+# Arch Linux ARM PKGBUILD for Zinwa Q25 Mainline Linux 7.3.3 + CachyOS BORE + Out-of-Tree Drivers
 
 pkgbase=linux-cachyos-q25
 pkgname=(
@@ -7,9 +7,9 @@ pkgname=(
   'linux-cachyos-q25-headers'
   'zinwa-q25-dkms'
 )
-pkgver=7.0.0
+pkgver=7.3.3
 pkgrel=1
-pkgdesc='Mainline Linux 7.0 + CachyOS BORE scheduler & hardware drivers for Zinwa Q25 (MediaTek Helio G99 MT6789)'
+pkgdesc='Mainline Linux 7.3.3 + CachyOS BORE scheduler & hardware drivers for Zinwa Q25 (MediaTek Helio G99 MT6789)'
 url='https://github.com/wolf109909/zinwa-q25-linux'
 arch=('aarch64')
 license=('GPL-2.0-only')
@@ -30,38 +30,41 @@ makedepends=(
 )
 options=('!strip' '!debug')
 
-_mtk_commit='978b8b672d68d9b4f8241d292582c81ab1da5f62'
-_cachyos_ver='7.0'
-
 source=(
-  "mtk_g99-mainline-${_mtk_commit}.tar.gz::https://gitlab.nura.eco/ellyq/mtk_g99-mainline/-/archive/${_mtk_commit}/mtk_g99-mainline-${_mtk_commit}.tar.gz"
-  "0001-cachyos-base-all.patch::https://raw.githubusercontent.com/CachyOS/kernel-patches/master/${_cachyos_ver}/all/0001-cachyos-base-all.patch"
-  "0001-bore-cachy.patch::https://raw.githubusercontent.com/CachyOS/kernel-patches/master/${_cachyos_ver}/sched/0001-bore-cachy.patch"
-  'config-mt6789-mainline-7.0.aarch64'
+  "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${pkgver}.tar.xz"
+  'config-mt6789-mainline-7.3.aarch64'
   'cachyos-mt6789.config'
 )
-b2sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+b2sums=('SKIP' 'SKIP' 'SKIP')
 
 prepare() {
-  cd "mtk_g99-mainline-${_mtk_commit}"
+  cd "linux-${pkgver}"
 
-  echo "Applying CachyOS 7.0 base & BORE scheduler patches..."
-  patch -Np1 -i "${srcdir}/0001-cachyos-base-all.patch"
-  patch -Np1 -i "${srcdir}/0001-bore-cachy.patch"
+  echo "Applying 23 rebased MT6789 / Helio G99 Mainline SoC patches for Linux 7.3..."
+  for p in "${startdir}"/../patches/mt6789-soc/*.patch; do
+    echo "  -> $(basename "$p")"
+    patch -Np1 -i "$p"
+  done
 
-  echo "Installing Zinwa Q25 Mainline 7.0 DeviceTree..."
+  echo "Applying CachyOS 7.3 BORE scheduler patch..."
+  for p in "${startdir}"/../patches/cachyos-7.3/*.patch; do
+    echo "  -> $(basename "$p")"
+    patch -Np1 -i "$p"
+  done
+
+  echo "Installing Zinwa Q25 Mainline 7.3 DeviceTree..."
   cp -f "${startdir}/../devicetree/mt8781-zinwa-q25.dts" arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts
 
-  echo "Merging MT6789 base config with CachyOS Q25 config fragment..."
-  cp -f "${srcdir}/config-mt6789-mainline-7.0.aarch64" .config
+  echo "Merging MT6789 7.3 base config with CachyOS Q25 config fragment..."
+  cp -f "${srcdir}/config-mt6789-mainline-7.3.aarch64" .config
   scripts/kconfig/merge_config.sh -m .config "${srcdir}/cachyos-mt6789.config"
   make ARCH=arm64 LOCALVERSION=-cachyos-q25 olddefconfig
 }
 
 build() {
-  cd "mtk_g99-mainline-${_mtk_commit}"
+  cd "linux-${pkgver}"
 
-  # Build Mainline 7.0 kernel Image, modules, and Zinwa Q25 DTB
+  # Build Mainline 7.3 kernel Image, modules, and Zinwa Q25 DTB
   make ARCH=arm64 LOCALVERSION=-cachyos-q25 -j"$(nproc)" Image.gz modules mediatek/mt8781-zinwa-q25.dtb
 
   # Build all 11 Zinwa Q25 out-of-tree hardware drivers against the built kernel
@@ -76,7 +79,7 @@ package_linux-cachyos-q25() {
     'linux-firmware: firmware images needed for some devices'
   )
 
-  cd "mtk_g99-mainline-${_mtk_commit}"
+  cd "linux-${pkgver}"
   local kernver
   kernver="$(<include/config/kernel.release)"
   local modulesdir="${pkgdir}/usr/lib/modules/${kernver}"
@@ -94,7 +97,7 @@ package_linux-cachyos-q25-headers() {
   pkgdesc="Headers and scripts for building modules for the ${pkgdesc} kernel"
   depends=('pahole')
 
-  cd "mtk_g99-mainline-${_mtk_commit}"
+  cd "linux-${pkgver}"
   local kernver
   kernver="$(<include/config/kernel.release)"
   local builddir="${pkgdir}/usr/lib/modules/${kernver}/build"
@@ -112,5 +115,5 @@ package_zinwa-q25-dkms() {
   local dkmsdir="${pkgdir}/usr/src/zinwa-q25-drivers-1.0.0"
   install -dm755 "${dkmsdir}"
   cp -a "${startdir}/../drivers/"* "${dkmsdir}/"
-  make -C "${srcdir}/mtk_g99-mainline-${_mtk_commit}" M="${dkmsdir}" clean || true
+  make -C "${srcdir}/linux-${pkgver}" M="${dkmsdir}" clean || true
 }

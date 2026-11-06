@@ -2,6 +2,7 @@
 # Zinwa Q25 Power Supply & Charger Drivers (UPM6922 primary charger + UPM6722 charge pump)
 
 ifneq ($(KERNELRELEASE),)
+ccflags-y += -I$(src)/../include
 obj-m += upm6922_charger.o
 obj-m += upm6722.o
 else
