@@ -1,0 +1,2 @@
+#!/bin/sh
+exec sudo nsenter -t 1 -m -- /sbin/runuser -u droidian -- /usr/bin/env   XDG_RUNTIME_DIR=/run/user/32011   DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/32011/bus   /usr/bin/systemd-run --user --no-block --collect --quiet -- /usr/bin/rustdesk "$@"

@@ -1,0 +1,116 @@
+# Maintainer: Max Sun <wolf109909@github.com>
+# Arch Linux ARM PKGBUILD for Zinwa Q25 Mainline Linux 7.0 + CachyOS BORE + Out-of-Tree Drivers
+
+pkgbase=linux-cachyos-q25
+pkgname=(
+  'linux-cachyos-q25'
+  'linux-cachyos-q25-headers'
+  'zinwa-q25-dkms'
+)
+pkgver=7.0.0
+pkgrel=1
+pkgdesc='Mainline Linux 7.0 + CachyOS BORE scheduler & hardware drivers for Zinwa Q25 (MediaTek Helio G99 MT6789)'
+url='https://github.com/wolf109909/zinwa-q25-linux'
+arch=('aarch64')
+license=('GPL-2.0-only')
+makedepends=(
+  'bc'
+  'cpio'
+  'dtc'
+  'gettext'
+  'kmod'
+  'libelf'
+  'openssl'
+  'pahole'
+  'perl'
+  'python'
+  'tar'
+  'xz'
+  'zstd'
+)
+options=('!strip' '!debug')
+
+_mtk_commit='978b8b672d68d9b4f8241d292582c81ab1da5f62'
+_cachyos_ver='7.0'
+
+source=(
+  "mtk_g99-mainline-${_mtk_commit}.tar.gz::https://gitlab.nura.eco/ellyq/mtk_g99-mainline/-/archive/${_mtk_commit}/mtk_g99-mainline-${_mtk_commit}.tar.gz"
+  "0001-cachyos-base-all.patch::https://raw.githubusercontent.com/CachyOS/kernel-patches/master/${_cachyos_ver}/all/0001-cachyos-base-all.patch"
+  "0001-bore-cachy.patch::https://raw.githubusercontent.com/CachyOS/kernel-patches/master/${_cachyos_ver}/sched/0001-bore-cachy.patch"
+  'config-mt6789-mainline-7.0.aarch64'
+  'cachyos-mt6789.config'
+)
+b2sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+prepare() {
+  cd "mtk_g99-mainline-${_mtk_commit}"
+
+  echo "Applying CachyOS 7.0 base & BORE scheduler patches..."
+  patch -Np1 -i "${srcdir}/0001-cachyos-base-all.patch"
+  patch -Np1 -i "${srcdir}/0001-bore-cachy.patch"
+
+  echo "Installing Zinwa Q25 Mainline 7.0 DeviceTree..."
+  cp -f "${startdir}/../devicetree/mt8781-zinwa-q25.dts" arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts
+
+  echo "Merging MT6789 base config with CachyOS Q25 config fragment..."
+  cp -f "${srcdir}/config-mt6789-mainline-7.0.aarch64" .config
+  scripts/kconfig/merge_config.sh -m .config "${srcdir}/cachyos-mt6789.config"
+  make ARCH=arm64 LOCALVERSION=-cachyos-q25 olddefconfig
+}
+
+build() {
+  cd "mtk_g99-mainline-${_mtk_commit}"
+
+  # Build Mainline 7.0 kernel Image, modules, and Zinwa Q25 DTB
+  make ARCH=arm64 LOCALVERSION=-cachyos-q25 -j"$(nproc)" Image.gz modules mediatek/mt8781-zinwa-q25.dtb
+
+  # Build all 11 Zinwa Q25 out-of-tree hardware drivers against the built kernel
+  make -C "${PWD}" M="${startdir}/../drivers" ARCH=arm64 modules
+}
+
+package_linux-cachyos-q25() {
+  pkgdesc="The ${pkgdesc} kernel and modules"
+  depends=('coreutils' 'kmod' 'initramfs')
+  optdepends=(
+    'zinwa-q25-dkms: Zinwa Q25 keyboard, trackpad, touchscreen, display, charger, audio PA, NFC & LED drivers'
+    'linux-firmware: firmware images needed for some devices'
+  )
+
+  cd "mtk_g99-mainline-${_mtk_commit}"
+  local kernver
+  kernver="$(<include/config/kernel.release)"
+  local modulesdir="${pkgdir}/usr/lib/modules/${kernver}"
+
+  install -Dm644 arch/arm64/boot/Image.gz "${modulesdir}/vmlinuz"
+  install -Dm644 arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dtb "${pkgdir}/boot/dtbs/mediatek/mt8781-zinwa-q25.dtb"
+  echo "${pkgbase}" | install -Dm644 /dev/stdin "${modulesdir}/pkgbase"
+
+  make ARCH=arm64 INSTALL_MOD_PATH="${pkgdir}/usr" INSTALL_MOD_STRIP=1 modules_install
+  make -C "${PWD}" M="${startdir}/../drivers" ARCH=arm64 INSTALL_MOD_PATH="${pkgdir}/usr" INSTALL_MOD_STRIP=1 modules_install
+  rm -f "${modulesdir}/build"
+}
+
+package_linux-cachyos-q25-headers() {
+  pkgdesc="Headers and scripts for building modules for the ${pkgdesc} kernel"
+  depends=('pahole')
+
+  cd "mtk_g99-mainline-${_mtk_commit}"
+  local kernver
+  kernver="$(<include/config/kernel.release)"
+  local builddir="${pkgdir}/usr/lib/modules/${kernver}/build"
+
+  install -Dt "${builddir}" -m644 .config Makefile Module.symvers System.map include/config/kernel.release
+  cp -a include scripts "${builddir}/"
+  mkdir -p "${builddir}/arch/arm64"
+  cp -a arch/arm64/include arch/arm64/Makefile "${builddir}/arch/arm64/"
+}
+
+package_zinwa-q25-dkms() {
+  pkgdesc='DKMS out-of-tree drivers for Zinwa Q25 (BBQX0 keyboard/trackpad, S2716B touch, Q20 DSI panel, UPM6922/UPM6722 chargers, OCA72xxx PA, ST21NFC)'
+  depends=('dkms')
+
+  local dkmsdir="${pkgdir}/usr/src/zinwa-q25-drivers-1.0.0"
+  install -dm755 "${dkmsdir}"
+  cp -a "${startdir}/../drivers/"* "${dkmsdir}/"
+  make -C "${srcdir}/mtk_g99-mainline-${_mtk_commit}" M="${dkmsdir}" clean || true
+}

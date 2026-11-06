@@ -1,0 +1,31 @@
+#!/bin/bash
+mountpoint -q /opt/arch/proc || sudo /usr/local/sbin/arch-mount
+COMMON_ENV=(
+  HOME=/home/droidian
+  USER=droidian
+  LOGNAME=droidian
+  TERM="${TERM:-xterm-256color}"
+  COLORTERM="${COLORTERM:-truecolor}"
+  LANG=en_US.UTF-8
+  PATH="/home/droidian/.local/bin:/home/droidian/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/bin"
+  XDG_RUNTIME_DIR="/run/user/32011"
+  WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+  DISPLAY="${DISPLAY:-:0}"
+  XDG_SESSION_TYPE=wayland
+  XDG_CURRENT_DESKTOP="Phosh:GNOME"
+  XDG_SESSION_DESKTOP=phosh
+  EGL_PLATFORM=wayland
+  GDK_GL=gles
+  MOZ_ENABLE_WAYLAND=1
+  QT_QPA_PLATFORM=wayland
+  PULSE_SERVER="unix:/run/user/32011/pulse/native"
+  DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/32011/bus"
+)
+
+if [ $# -eq 0 ]; then
+  exec sudo chroot --userspec=droidian:droidian --groups=32011,20,24,25,27,29,44,46,100,999,995,991,102,103,1000,1001,1003,1004,1005,3001,3002,3003,3004,3005 /opt/arch /usr/bin/env -i "${COMMON_ENV[@]}" /usr/bin/fish -l
+elif [ "$1" = "-c" ]; then
+  exec sudo chroot --userspec=droidian:droidian --groups=32011,20,24,25,27,29,44,46,100,999,995,991,102,103,1000,1001,1003,1004,1005,3001,3002,3003,3004,3005 /opt/arch /usr/bin/env -i "${COMMON_ENV[@]}" /usr/bin/fish "$@"
+else
+  exec sudo chroot --userspec=droidian:droidian --groups=32011,20,24,25,27,29,44,46,100,999,995,991,102,103,1000,1001,1003,1004,1005,3001,3002,3003,3004,3005 /opt/arch /usr/bin/env -i "${COMMON_ENV[@]}" "$@"
+fi

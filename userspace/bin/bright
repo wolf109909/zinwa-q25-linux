@@ -1,0 +1,34 @@
+#!/bin/bash
+NODE="/sys/class/leds/lcd-backlight/brightness"
+MAX=255
+CUR=$(cat "$NODE" 2>/dev/null || echo 128)
+PCT=$(( (CUR * 100 + 127) / MAX ))
+
+case "${1:-}" in
+  "")
+    echo "Brightness: ${PCT}% (${CUR}/${MAX})"
+    exit 0
+    ;;
+  up|\+)
+    NEW=$(( CUR + 25 ))
+    ;;
+  down|\-)
+    NEW=$(( CUR - 25 ))
+    ;;
+  min|night)
+    NEW=8
+    ;;
+  max)
+    NEW=255
+    ;;
+  *)
+    VAL="${1%%%}"
+    NEW=$(( VAL * MAX / 100 ))
+    ;;
+esac
+
+[ "$NEW" -lt 5 ] && NEW=5
+[ "$NEW" -gt 255 ] && NEW=255
+echo "$NEW" > "$NODE" 2>/dev/null || echo "$NEW" | sudo tee "$NODE" >/dev/null
+NEW_PCT=$(( (NEW * 100 + 127) / MAX ))
+echo "Brightness: ${NEW_PCT}% (${NEW}/${MAX})"

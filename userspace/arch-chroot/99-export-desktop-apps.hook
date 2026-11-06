@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Path
+Target = usr/share/applications/*.desktop
+
+[Action]
+Description = Exporting Arch GUI applications to Phosh launcher...
+When = PostTransaction
+Exec = /usr/local/bin/arch-sync-desktop

@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+ROOT="/opt/arch"
+
+mountpoint -q "$ROOT/proc" || mount -t proc proc "$ROOT/proc"
+mountpoint -q "$ROOT/sys"  || { mount --rbind /sys "$ROOT/sys" && mount --make-rslave "$ROOT/sys"; }
+mountpoint -q "$ROOT/dev"  || { mount --rbind /dev "$ROOT/dev" && mount --make-rslave "$ROOT/dev"; }
+mountpoint -q "$ROOT/run"  || { mount --rbind /run "$ROOT/run" && mount --make-rslave "$ROOT/run"; }
+mountpoint -q "$ROOT/tmp"  || { mount --rbind /tmp "$ROOT/tmp" && mount --make-rslave "$ROOT/tmp"; }
+mkdir -p "$ROOT/home/droidian"
+mountpoint -q "$ROOT/home/droidian" || mount --bind /home/droidian "$ROOT/home/droidian"
+
+rm -f "$ROOT/etc/resolv.conf"
+cp -L /etc/resolv.conf "$ROOT/etc/resolv.conf" || true
+cp -L /etc/hosts "$ROOT/etc/hosts" || true
+echo "ZinwaQ25" > "$ROOT/etc/hostname"

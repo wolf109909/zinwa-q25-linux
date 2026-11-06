@@ -1,0 +1,25 @@
+#!/bin/bash
+set -euo pipefail
+SRC_DIR="/usr/share/applications"
+DST_DIR="/home/droidian/.local/share/applications"
+mkdir -p "$DST_DIR"
+
+# Skip internal/CLI/helper desktop files
+SKIP_REGEX="^(avahi|bvnc|bssh|fluid|gcm|gcr|geoclue|gnome-| htop|lstopo|nvim|org\.freedesktop|org\.gnupg|qv4l2|qvidcap|uuctl|vim|xdvi|foot-server|footclient)\.desktop$"
+
+for f in "$SRC_DIR"/*.desktop; do
+  [ -f "$f" ] || continue
+  base=$(basename "$f")
+  echo "$base" | grep -Eq "$SKIP_REGEX" && continue
+  grep -q "^NoDisplay=true" "$f" && continue
+  grep -q "^Terminal=true" "$f" && continue
+  # Do not overwrite host-masked apps (symlinks to /dev/null)
+  [ -L "$DST_DIR/$base" ] && continue
+
+  sed -E \
+    -e 's|^Exec=([^ ]+)(.*)$|Exec=/usr/local/bin/arch \1\2|' \
+    -e 's|^TryExec=.*||g' \
+    -e 's|^Name=(.*)$|Name=\1 (Arch)|' \
+    "$f" > "$DST_DIR/arch-$base"
+  chown droidian:droidian "$DST_DIR/arch-$base"
+done

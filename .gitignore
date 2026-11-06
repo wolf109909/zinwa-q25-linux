@@ -1,0 +1,26 @@
+# Local agent & workspace state
+.pi/
+
+# Sensitive device partition backups (NVRAM/IMEI/raw images) & downloaded images
+backups/
+*.img
+*.img.xz
+*.img.gz
+*.bin.gz
+
+# Kernel build artifacts
+*.o
+*.ko
+*.mod
+*.mod.c
+*.mod.o
+*.cmd
+.*.cmd
+*.dwo
+*.su
+*.lst
+*.symversions
+modules.order
+Module.symvers
+.tmp_versions/
+.cache.mk

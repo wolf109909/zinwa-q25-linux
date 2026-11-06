@@ -1,0 +1,35 @@
+#!/bin/bash
+set -euo pipefail
+ACTION="${1:-status}"
+SSID="${2:-Zinwa-Q25}"
+PASS="${3:-q25linux88}"
+
+case "$ACTION" in
+  on|start)
+    echo "Switching MediaTek wmtWifi to AP mode..."
+    nmcli radio wifi off || true
+    sleep 1
+    echo A | sudo tee /dev/wmtWifi >/dev/null
+    sleep 2
+    nmcli radio wifi on || true
+    sleep 2
+    IFACE="wlan0"
+    ip link show ap0 >/dev/null 2>&1 && IFACE="ap0"
+    sudo nmcli dev set "$IFACE" managed yes || true
+    sudo nmcli device wifi hotspot ifname "$IFACE" ssid "$SSID" password "$PASS"
+    echo "Hotspot '$SSID' active on $IFACE (password: $PASS)"
+    ;;
+  off|stop)
+    echo "Stopping Hotspot and restoring normal Wi-Fi STA mode..."
+    sudo nmcli connection down Hotspot 2>/dev/null || true
+    nmcli radio wifi off || true
+    sleep 1
+    echo 1 | sudo tee /dev/wmtWifi >/dev/null || true
+    sleep 1
+    nmcli radio wifi on || true
+    echo "Wi-Fi restored to normal client mode."
+    ;;
+  *)
+    nmcli device status
+    ;;
+esac

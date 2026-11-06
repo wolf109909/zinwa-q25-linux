@@ -1,0 +1,11 @@
+[Unit]
+Description=Arch Linux ARM Bind-Mounted Environment (/opt/arch)
+After=local-fs.target network.target systemd-resolved.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/arch-mount
+
+[Install]
+WantedBy=multi-user.target
