@@ -57,7 +57,7 @@ zinwa-q25-linux/
 Booted and verified directly on the physical **Zinwa Q25** (`MT6789` / `MT8781`, 12 GB RAM, 256 GB UFS) over **USB NCM SSH (`10.15.19.82`)** with **0 kernel warnings**:
 
 ```text
-Linux (none) 7.3.3-cachyos-q25-00024-ge50c42ce375d-dirty #11 SMP PREEMPT aarch64 GNU/Linux
+Linux (none) 7.3.3-cachyos-q25-00024-ge50c42ce375d-dirty #17 SMP PREEMPT aarch64 GNU/Linux
 BORE CPU Scheduler modification 7.0.0 by Masahito Suzuki (kernel.sched_bore = 1)
 ```
 
@@ -67,12 +67,17 @@ BORE CPU Scheduler modification 7.0.0 by Masahito Suzuki (kernel.sched_bore = 1)
 | :--- | :--- | :--- | :--- |
 | **CPU & Scheduler** | `mtk-cpufreq-hw` + **CachyOS BORE v7.0.0** | `11bc10.performance-controller` | All 8 cores (`6x Cortex-A55` + `2x Cortex-A76`) online with DVFS & `kernel.sched_bore = 1`. |
 | **Memory** | Mainline arm64 MM | `memory@40000000` | `MemTotal: 11804604 kB` (12 GB LPDDR4X). |
-| **UFS 256 GB Storage** | `ufshcd-mtk` | `11270000.ufs` (`sda`, `sdb`, `sdc`) | `SKhynix H9QT1GGCN6X147` 256 GB UFS detected with all 61 GPT partitions (`sdc1..sdc61`) & `ext4` R/W mount. |
+| **SCPSYS Power Domains** | `mtk-power-controller` (`CONFIG_MTK_SCPSYS_PM_DOMAINS=y`) | `10006000.syscon:power-controller` | `disp` (`on`), `mfg0` → `mfg1` → `mfg2`/`mfg3` (GPU PM domains), and `audio` registered in `pm_genpd_summary`. |
+| **Mali-G57 MC2 GPU** | `panfrost` (`CONFIG_DRM_PANFROST=y`) | `13000000.gpu` (`/dev/dri/card1`, `renderD128`) | Open-source **Panfrost 1.6.0** active on `mali-g57 id 0x9093` (`shader_present=0x5`, `l2_present=0x1`, `364 MHz`, THP enabled). |
+| **PMIC AuxADC & IIO** | `mt6359-auxadc` (`CONFIG_MEDIATEK_MT6359_AUXADC=y`) | `iio:device0` (`MT6358`) | 14 IIO ADC channels active (`bat_adc`, `batt_v`, `batt_temp`, `chip_temp`, `vcore_temp`, `vproc_temp`, `vgpu_temp`, `tsx_temp`, `dcxo_temp`, `acc_det`). |
+| **PMIC Audio Codec** | `mt6358-sound` (`CONFIG_SND_SOC_MT6358=y`) | `mt6358-sound` | MT6358 PMIC audio codec probed cleanly (`returned 0`). |
+| **MMSYS, PWM, APDMA, Systimer** | `clk-mt6789-mm`, `pwm-mediatek`, `mediatek-disp-pwm`, `mtk_uart_apdma`, `timer-mediatek` | `14000000.syscon`, `10048000.pwm`, `1100e000.pwm`, `10217800.dma-controller`, `10017000.timer` | MMSYS clocks, SoC PWM, Display PWM, UART APDMA, and GICv3 IRQ 297 `systimer@10017000` probed cleanly. |
+| **UFS 256 GB Storage & LVM** | `ufshcd-mtk` + `dm-mod` | `11270000.ufs` (`/dev/mapper/droidian-droidian--rootfs`) | `SKhynix H9QT1GGCN6X147` 256 GB UFS with all 61 GPT partitions and 224.2 GB LVM rootfs mounted at `/rootfs` + `/opt/arch` Arch Linux ARM environment (363 packages). |
 | **microSD Slot** | `mtk-msdc` | `11240000.mmc` | Probed cleanly (`returned 0`). |
-| **720x720 Display** | `simpledrm` + `ocp2131_drv` + `pwm-backlight` | `ff97c000.framebuffer`, `7-003e` | `/dev/dri/card0`, `/dev/fb0` (`90x45` fbcon), OCP2131 bias IC (`0x3e`), and `backlight` PWM active. |
-| **QWERTY Keyboard & Trackpad** | `bbqX0kbd` + `q20_keyboard` | `6-001f` (`Q25_keyboard`) | Firmware `0x11` verified, keyboard backlight enabled (`0xFF` -> reg `0x05`), `input2` & `/proc/q20_switch_key_mouse` active. |
-| **Touchscreen (720x720)** | `synaptics_dsx_q25` | `0-0067` (`s2716b_ts`) | Synaptics S2716B RMI4 touchscreen bound on I2C0 and registered as `input3`. |
-| **Primary Charger & OTG** | `upm6922_charger` | `5-006b` (`upm6922-charger`) | Part Num `2`, Rev `0`; `/sys/class/power_supply/upm6922-charger` (`Status=Full`, `Health=Good`, `3864mV`, `3000mA`) & `usb-otg-vbus` regulator registered. |
+| **720x720 Display & Console** | `simpledrm` + `ocp2131_drv` + `pwm-backlight` | `ff97c000.framebuffer`, `7-003e` | `/dev/dri/card0`, `/dev/fb0` (`90x45` fbcon), interactive on-screen shell on `/dev/tty0`/`/dev/tty1`, OCP2131 bias IC (`0x3e`), and `backlight` PWM active. |
+| **QWERTY Keyboard, Trackpad & `keyd`** | `bbqX0kbd` + `q20_keyboard` + `keyd.rvaiya` | `6-001f` (`Q25_keyboard`, `event2`, `event4`, `event5`) | Firmware `0x11` verified, keyboard backlight enabled (`0xFF` -> reg `0x05`), `/proc/q20_switch_key_mouse` & `keyd` virtual keyboard/pointer daemon running. |
+| **Touchscreen (720x720)** | `synaptics_dsx_q25` | `0-0067` (`s2716b_ts`, `event3`) | Synaptics S2716B RMI4 touchscreen bound on I2C0 and registered as `input3`. |
+| **Primary Charger & OTG** | `upm6922_charger` | `5-006b` (`upm6922-charger`) | Part Num `2`, Rev `0`; `/sys/class/power_supply/upm6922-charger` (`Status=Charging`, `Health=Good`, `VOLTAGE_NOW=4379260` uV from IIO `BATADC`, `3000mA`) & `usb-otg-vbus` regulator registered. |
 | **Fast Charge Pump** | `upm6722` | `5-0065` (`upm6722-standalone`) | Standalone charge pump probed on I2C5; `/sys/class/power_supply/upm6722-standalone` registered. |
 | **Smart Audio PA** | `snd_soc_oca72xxx` | `3-0058` (`oca72xxx_pa`) | Orient-Chip OCA72xxx chip ID `0x11` (`pid_76` class) verified on I2C3. |
 | **NFC Controller** | `st21nfc` | `3-0008` (`st21nfc`) | ST21NFC double-pulse reset & NCI ping (34B + 15B responses) verified on I2C3 (`irq_gpio = 513`). |
@@ -90,6 +95,10 @@ BORE CPU Scheduler modification 7.0.0 by Masahito Suzuki (kernel.sched_bore = 1)
    - Enabled `CONFIG_USB_INVENTRA_DMA=y` so `musb-mtk` (`11200000.usb`) populates `dma_init = musbhs_dma_controller_create_noirq` and registers `/sys/class/udc/musb-hdrc.1.auto` for USB NCM (`usb0`).
 4. **SimpleDRM Reserved Framebuffer (`no-map` + `memory-region`):**
    - Added `no-map;` to `reserved-memory/framebuffer@ff97c000` and `memory-region = <&framebuffer_mem>;` to `chosen/framebuffer@ff97c000` in `mt8781-zinwa-q25.dts` so `simpledrm` maps the 720x720 bootloader framebuffer via `MEMREMAP_WC` without conflicting with `System RAM`.
+5. **SCPSYS Power Domains (`MTK_SCPD_ALWAYS_ON` Preservation) & Open-Source Panfrost Mali-G57 MC2 GPU:**
+   - Added `drivers/pmdomain/mediatek/mt6789-pm-domains.h` and wired `mt6789_scpsys_data` in `mtk-pm-domains.c`, preserving already-on `MTK_SCPD_ALWAYS_ON` domains (`MT6789_POWER_DOMAIN_DISP`) across probe deferral so `simpledrm` is never torn down.
+   - In `drivers/clk/mediatek/clk-mt6789-mfgcfg.c`, cleared the `MFG_TOP_CONFIG` (`0x13fbf000`) external clock gates (`0x950`, `0x8c0`) and AXI bridge sleep masks (`0x20`, `0x180`) before registering `clk-mt6789-mfgcfg`.
+   - In `drivers/gpu/drm/panfrost/panfrost_drv.c`, placed `"mediatek,mt6789-mali"` before the generic `"arm,mali-valhall-jm"` entry in `dt_match[]` so `panfrost` binds with `mediatek_mt6789_data` (`core0`=`mfg2`, `core1`=`mfg3` PM domains) and initializes `mali-g57 id 0x9093` on `/dev/dri/card1` and `/dev/dri/renderD128`.
 
 ---
 

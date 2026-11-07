@@ -1,0 +1,195 @@
+#!/bin/sh
+export PATH=/sbin:/usr/sbin:/bin:/usr/bin
+
+mkdir -p /dev /proc /sys /run /tmp /var/log /var/run /config /mnt/persist /mnt/sdcard /sys/fs/pstore
+/bin/busybox mount -t proc proc /proc 2>/dev/null || mount -t proc proc /proc 2>/dev/null || true
+/bin/busybox mount -t sysfs sysfs /sys 2>/dev/null || mount -t sysfs sysfs /sys 2>/dev/null || true
+/bin/busybox mount -t devtmpfs devtmpfs /dev 2>/dev/null || mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+mkdir -p /dev/pts
+/bin/busybox mount -t devpts devpts /dev/pts 2>/dev/null || true
+/bin/busybox mount -t tmpfs tmpfs /run 2>/dev/null || true
+/bin/busybox mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+/bin/busybox mount -t pstore pstore /sys/fs/pstore 2>/dev/null || true
+/bin/busybox mount -t configfs none /config 2>/dev/null || mount -t configfs none /config 2>/dev/null || true
+
+echo on > /proc/sys/kernel/printk_devkmsg 2>/dev/null || true
+exec >/dev/kmsg 2>&1
+echo "=== ZINWA Q25 LINUX $(uname -r) INITRAMFS BOOTED ==="
+
+# 1. Start 90-second self-healing rollback watchdog in background immediately
+(
+    sleep 90
+    if [ ! -f /tmp/keep_alive ]; then
+        echo "=== WATCHDOG TIMEOUT (90s): Rolling back boot_a (/dev/sdc28) from boot_b (/dev/sdc51) ==="
+        if [ -b /dev/sdc51 ] && [ -b /dev/sdc28 ]; then
+            dd if=/dev/sdc51 of=/dev/sdc28 bs=4096 count=16384
+        elif [ -f /mnt/persist/boot_a_stock_trimmed.img.gz ] && [ -b /dev/sdc28 ]; then
+            zcat /mnt/persist/boot_a_stock_trimmed.img.gz > /dev/sdc28
+        fi
+        sync
+        sleep 2
+        /bin/busybox reboot -f
+    fi
+) &
+
+# 2. Bring up USB NCM gadget (10.15.19.82) immediately
+GADGET_DIR=/config/usb_gadget
+if [ -d "$GADGET_DIR" ]; then
+    UDC_NAME="$(ls /sys/class/udc 2>/dev/null | head -n 1)"
+    echo "=== Configuring USB NCM gadget on UDC: $UDC_NAME ==="
+    if [ -n "$UDC_NAME" ] && [ -f "/sys/class/udc/$UDC_NAME/device/../mode" ]; then
+        echo -n peripheral > "/sys/class/udc/$UDC_NAME/device/../mode" 2>/dev/null || true
+    fi
+    mkdir -p $GADGET_DIR/g1
+    echo -n "0x0FCE" > $GADGET_DIR/g1/idVendor
+    echo -n "0x7169" > $GADGET_DIR/g1/idProduct
+    mkdir -p $GADGET_DIR/g1/strings/0x409
+    echo -n "Q25-7.3.3" > $GADGET_DIR/g1/strings/0x409/serialnumber
+    echo -n "CachyOS Mainline 7.3.3" > $GADGET_DIR/g1/strings/0x409/manufacturer
+    echo -n "Zinwa Q25" > $GADGET_DIR/g1/strings/0x409/product
+    mkdir -p $GADGET_DIR/g1/functions/ncm.usb0
+    echo -n "ee:b2:17:5c:b0:26" > $GADGET_DIR/g1/functions/ncm.usb0/host_addr 2>/dev/null || true
+    echo -n "82:33:c4:62:3a:75" > $GADGET_DIR/g1/functions/ncm.usb0/dev_addr 2>/dev/null || true
+    mkdir -p $GADGET_DIR/g1/configs/c.1/strings/0x409
+    echo -n "ncm" > $GADGET_DIR/g1/configs/c.1/strings/0x409/configuration
+    ln -sf $GADGET_DIR/g1/functions/ncm.usb0 $GADGET_DIR/g1/configs/c.1/ncm.usb0
+    if [ -n "$UDC_NAME" ]; then
+        echo -n "$UDC_NAME" > $GADGET_DIR/g1/UDC
+    fi
+    sleep 1
+    /sbin/ifconfig usb0 10.15.19.82 netmask 255.255.255.0 up 2>/dev/null || /bin/busybox ifconfig usb0 10.15.19.82 netmask 255.255.255.0 up 2>/dev/null || true
+
+    cat << 'DHCP_EOF' > /etc/udhcpd.conf
+start 10.15.19.100
+end 10.15.19.100
+lease_file /var/udhcpd.leases
+interface usb0
+option subnet 255.255.255.0
+DHCP_EOF
+    touch /var/udhcpd.leases
+    /bin/busybox udhcpd /etc/udhcpd.conf 2>/dev/null || true
+    /bin/busybox telnetd -b 10.15.19.82:23 -l /bin/sh 2>/dev/null || true
+    mkdir -p /var/log /etc/dropbear && touch /var/log/lastlog
+    chmod 0700 /root /root/.ssh 2>/dev/null || true
+    chmod 0600 /root/.ssh/authorized_keys 2>/dev/null || true
+    dropbear -R -B -E 2>/dev/null || true
+    echo "=== USB NCM (10.15.19.82) telnetd + dropbear started ==="
+fi
+
+# 3. Load all 11 Zinwa Q25 out-of-tree hardware drivers
+KREL="$(uname -r)"
+echo "=== Loading Zinwa Q25 hardware modules for $KREL ==="
+for mod in \
+    ocp2131_drv \
+    panel-q20-hd720-lcm-dsi-vdo \
+    q20_keyboard \
+    bbqX0kbd \
+    synaptics_dsx_q25 \
+    upm6922_charger \
+    upm6722 \
+    snd-soc-oca72xxx \
+    st21nfc \
+    aw36518 \
+    flashlight-gpio-v4l2; do
+    modprobe "$mod" 2>&1 || insmod /lib/modules/$KREL/updates/*/${mod}.ko 2>&1 || true
+done
+
+# 4. Start keyd physical QWERTY keyboard & optical trackpad daemon
+droidian_minienv() {
+    executable="$(which ${1})"
+    shift
+    /minienv/lib/droidian-minienv-linker.so \
+        --inhibit-cache \
+        --library-path '/minienv/usr/${LIB}:/minienv/${LIB}:/usr/${LIB}:/${LIB}' \
+        ${executable} ${@}
+}
+mkdir -p /var/run /run/keyd
+droidian_minienv keyd.rvaiya >/var/log/keyd.log 2>&1 &
+echo "=== Started keyd.rvaiya QWERTY keyboard daemon ==="
+
+# 5. Activate UFS LVM & mount Droidian rootfs (/rootfs) + Arch Linux ARM (/opt/arch) + microSD
+sleep 2
+mkdir -p /rootfs /opt/arch /mnt/sdcard
+/sbin/lvm vgscan --mknodes --ignorelockingfailure 2>/dev/null || true
+/sbin/lvm vgchange -ay --ignorelockingfailure 2>/dev/null || true
+/sbin/lvm vgmknodes 2>/dev/null || true
+if [ -b /dev/mapper/droidian-droidian--rootfs ] || [ -b /dev/droidian/droidian-rootfs ]; then
+    ROOT_LV="/dev/mapper/droidian-droidian--rootfs"
+    [ -b "$ROOT_LV" ] || ROOT_LV="/dev/droidian/droidian-rootfs"
+    mount -t ext4 "$ROOT_LV" /rootfs 2>/dev/null || /bin/busybox mount -t ext4 "$ROOT_LV" /rootfs 2>/dev/null || true
+    if [ -d /rootfs/opt/arch ]; then
+        mount --bind /rootfs/opt/arch /opt/arch 2>/dev/null || /bin/busybox mount --bind /rootfs/opt/arch /opt/arch 2>/dev/null || true
+        for pfs in proc sys dev dev/pts run tmp; do
+            mkdir -p "/rootfs/$pfs" "/opt/arch/$pfs" 2>/dev/null || true
+            mount --bind "/$pfs" "/rootfs/$pfs" 2>/dev/null || true
+            mount --bind "/$pfs" "/opt/arch/$pfs" 2>/dev/null || true
+        done
+        echo "=== Mounted /rootfs (228GB LVM) and /opt/arch (Arch Linux ARM) ==="
+    fi
+fi
+if [ -b /dev/mmcblk0p1 ]; then
+    mount /dev/mmcblk0p1 /mnt/sdcard 2>/dev/null || /bin/busybox mount /dev/mmcblk0p1 /mnt/sdcard 2>/dev/null || true
+    echo "=== Mounted microSD /dev/mmcblk0p1 at /mnt/sdcard ==="
+fi
+
+# 6. Save full diagnostic report to /dev/sdc14 (persist)
+if [ -b /dev/sdc14 ]; then
+    /bin/busybox mount -t ext4 /dev/sdc14 /mnt/persist 2>/dev/null || mount -t ext4 /dev/sdc14 /mnt/persist 2>/dev/null || true
+    {
+        echo "=== ZINWA Q25 LINUX 7.3.3 HARDWARE REPORT ==="
+        date
+        uname -a
+        echo "--- /proc/cmdline ---"
+        cat /proc/cmdline
+        echo "--- /proc/cpuinfo ---"
+        head -n 30 /proc/cpuinfo
+        echo "--- Sched BORE ---"
+        sysctl kernel.sched_bore 2>/dev/null || cat /proc/sys/kernel/sched_bore 2>/dev/null || true
+        echo "--- lsmod ---"
+        lsmod
+        echo "--- /proc/partitions ---"
+        cat /proc/partitions
+        echo "--- Input devices ---"
+        cat /proc/bus/input/devices 2>/dev/null || true
+        echo "--- Power supply ---"
+        ls -la /sys/class/power_supply/ 2>/dev/null || true
+        head -n 20 /sys/class/power_supply/*/* 2>/dev/null || true
+        echo "--- DRM / Backlight / LEDs ---"
+        ls -la /sys/class/drm/ /sys/class/backlight/ /sys/class/leds/ 2>/dev/null || true
+        echo "--- I2C devices ---"
+        for d in /sys/bus/i2c/devices/*; do
+            echo "$d: $(cat $d/name 2>/dev/null) driver=$(basename $(readlink $d/driver 2>/dev/null) 2>/dev/null)"
+        done
+        echo "--- Network interfaces ---"
+        /sbin/ifconfig -a 2>/dev/null || ip addr 2>/dev/null || true
+        echo "--- dmesg ---"
+        dmesg
+    } > /mnt/persist/q25-7.3.3-boot.log 2>&1
+    sync
+    echo "=== Saved /mnt/persist/q25-7.3.3-boot.log ==="
+fi
+
+# Print banner and launch interactive shell on framebuffer console (/dev/tty1)
+if [ -c /dev/tty1 ]; then
+    {
+        echo ""
+        echo "======================================================"
+        echo "  Zinwa Q25 - Mainline Linux $(uname -r)"
+        echo "  CachyOS BORE Scheduler v7.0.0 | Mali-G57 Panfrost"
+        echo "  Rootfs: /rootfs (228GB UFS) | Arch ARM: /opt/arch"
+        echo "  Physical QWERTY Keyboard (keyd) + Trackpad Active"
+        echo "  USB NCM SSH: root@10.15.19.82"
+        echo "======================================================"
+    } > /dev/tty1 2>/dev/null || true
+    (
+        while :; do
+            setsid /bin/busybox cttyhack /bin/sh </dev/tty1 >/dev/tty1 2>&1
+            sleep 2
+        done
+    ) &
+fi
+
+# Keep init alive while SSH / watchdog run
+while :; do
+    sleep 10
+done

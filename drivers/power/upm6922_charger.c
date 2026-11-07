@@ -1774,6 +1774,7 @@ static enum power_supply_property upm6922_charger_props[] = {
     POWER_SUPPLY_PROP_ONLINE,
     POWER_SUPPLY_PROP_USB_TYPE,
     POWER_SUPPLY_PROP_MANUFACTURER,
+    POWER_SUPPLY_PROP_VOLTAGE_NOW,
     POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT,
     POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE,
     POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
@@ -1955,6 +1956,22 @@ static int upm6922_charger_get_property(struct power_supply *psy,
 			break;
 		case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE:
 			ret = upm6922_charger_get_voltage(upm, val);
+			break;
+		case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+			if (upm->iio_adcs) {
+				int vbat_raw = 0;
+
+				ret = iio_read_channel_raw(&upm->iio_adcs[ADC_CHAN_VBAT], &vbat_raw);
+				if (ret >= 0 && vbat_raw > 0) {
+					/* MT6358 15-bit BATADC with 5400 mV full-scale (3 * 1800 mV) */
+					val->intval = (int)(((s64)vbat_raw * 5400000LL) >> 15);
+					ret = 0;
+					break;
+				}
+			}
+			ret = upm6922_charger_get_voltage(upm, val);
+			if (!ret)
+				val->intval *= 1000;
 			break;
 		case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
 			ret = upm6922_charger_get_iinlimit(upm, val);

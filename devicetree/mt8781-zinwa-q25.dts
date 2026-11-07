@@ -17,6 +17,7 @@
 
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/iio/adc/mediatek,mt6358-auxadc.h>
 #include <dt-bindings/regulator/mediatek,mt6397-regulator.h>
 #include <dt-bindings/pinctrl/mediatek,mt6789-pinfunc.h>
 #include "mt6789.dtsi"
@@ -41,7 +42,7 @@
 		stdout-path = "serial0:921600n1";
 		bootargs = "console=tty0 loglevel=8 earlycon panic=5 clk_ignore_unused pd_ignore_unused initcall_debug=1 ramoops.mem_address=0x48090000 ramoops.mem_size=0xcf000 ramoops.record_size=0x1000 ramoops.console_size=0x40000 ramoops.ftrace_size=0 ramoops.pmsg_size=0 arm64.nomte";
 		linux,initrd-start = <0 0x66f00000>;
-		linux,initrd-end = <0 0x691b5cbc>;
+		linux,initrd-end = <0 0x69202911>;
 
 		framebuffer@ff97c000 {
 			compatible = "simple-framebuffer";
@@ -385,10 +386,12 @@
 
 			mt6366_vgpu_reg: vgpu {
 				regulator-name = "vgpu";
-				regulator-min-microvolt = <500000>;
+				regulator-min-microvolt = <675000>;
 				regulator-max-microvolt = <1293750>;
 				regulator-ramp-delay = <6250>;
 				regulator-enable-ramp-delay = <200>;
+				regulator-always-on;
+				regulator-boot-on;
 				regulator-allowed-modes = <MT6397_BUCK_MODE_AUTO
 				                           MT6397_BUCK_MODE_FORCE_PWM>;
 
@@ -543,10 +546,12 @@
 
 			mt6366_vsram_gpu_reg: vsram-gpu {
 				regulator-name = "vsram_gpu";
-				regulator-min-microvolt = <500000>;
+				regulator-min-microvolt = <775000>;
 				regulator-max-microvolt = <1293750>;
 				regulator-ramp-delay = <6250>;
 				regulator-enable-ramp-delay = <240>;
+				regulator-always-on;
+				regulator-boot-on;
 
 				regulator-coupled-with = <&mt6366_vgpu_reg>;
 				regulator-coupled-max-spread = <100000>;
@@ -697,6 +702,17 @@
 			compatible = "mediatek,mt6358-rtc";
 		};
 
+		pmic_adc: adc {
+			compatible = "mediatek,mt6358-auxadc";
+			#io-channel-cells = <1>;
+		};
+
+		mt6358codec: audio-codec {
+			compatible = "mediatek,mt6358-sound";
+			Avdd-supply = <&mt6366_vaud28_reg>;
+			mediatek,dmic-mode = <0>;
+		};
+
 		mt6358_keys: keys {
 			compatible = "mediatek,mt6358-keys";
 
@@ -715,10 +731,15 @@
 	};
 };
 
-/* Open-Source Panfrost GPU (Arm Mali-G57 MC2) — disabled until MFG power-domain sequencing is ready */
+&mfg0 {
+	domain-supply = <&mt6366_vgpu_reg>;
+};
+
+/* Open-Source Panfrost GPU (Arm Mali-G57 MC2) */
 &gpu {
+	/delete-property/ operating-points-v2;
 	mali-supply = <&mt6366_vgpu_reg>;
-	status = "disabled";
+	status = "okay";
 };
 
 &usb2 {
@@ -901,6 +922,9 @@
 		boot_mode = <&chosen>;
 		phys = <&u2port0 PHY_TYPE_USB2>;
 		phy-names = "usb2-phy";
+		io-channels = <&pmic_adc MT6358_AUXADC_VCDT>,
+		              <&pmic_adc MT6358_AUXADC_BATADC>;
+		io-channel-names = "vbus", "vbat";
 
 		upm6922_otg_vbus: otg {
 			regulator-compatible = "upm6922,otg-vbus";

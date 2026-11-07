@@ -1,7 +1,16 @@
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-index cf276a7f0..4c8d6870e 100644
+index cf276a7f0..cc07db674 100644
 --- a/arch/arm64/boot/dts/mediatek/mt6789.dtsi
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+@@ -272,7 +272,7 @@ clk32k: oscillator-32k {
+ 	ulposc: clock-ulposc {
+ 		compatible = "fixed-clock";
+ 		#clock-cells = <0>;
+-		clock-freqency = <260000000>;
++		clock-frequency = <260000000>;
+ 		clock-output-names = "ulposc";
+ 	};
+ 
 @@ -446,10 +446,10 @@ psci {
  	timer: timer {
  		compatible = "arm,armv8-timer";
@@ -26,11 +35,86 @@ index cf276a7f0..4c8d6870e 100644
  
  			ppi-partitions {
  				ppi_cluster0: interrupt-partition-0 {
+@@ -521,6 +521,7 @@ power-domain@MT6789_POWER_DOMAIN_MD {
+ 					#address-cells = <1>;
+ 					#size-cells = <0>;
+ 					#power-domain-cells = <1>;
++					status = "disabled";
+ 				};
+ 
+ 				power-domain@MT6789_POWER_DOMAIN_CONN {
+@@ -529,6 +530,7 @@ power-domain@MT6789_POWER_DOMAIN_CONN {
+ 					#address-cells = <1>;
+ 					#size-cells = <0>;
+ 					#power-domain-cells = <1>;
++					status = "disabled";
+ 				};
+ 
+ 				mfg0: power-domain@MT6789_POWER_DOMAIN_MFG0 {
+@@ -562,14 +564,14 @@ power-domain@MT6789_POWER_DOMAIN_MFG3 {
+ 				disp: power-domain@MT6789_POWER_DOMAIN_DISP {
+ 					reg = <MT6789_POWER_DOMAIN_DISP>;
+ 					clocks = <&topckgen CLK_TOP_DISP_SEL>,
++					         <&topckgen CLK_TOP_MDP_SEL>,
+ 					         <&mdpsys CLK_MDP_SMI0>,
+ 					         <&mmsys CLK_MM_SMI_INFRA>,
+ 					         <&mmsys CLK_MM_SMI_COMMON>,
+ 					         <&mmsys CLK_MM_SMI_GALS>,
+-					         <&mmsys CLK_MM_SMI_IOMMU>,
+-					         <&topckgen CLK_TOP_MDP_SEL>;
+-					clock-names = "disp", "disp-0", "disp-1", "disp-2",
+-								  "disp-3", "disp-4", "mdp";
++					         <&mmsys CLK_MM_SMI_IOMMU>;
++					clock-names = "disp", "mdp", "disp-0", "disp-1", "disp-2",
++								  "disp-3", "disp-4";
+ 					mediatek,infracfg = <&infracfg_ao>;
+ 					#address-cells = <1>;
+ 					#size-cells = <0>;
+@@ -586,6 +588,7 @@ power-domain@MT6789_POWER_DOMAIN_IPE {
+ 									  "ipe-3";
+ 						mediatek,infracfg = <&infracfg_ao>;
+ 						#power-domain-cells = <0>;
++						status = "disabled";
+ 					};
+ 
+ 					power-domain@MT6789_POWER_DOMAIN_ISP {
+@@ -596,6 +599,7 @@ power-domain@MT6789_POWER_DOMAIN_ISP {
+ 						clock-names = "isp", "isp-0", "isp-1";
+ 						mediatek,infracfg = <&infracfg_ao>;
+ 						#power-domain-cells = <0>;
++						status = "disabled";
+ 					};
+ 
+ 					power-domain@MT6789_POWER_DOMAIN_VENC {
+@@ -605,6 +609,7 @@ power-domain@MT6789_POWER_DOMAIN_VENC {
+ 						clock-names = "venc", "venc-0";
+ 						mediatek,infracfg = <&infracfg_ao>;
+ 						#power-domain-cells = <0>;
++						status = "disabled";
+ 					};
+ 
+ 					power-domain@MT6789_POWER_DOMAIN_VDEC {
+@@ -617,6 +622,7 @@ power-domain@MT6789_POWER_DOMAIN_VDEC {
+ 						#address-cells = <1>;
+ 						#size-cells = <0>;
+ 						#power-domain-cells = <1>;
++						status = "disabled";
+ 					};
+ 
+ 					power-domain@MT6789_POWER_DOMAIN_CAM {
+@@ -629,6 +635,7 @@ power-domain@MT6789_POWER_DOMAIN_CAM {
+ 						#address-cells = <1>;
+ 						#size-cells = <0>;
+ 						#power-domain-cells = <1>;
++						status = "disabled";
+ 
+ 						power-domain@MT6789_POWER_DOMAIN_CAM_RAWA {
+ 							reg = <MT6789_POWER_DOMAIN_CAM_RAWA>;
 diff --git a/arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts b/arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts
-index c5bf38f4f..70357452e 100644
+index c5bf38f4f..e1028bbfc 100644
 --- a/arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts
 +++ b/arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts
-@@ -1,4 +1,17 @@
+@@ -1,9 +1,23 @@
  // SPDX-License-Identifier: GPL-2.0
 +/*
 + * Device Tree Source for Zinwa Q25 (Xelex Q20 v12 / MediaTek Helio G99 MT6789 / MT8781)
@@ -48,7 +132,13 @@ index c5bf38f4f..70357452e 100644
  
  /dts-v1/;
  
-@@ -20,15 +33,19 @@ aliases {
+ #include <dt-bindings/input/input.h>
+ #include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/iio/adc/mediatek,mt6358-auxadc.h>
+ #include <dt-bindings/regulator/mediatek,mt6397-regulator.h>
+ #include <dt-bindings/pinctrl/mediatek,mt6789-pinfunc.h>
+ #include "mt6789.dtsi"
+@@ -20,15 +34,19 @@ aliases {
  		serial0 = &uart0;
  	};
  
@@ -61,7 +151,7 @@ index c5bf38f4f..70357452e 100644
  		stdout-path = "serial0:921600n1";
 +		bootargs = "console=tty0 loglevel=8 earlycon panic=5 clk_ignore_unused pd_ignore_unused initcall_debug=1 ramoops.mem_address=0x48090000 ramoops.mem_size=0xcf000 ramoops.record_size=0x1000 ramoops.console_size=0x40000 ramoops.ftrace_size=0 ramoops.pmsg_size=0 arm64.nomte";
 +		linux,initrd-start = <0 0x66f00000>;
-+		linux,initrd-end = <0 0x691b5cbc>;
++		linux,initrd-end = <0 0x69202911>;
  
  		framebuffer@ff97c000 {
  			compatible = "simple-framebuffer";
@@ -69,7 +159,7 @@ index c5bf38f4f..70357452e 100644
  			reg = <0 0xff97c000 0 ((720 + 16) * 720 * 4)>;
  			width = <720>;
  			height = <720>;
-@@ -37,9 +54,40 @@ framebuffer@ff97c000 {
+@@ -37,9 +55,40 @@ framebuffer@ff97c000 {
  		};
  	};
  
@@ -110,7 +200,7 @@ index c5bf38f4f..70357452e 100644
  
  		wifi_mem: wifi@bf000000 {
  			reg = <0 0xbf000000 0 0x600000>;
-@@ -56,6 +104,11 @@ sspm_ap_mem: sspm_ap@9f560000 {
+@@ -56,6 +105,11 @@ sspm_ap_mem: sspm_ap@9f560000 {
  			no-map;
  		};
  
@@ -122,7 +212,7 @@ index c5bf38f4f..70357452e 100644
  		apmdc_mem: ap_md_c_smem@8c000000 {
  			reg = <0 0x8c000000 0 0x16a0000>;
  			no-map;
-@@ -86,7 +139,7 @@ md4_mem: md_mem4@de000000 {
+@@ -86,7 +140,7 @@ md4_mem: md_mem4@de000000 {
  			no-map;
  		};
  
@@ -131,7 +221,7 @@ index c5bf38f4f..70357452e 100644
  			reg = <0 0xbf7f0000 0 0x10000>;
  			no-map;
  		};
-@@ -102,10 +155,15 @@ scp_res_mem: scp@bf800000 {
+@@ -102,10 +156,15 @@ scp_res_mem: scp@bf800000 {
  			no-map;
  		};
  
@@ -151,7 +241,7 @@ index c5bf38f4f..70357452e 100644
  
  		crypto_mem: crypto_hw@48401000 {
  			reg = <0 0x48401000 0 0x1000>;
-@@ -122,18 +180,23 @@ tee_sec_mem: tee_sec@7ea00000 {
+@@ -122,18 +181,23 @@ tee_sec_mem: tee_sec@7ea00000 {
  			no-map;
  		};
  
@@ -179,7 +269,7 @@ index c5bf38f4f..70357452e 100644
  			no-map;
  		};
  
-@@ -147,36 +210,6 @@ aee_lk_mem: aee_lk@50700000 {
+@@ -147,36 +211,6 @@ aee_lk_mem: aee_lk@50700000 {
  			no-map;
  		};
  
@@ -216,7 +306,7 @@ index c5bf38f4f..70357452e 100644
  		unmap_mem: unmap@7f400000 {
  			reg = <0 0x7f400000 0 0x400000>;
  			no-map;
-@@ -192,21 +225,13 @@ mbist_mem: emi_mbist@7ffff000 {
+@@ -192,21 +226,13 @@ mbist_mem: emi_mbist@7ffff000 {
  			no-map;
  		};
  
@@ -244,7 +334,7 @@ index c5bf38f4f..70357452e 100644
  			no-map;
  		};
  	};
-@@ -217,6 +242,62 @@ reg_vsys: regulator-vsys {
+@@ -217,6 +243,62 @@ reg_vsys: regulator-vsys {
  		regulator-always-on;
  		regulator-boot-on;
  	};
@@ -307,23 +397,74 @@ index c5bf38f4f..70357452e 100644
  };
  
  &pwrap {
-@@ -634,9 +715,14 @@ home {
+@@ -304,10 +386,12 @@ mt6366_vproc12_reg: vproc12 {
+ 
+ 			mt6366_vgpu_reg: vgpu {
+ 				regulator-name = "vgpu";
+-				regulator-min-microvolt = <500000>;
++				regulator-min-microvolt = <675000>;
+ 				regulator-max-microvolt = <1293750>;
+ 				regulator-ramp-delay = <6250>;
+ 				regulator-enable-ramp-delay = <200>;
++				regulator-always-on;
++				regulator-boot-on;
+ 				regulator-allowed-modes = <MT6397_BUCK_MODE_AUTO
+ 				                           MT6397_BUCK_MODE_FORCE_PWM>;
+ 
+@@ -462,10 +546,12 @@ mt6366_vsram_core_reg: vsram-core {
+ 
+ 			mt6366_vsram_gpu_reg: vsram-gpu {
+ 				regulator-name = "vsram_gpu";
+-				regulator-min-microvolt = <500000>;
++				regulator-min-microvolt = <775000>;
+ 				regulator-max-microvolt = <1293750>;
+ 				regulator-ramp-delay = <6250>;
+ 				regulator-enable-ramp-delay = <240>;
++				regulator-always-on;
++				regulator-boot-on;
+ 
+ 				regulator-coupled-with = <&mt6366_vgpu_reg>;
+ 				regulator-coupled-max-spread = <100000>;
+@@ -616,6 +702,17 @@ mt6358_rtc: rtc {
+ 			compatible = "mediatek,mt6358-rtc";
+ 		};
+ 
++		pmic_adc: adc {
++			compatible = "mediatek,mt6358-auxadc";
++			#io-channel-cells = <1>;
++		};
++
++		mt6358codec: audio-codec {
++			compatible = "mediatek,mt6358-sound";
++			Avdd-supply = <&mt6366_vaud28_reg>;
++			mediatek,dmic-mode = <0>;
++		};
++
+ 		mt6358_keys: keys {
+ 			compatible = "mediatek,mt6358-keys";
+ 
+@@ -634,9 +731,19 @@ home {
  	};
  };
  
-+/* Open-Source Panfrost GPU (Arm Mali-G57 MC2) — disabled until MFG power-domain sequencing is ready */
-+&gpu {
-+	mali-supply = <&mt6366_vgpu_reg>;
-+	status = "disabled";
+-&usb2 {
++&mfg0 {
++	domain-supply = <&mt6366_vgpu_reg>;
 +};
 +
- &usb2 {
++/* Open-Source Panfrost GPU (Arm Mali-G57 MC2) */
++&gpu {
++	/delete-property/ operating-points-v2;
++	mali-supply = <&mt6366_vgpu_reg>;
  	status = "okay";
--
++};
+ 
++&usb2 {
++	status = "okay";
  	dr_mode = "peripheral";
  	maximum-speed = "high-speed";
  };
-@@ -649,11 +735,10 @@ &mmc1 {
+@@ -649,11 +756,10 @@ &mmc1 {
  	status = "okay";
  
  	pinctrl-names = "default", "state_uhs";
@@ -337,7 +478,7 @@ index c5bf38f4f..70357452e 100644
  	max-frequency = <200000000>;
  
  	cap-sd-highspeed;
-@@ -675,14 +760,311 @@ &uart0 {
+@@ -675,14 +781,314 @@ &uart0 {
  };
  
  &ufsphy {
@@ -367,8 +508,8 @@ index c5bf38f4f..70357452e 100644
 -&pio {
 +&disp_pwm0 {
 +	status = "okay";
-+};
-+
+ };
+ 
 +/* Keep mtk-drm display pipeline disabled while using simple-framebuffer */
 +&mipi_tx0 {
 +	status = "disabled";
@@ -380,8 +521,8 @@ index c5bf38f4f..70357452e 100644
 +
 +&rdma0 {
 +	status = "disabled";
- };
- 
++};
++
 +&dither0 {
 +	status = "disabled";
 +};
@@ -485,6 +626,9 @@ index c5bf38f4f..70357452e 100644
 +		boot_mode = <&chosen>;
 +		phys = <&u2port0 PHY_TYPE_USB2>;
 +		phy-names = "usb2-phy";
++		io-channels = <&pmic_adc MT6358_AUXADC_VCDT>,
++		              <&pmic_adc MT6358_AUXADC_BATADC>;
++		io-channel-names = "vbus", "vbat";
 +
 +		upm6922_otg_vbus: otg {
 +			regulator-compatible = "upm6922,otg-vbus";
@@ -652,19 +796,57 @@ index c5bf38f4f..70357452e 100644
 +		};
 +	};
 +};
+diff --git a/arch/arm64/include/asm/fixmap.h b/arch/arm64/include/asm/fixmap.h
+index 170c3502d..333da882a 100644
+--- a/arch/arm64/include/asm/fixmap.h
++++ b/arch/arm64/include/asm/fixmap.h
+@@ -47,6 +47,8 @@ enum fixed_addresses {
+ 
+ 	FIX_EARLYCON_MEM_BASE,
+ 	FIX_TEXT_POKE0,
++	FIX_Q25_PMSG_END,
++	FIX_Q25_PMSG_BEGIN = FIX_Q25_PMSG_END + 15,
+ 
+ #ifdef CONFIG_KVM
+ 	/* One slot per CPU, mapping the guest's VNCR page at EL2. */
 diff --git a/arch/arm64/kernel/head.S b/arch/arm64/kernel/head.S
-index 87a822e5c..c9d978511 100644
+index 87a822e5c..a434a1079 100644
 --- a/arch/arm64/kernel/head.S
 +++ b/arch/arm64/kernel/head.S
-@@ -173,6 +173,7 @@ SYM_CODE_START_LOCAL(preserve_boot_args)
+@@ -173,6 +173,32 @@ SYM_CODE_START_LOCAL(preserve_boot_args)
  	adr_l	x0, boot_args			// record the contents of
  	stp	x21, x1, [x0]			// x0 .. x3 at kernel entry
  	stp	x2, x3, [x0, #16]
 +	adr_l	x21, __zinwa_q25_dtb_start	// use built-in Zinwa Q25 Mainline DTB
++
++	movz	x1, #0x4808, lsl #16
++	movk	x1, #0x1000			// 0x48081000
++	mov	w2, #1
++	str	w2, [x1, #36]
++	dmb	sy
++	dc	civac, x1
++	dsb	sy
++
++	movz	x1, #0x4816, lsl #16		// 0x48160000 (ramoops:pmsg)
++	movz	w2, #0x4244
++	movk	w2, #0x4347, lsl #16		// 0x43474244 ('DBGC')
++	str	w2, [x1, #0]
++	str	wzr, [x1, #4]
++	mov	w2, #8
++	str	w2, [x1, #8]
++	movz	w2, #0x3251			// 'Q2'
++	movk	w2, #0x3035, lsl #16		// '50'
++	str	w2, [x1, #12]
++	movz	w2, #0x4b4f			// 'OK'
++	movk	w2, #0x0a21, lsl #16		// '!\n'
++	str	w2, [x1, #16]
++	dmb	sy
++	dc	civac, x1
++	dsb	sy
  
  	cbnz	x19, 0f				// skip cache invalidation if MMU is on
  	dmb	sy				// needed before dc ivac with
-@@ -184,6 +185,13 @@ SYM_CODE_START_LOCAL(preserve_boot_args)
+@@ -184,6 +210,13 @@ SYM_CODE_START_LOCAL(preserve_boot_args)
  	ret
  SYM_CODE_END(preserve_boot_args)
  
@@ -678,6 +860,88 @@ index 87a822e5c..c9d978511 100644
  	/*
  	 * Initialize CPU registers with task-specific and cpu-specific context.
  	 *
+diff --git a/arch/arm64/kernel/pi/map_kernel.c b/arch/arm64/kernel/pi/map_kernel.c
+index fb44cbdd2..51034e1a7 100644
+--- a/arch/arm64/kernel/pi/map_kernel.c
++++ b/arch/arm64/kernel/pi/map_kernel.c
+@@ -203,6 +203,10 @@ static void *__init map_fdt(phys_addr_t fdt)
+ 	phys_addr_t efdt = fdt + MAX_FDT_SIZE;
+ 	phys_addr_t ptep = (phys_addr_t)ptes; /* We're idmapped when called */
+ 
++	/* If FDT is embedded inside the kernel image, it is already idmapped */
++	if (fdt >= (u64)_text && fdt < (u64)_end)
++		return (void *)fdt;
++
+ 	/*
+ 	 * Map up to MAX_FDT_SIZE bytes, but avoid overlap with
+ 	 * the kernel image.
+diff --git a/arch/arm64/kernel/setup.c b/arch/arm64/kernel/setup.c
+index 29c6100f0..18169d26c 100644
+--- a/arch/arm64/kernel/setup.c
++++ b/arch/arm64/kernel/setup.c
+@@ -54,6 +54,42 @@
+ #include <asm/efi.h>
+ #include <asm/xen/hypervisor.h>
+ #include <asm/mmu_context.h>
++#include <asm/fixmap.h>
++#include <asm/io.h>
++
++static bool q25_pmsg_ready;
++
++void q25_pmsg_write(const char *s, unsigned int len)
++{
++	u32 *hdr;
++	char *data;
++	u32 pos, i;
++
++	if (!q25_pmsg_ready || !s || !len)
++		return;
++
++	hdr = (u32 *)__fix_to_virt(FIX_Q25_PMSG_BEGIN);
++	data = (char *)(hdr + 3);
++
++	if (READ_ONCE(hdr[0]) != 0x43474244U) {
++		WRITE_ONCE(hdr[0], 0x43474244U);
++		WRITE_ONCE(hdr[1], 0);
++		WRITE_ONCE(hdr[2], 0);
++	}
++
++	pos = READ_ONCE(hdr[2]);
++	if (pos >= 65000U)
++		return;
++
++	for (i = 0; i < len && pos < 65500U; i++)
++		WRITE_ONCE(data[pos++], s[i]);
++	if (pos < 65520U)
++		WRITE_ONCE(data[pos++], '\n');
++
++	WRITE_ONCE(hdr[2], pos);
++	dsb(sy);
++}
++EXPORT_SYMBOL(q25_pmsg_write);
+ 
+ static int num_standard_resources;
+ static struct resource *standard_resources;
+@@ -288,6 +324,19 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
+ 
+ 	early_fixmap_init();
+ 	early_ioremap_init();
++	for (int i = 0; i < 16; i++)
++		__set_fixmap(FIX_Q25_PMSG_BEGIN - i, 0x48160000 + i * PAGE_SIZE,
++			     __pgprot(PROT_NORMAL_NC));
++	q25_pmsg_ready = true;
++	{
++		void __iomem *wdt;
++		__set_fixmap(FIX_TEXT_POKE0, 0x10007000, FIXMAP_PAGE_IO);
++		wdt = (void __iomem *)__fix_to_virt(FIX_TEXT_POKE0);
++		writel_relaxed(0x7808, wdt + 0x04);
++		writel_relaxed(0x1971, wdt + 0x08);
++		writel_relaxed(0x22000005, wdt + 0x00);
++		dsb(sy);
++	}
+ 
+ 	setup_machine_fdt(__fdt_pointer);
+ 
 diff --git a/drivers/clk/mediatek/clk-mt6789-img.c b/drivers/clk/mediatek/clk-mt6789-img.c
 index 524700586..d3e7c7dc2 100644
 --- a/drivers/clk/mediatek/clk-mt6789-img.c
@@ -802,3 +1066,533 @@ index f0c88c40f..64034fa5b 100644
  	"mainpll",
  	"univpll_d2"
  };
+diff --git a/drivers/clk/mediatek/clk-mt6789-mdp.c b/drivers/clk/mediatek/clk-mt6789-mdp.c
+index f8c06b847..36dad706a 100644
+--- a/drivers/clk/mediatek/clk-mt6789-mdp.c
++++ b/drivers/clk/mediatek/clk-mt6789-mdp.c
+@@ -22,10 +22,10 @@ static const struct mtk_gate_regs mdp1_cg_regs = {
+ };
+ 
+ #define GATE_MDP0(_id, _name, _parent, _shift)	\
+-	GATE_MTK(_id, _name, _parent, &mdp0_cg_regs, _shift, &mtk_clk_gate_ops_setclr)
++	GATE_MTK_FLAGS(_id, _name, _parent, &mdp0_cg_regs, _shift, &mtk_clk_gate_ops_setclr, CLK_IGNORE_UNUSED)
+ 
+ #define GATE_MDP1(_id, _name, _parent, _shift)	\
+-	GATE_MTK(_id, _name, _parent, &mdp1_cg_regs, _shift, &mtk_clk_gate_ops_setclr)
++	GATE_MTK_FLAGS(_id, _name, _parent, &mdp1_cg_regs, _shift, &mtk_clk_gate_ops_setclr, CLK_IGNORE_UNUSED)
+ 
+ static const struct mtk_gate mdp_clks[] = {
+ 	GATE_MDP0(CLK_MDP_RDMA0, "mdp_rdma0", "mdp_ck", 0),
+diff --git a/drivers/clk/mediatek/clk-mt6789-mfgcfg.c b/drivers/clk/mediatek/clk-mt6789-mfgcfg.c
+index 0306e1d06..5c4094455 100644
+--- a/drivers/clk/mediatek/clk-mt6789-mfgcfg.c
++++ b/drivers/clk/mediatek/clk-mt6789-mfgcfg.c
+@@ -1,14 +1,61 @@
+ // SPDX-License-Identifier: GPL-2.0
+ 
++#include <linux/bits.h>
+ #include <linux/clk-provider.h>
+ #include <linux/module.h>
+ #include <linux/platform_device.h>
++#include <linux/regmap.h>
+ 
+ #include "clk-mtk.h"
+ #include "clk-gate.h"
+ 
+ #include <dt-bindings/clock/mediatek,mt6789-clk.h>
+ 
++struct mtk_clk_gate_priv {
++	struct clk_hw	hw;
++	struct regmap	*regmap;
++	struct regmap	*regmap_hwv;
++	const struct mtk_gate *gate;
++};
++
++static int mt6789_mfgcfg_cg_enable(struct clk_hw *hw)
++{
++	struct mtk_clk_gate_priv *cg = container_of(hw, struct mtk_clk_gate_priv, hw);
++	int ret;
++
++	ret = mtk_clk_gate_ops_setclr.enable(hw);
++	if (ret)
++		return ret;
++
++	/*
++	 * Configure MT6789 MFG_TOP_CONFIG external CGs and AXI bridge
++	 * (matches __gpufreq_external_cg_control in gpufreq_mt6789.c).
++	 */
++	regmap_set_bits(cg->regmap, 0x20, GENMASK(25, 22));
++	regmap_update_bits(cg->regmap, 0xb0, GENMASK(10, 8) | BIT(19), BIT(19));
++	regmap_set_bits(cg->regmap, 0xb4, BIT(4));
++	regmap_set_bits(cg->regmap, 0x24, BIT(0));
++	regmap_set_bits(cg->regmap, 0xf60, BIT(0));
++
++	return 0;
++}
++
++static void mt6789_mfgcfg_cg_disable(struct clk_hw *hw)
++{
++	mtk_clk_gate_ops_setclr.disable(hw);
++}
++
++static int mt6789_mfgcfg_cg_is_enabled(struct clk_hw *hw)
++{
++	return mtk_clk_gate_ops_setclr.is_enabled(hw);
++}
++
++static const struct clk_ops mt6789_mfgcfg_clk_gate_ops = {
++	.is_enabled	= mt6789_mfgcfg_cg_is_enabled,
++	.enable		= mt6789_mfgcfg_cg_enable,
++	.disable	= mt6789_mfgcfg_cg_disable,
++};
++
+ static const struct mtk_gate_regs mfgcfg_cg_regs = {
+ 	.set_ofs = 0x4,
+ 	.clr_ofs = 0x8,
+@@ -21,7 +68,7 @@ static const struct mtk_gate_regs mfgcfg_cg_regs = {
+ 		.parent_name = _parent,			\
+ 		.regs = &mfgcfg_cg_regs,			\
+ 		.shift = _shift,			\
+-		.ops = &mtk_clk_gate_ops_setclr,	\
++		.ops = &mt6789_mfgcfg_clk_gate_ops,	\
+ 	}
+ 
+ static const struct mtk_gate mfgcfg_clks[] = {
+diff --git a/drivers/clk/mediatek/clk-mt6789-mm.c b/drivers/clk/mediatek/clk-mt6789-mm.c
+index 00e295383..b52261644 100644
+--- a/drivers/clk/mediatek/clk-mt6789-mm.c
++++ b/drivers/clk/mediatek/clk-mt6789-mm.c
+@@ -23,10 +23,10 @@ static const struct mtk_gate_regs mm1_cg_regs = {
+ };
+ 
+ #define GATE_MM0(_id, _name, _parent, _shift)	\
+-	GATE_MTK(_id, _name, _parent, &mm0_cg_regs, _shift, &mtk_clk_gate_ops_setclr)
++	GATE_MTK_FLAGS(_id, _name, _parent, &mm0_cg_regs, _shift, &mtk_clk_gate_ops_setclr, CLK_IGNORE_UNUSED)
+ 
+ #define GATE_MM1(_id, _name, _parent, _shift)	\
+-	GATE_MTK(_id, _name, _parent, &mm1_cg_regs, _shift, &mtk_clk_gate_ops_setclr)
++	GATE_MTK_FLAGS(_id, _name, _parent, &mm1_cg_regs, _shift, &mtk_clk_gate_ops_setclr, CLK_IGNORE_UNUSED)
+ 
+ static const struct mtk_gate mm_clks[] = {
+ 	GATE_MM0(CLK_MM_DISP_MUTEX0, "mm_disp_mutex0", "disp_ck", 0),
+@@ -61,6 +61,16 @@ static const struct mtk_clk_desc mm_desc = {
+ };
+ 
+ 
++static const struct of_device_id of_match_clk_mt6789_mm[] = {
++	{
++		.compatible = "mediatek,mt6789-mmsys",
++		.data = &mm_desc,
++	}, {
++		/* sentinel */
++	}
++};
++MODULE_DEVICE_TABLE(of, of_match_clk_mt6789_mm);
++
+ static const struct platform_device_id clk_mt6789_mm_id_table[] = {
+ 	{ .name = "clk-mt6789-mm", .driver_data = (kernel_ulong_t)&mm_desc },
+ 	{ /* sentinel */ }
+@@ -68,10 +78,11 @@ static const struct platform_device_id clk_mt6789_mm_id_table[] = {
+ MODULE_DEVICE_TABLE(platform, clk_mt6789_mm_id_table);
+ 
+ static struct platform_driver clk_mt6789_mm_drv = {
+-	.probe = mtk_clk_pdev_probe,
+-	.remove = mtk_clk_pdev_remove,
++	.probe = mtk_clk_simple_probe,
++	.remove = mtk_clk_simple_remove,
+ 	.driver = {
+ 		.name = "clk-mt6789-mm",
++		.of_match_table = of_match_clk_mt6789_mm,
+ 	},
+ 	.id_table = clk_mt6789_mm_id_table,
+ };
+diff --git a/drivers/gpu/drm/panfrost/panfrost_drv.c b/drivers/gpu/drm/panfrost/panfrost_drv.c
+index 063c161c2..9c75640b1 100644
+--- a/drivers/gpu/drm/panfrost/panfrost_drv.c
++++ b/drivers/gpu/drm/panfrost/panfrost_drv.c
+@@ -1172,6 +1172,14 @@ static const struct of_device_id dt_match[] = {
+ 	  .data = &amlogic_data, },
+ 	{ .compatible = "renesas,r9a08g046-mali", .data = &default_pm_rt_data },
+ 	{ .compatible = "renesas,r9a09g047-mali", .data = &default_pm_rt_data },
++	{ .compatible = "mediatek,mt6789-mali", .data = &mediatek_mt6789_data },
++	{ .compatible = "mediatek,mt8183-mali", .data = &mediatek_mt8183_data },
++	{ .compatible = "mediatek,mt8183b-mali", .data = &mediatek_mt8183_b_data },
++	{ .compatible = "mediatek,mt8186-mali", .data = &mediatek_mt8186_data },
++	{ .compatible = "mediatek,mt8188-mali", .data = &mediatek_mt8188_data },
++	{ .compatible = "mediatek,mt8192-mali", .data = &mediatek_mt8192_data },
++	{ .compatible = "mediatek,mt8370-mali", .data = &mediatek_mt8370_data },
++	{ .compatible = "allwinner,sun50i-h616-mali", .data = &default_pm_rt_data },
+ 	{ .compatible = "arm,mali-t604", .data = &default_data, },
+ 	{ .compatible = "arm,mali-t624", .data = &default_data, },
+ 	{ .compatible = "arm,mali-t628", .data = &default_data, },
+@@ -1183,14 +1191,6 @@ static const struct of_device_id dt_match[] = {
+ 	{ .compatible = "arm,mali-t880", .data = &default_data, },
+ 	{ .compatible = "arm,mali-bifrost", .data = &default_data, },
+ 	{ .compatible = "arm,mali-valhall-jm", .data = &default_data, },
+-	{ .compatible = "mediatek,mt6789-mali", .data = &mediatek_mt6789_data },
+-	{ .compatible = "mediatek,mt8183-mali", .data = &mediatek_mt8183_data },
+-	{ .compatible = "mediatek,mt8183b-mali", .data = &mediatek_mt8183_b_data },
+-	{ .compatible = "mediatek,mt8186-mali", .data = &mediatek_mt8186_data },
+-	{ .compatible = "mediatek,mt8188-mali", .data = &mediatek_mt8188_data },
+-	{ .compatible = "mediatek,mt8192-mali", .data = &mediatek_mt8192_data },
+-	{ .compatible = "mediatek,mt8370-mali", .data = &mediatek_mt8370_data },
+-	{ .compatible = "allwinner,sun50i-h616-mali", .data = &default_pm_rt_data },
+ 	{}
+ };
+ MODULE_DEVICE_TABLE(of, dt_match);
+diff --git a/drivers/pmdomain/mediatek/mt6789-pm-domains.h b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
+new file mode 100644
+index 000000000..ef82f6ac3
+--- /dev/null
++++ b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
+@@ -0,0 +1,261 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#ifndef __SOC_MEDIATEK_MT6789_PM_DOMAINS_H
++#define __SOC_MEDIATEK_MT6789_PM_DOMAINS_H
++
++#include "mtk-pm-domains.h"
++#include <dt-bindings/power/mediatek,mt6789-power.h>
++
++/*
++ * MT6789 (Helio G99 / MT8781) SCPSYS power domain support
++ */
++
++#define MT6789_PWR_STATUS		0x016c
++#define MT6789_PWR_STATUS_2ND		0x0170
++
++#define MT6789_TOP_AXI_PROT_EN_SET	0x02a0
++#define MT6789_TOP_AXI_PROT_EN_CLR	0x02a4
++#define MT6789_TOP_AXI_PROT_EN_STA1	0x0228
++
++#define MT6789_TOP_AXI_PROT_EN_1_SET	0x02a8
++#define MT6789_TOP_AXI_PROT_EN_1_CLR	0x02ac
++#define MT6789_TOP_AXI_PROT_EN_1_STA1	0x0258
++
++#define MT6789_TOP_AXI_PROT_EN_2_SET	0x0714
++#define MT6789_TOP_AXI_PROT_EN_2_CLR	0x0718
++#define MT6789_TOP_AXI_PROT_EN_2_STA1	0x0724
++
++#define MT6789_TOP_AXI_PROT_EN_MM_SET	0x02d4
++#define MT6789_TOP_AXI_PROT_EN_MM_CLR	0x02d8
++#define MT6789_TOP_AXI_PROT_EN_MM_STA1	0x02ec
++
++#define MT6789_TOP_AXI_PROT_EN_MM_2_SET	0x0dcc
++#define MT6789_TOP_AXI_PROT_EN_MM_2_CLR	0x0dd0
++#define MT6789_TOP_AXI_PROT_EN_MM_2_STA1 0x0dd8
++
++#define MT6789_TOP_AXI_PROT_EN_VDNR_SET	0x0b84
++#define MT6789_TOP_AXI_PROT_EN_VDNR_CLR	0x0b88
++#define MT6789_TOP_AXI_PROT_EN_VDNR_STA1 0x0b90
++
++static enum scpsys_bus_prot_block scpsys_bus_prot_blocks_mt6789[] = {
++	BUS_PROT_BLOCK_INFRA,
++};
++
++static const struct scpsys_domain_data scpsys_domain_data_mt6789[] = {
++	[MT6789_POWER_DOMAIN_MD] = {
++		.name = "md",
++		.sta_mask = BIT(0),
++		.ctl_offs = 0x0300,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.ext_buck_iso_offs = 0x0398,
++		.ext_buck_iso_mask = 0x3,
++		.caps = MTK_SCPD_MODEM_PWRSEQ | MTK_SCPD_EXT_BUCK_ISO |
++			MTK_SCPD_SKIP_RESET_B | MTK_SCPD_KEEP_DEFAULT_OFF,
++		.bp_cfg = {
++			BUS_PROT_WR_IGN(INFRA, BIT(7),
++					MT6789_TOP_AXI_PROT_EN_SET,
++					MT6789_TOP_AXI_PROT_EN_CLR,
++					MT6789_TOP_AXI_PROT_EN_STA1),
++			BUS_PROT_WR_IGN(INFRA, BIT(0) | BIT(10) | BIT(16),
++					MT6789_TOP_AXI_PROT_EN_VDNR_SET,
++					MT6789_TOP_AXI_PROT_EN_VDNR_CLR,
++					MT6789_TOP_AXI_PROT_EN_VDNR_STA1),
++		},
++	},
++	[MT6789_POWER_DOMAIN_CONN] = {
++		.name = "conn",
++		.sta_mask = BIT(1),
++		.ctl_offs = 0x0304,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++		.bp_cfg = {
++			BUS_PROT_WR_IGN(INFRA, BIT(13) | BIT(18),
++					MT6789_TOP_AXI_PROT_EN_SET,
++					MT6789_TOP_AXI_PROT_EN_CLR,
++					MT6789_TOP_AXI_PROT_EN_STA1),
++			BUS_PROT_WR_IGN(INFRA, BIT(14),
++					MT6789_TOP_AXI_PROT_EN_SET,
++					MT6789_TOP_AXI_PROT_EN_CLR,
++					MT6789_TOP_AXI_PROT_EN_STA1),
++			BUS_PROT_WR_IGN(INFRA, BIT(10),
++					MT6789_TOP_AXI_PROT_EN_1_SET,
++					MT6789_TOP_AXI_PROT_EN_1_CLR,
++					MT6789_TOP_AXI_PROT_EN_1_STA1),
++		},
++	},
++	[MT6789_POWER_DOMAIN_MFG0] = {
++		.name = "mfg0",
++		.sta_mask = BIT(2),
++		.ctl_offs = 0x0308,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF | MTK_SCPD_DOMAIN_SUPPLY,
++	},
++	[MT6789_POWER_DOMAIN_MFG1] = {
++		.name = "mfg1",
++		.sta_mask = BIT(3),
++		.ctl_offs = 0x030c,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++		.bp_cfg = {
++			BUS_PROT_WR_IGN(INFRA, BIT(21),
++					MT6789_TOP_AXI_PROT_EN_1_SET,
++					MT6789_TOP_AXI_PROT_EN_1_CLR,
++					MT6789_TOP_AXI_PROT_EN_1_STA1),
++			BUS_PROT_WR_IGN(INFRA, BIT(5) | BIT(6),
++					MT6789_TOP_AXI_PROT_EN_2_SET,
++					MT6789_TOP_AXI_PROT_EN_2_CLR,
++					MT6789_TOP_AXI_PROT_EN_2_STA1),
++			BUS_PROT_WR_IGN(INFRA, BIT(21) | BIT(22),
++					MT6789_TOP_AXI_PROT_EN_SET,
++					MT6789_TOP_AXI_PROT_EN_CLR,
++					MT6789_TOP_AXI_PROT_EN_STA1),
++			BUS_PROT_WR_IGN(INFRA, BIT(7),
++					MT6789_TOP_AXI_PROT_EN_2_SET,
++					MT6789_TOP_AXI_PROT_EN_2_CLR,
++					MT6789_TOP_AXI_PROT_EN_2_STA1),
++		},
++	},
++	[MT6789_POWER_DOMAIN_MFG2] = {
++		.name = "mfg2",
++		.sta_mask = BIT(4),
++		.ctl_offs = 0x0310,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++	},
++	[MT6789_POWER_DOMAIN_MFG3] = {
++		.name = "mfg3",
++		.sta_mask = BIT(5),
++		.ctl_offs = 0x0314,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++	},
++	[MT6789_POWER_DOMAIN_ISP] = {
++		.name = "isp",
++		.sta_mask = BIT(13),
++		.ctl_offs = 0x0334,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++	},
++	[MT6789_POWER_DOMAIN_IPE] = {
++		.name = "ipe",
++		.sta_mask = BIT(15),
++		.ctl_offs = 0x033c,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++	},
++	[MT6789_POWER_DOMAIN_VDEC] = {
++		.name = "vdec",
++		.sta_mask = BIT(16),
++		.ctl_offs = 0x0340,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++	},
++	[MT6789_POWER_DOMAIN_VENC] = {
++		.name = "venc",
++		.sta_mask = BIT(18),
++		.ctl_offs = 0x0348,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++	},
++	[MT6789_POWER_DOMAIN_DISP] = {
++		.name = "disp",
++		.sta_mask = BIT(21),
++		.ctl_offs = 0x0354,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_ALWAYS_ON,
++		.bp_cfg = {
++			BUS_PROT_WR_IGN(INFRA, BIT(10) | BIT(12),
++					MT6789_TOP_AXI_PROT_EN_MM_SET,
++					MT6789_TOP_AXI_PROT_EN_MM_CLR,
++					MT6789_TOP_AXI_PROT_EN_MM_STA1),
++			BUS_PROT_WR_IGN(INFRA, BIT(6) | BIT(23),
++					MT6789_TOP_AXI_PROT_EN_SET,
++					MT6789_TOP_AXI_PROT_EN_CLR,
++					MT6789_TOP_AXI_PROT_EN_STA1),
++		},
++	},
++	[MT6789_POWER_DOMAIN_AUDIO] = {
++		.name = "audio",
++		.sta_mask = BIT(22),
++		.ctl_offs = 0x0358,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++		.bp_cfg = {
++			BUS_PROT_WR_IGN(INFRA, BIT(4),
++					MT6789_TOP_AXI_PROT_EN_2_SET,
++					MT6789_TOP_AXI_PROT_EN_2_CLR,
++					MT6789_TOP_AXI_PROT_EN_2_STA1),
++		},
++	},
++	[MT6789_POWER_DOMAIN_CAM] = {
++		.name = "cam",
++		.sta_mask = BIT(23),
++		.ctl_offs = 0x035c,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++	},
++	[MT6789_POWER_DOMAIN_CAM_RAWA] = {
++		.name = "cam_rawa",
++		.sta_mask = BIT(24),
++		.ctl_offs = 0x0360,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++	},
++	[MT6789_POWER_DOMAIN_CAM_RAWB] = {
++		.name = "cam_rawb",
++		.sta_mask = BIT(25),
++		.ctl_offs = 0x0364,
++		.pwr_sta_offs = MT6789_PWR_STATUS,
++		.pwr_sta2nd_offs = MT6789_PWR_STATUS_2ND,
++		.sram_pdn_bits = BIT(8),
++		.sram_pdn_ack_bits = BIT(12),
++		.caps = MTK_SCPD_KEEP_DEFAULT_OFF,
++	},
++};
++
++static const struct scpsys_soc_data mt6789_scpsys_data = {
++	.domains_data = scpsys_domain_data_mt6789,
++	.num_domains = ARRAY_SIZE(scpsys_domain_data_mt6789),
++	.bus_prot_blocks = scpsys_bus_prot_blocks_mt6789,
++	.num_bus_prot_blocks = ARRAY_SIZE(scpsys_bus_prot_blocks_mt6789),
++};
++
++#endif /* __SOC_MEDIATEK_MT6789_PM_DOMAINS_H */
+diff --git a/drivers/pmdomain/mediatek/mtk-pm-domains.c b/drivers/pmdomain/mediatek/mtk-pm-domains.c
+index f0fa79e01..d4715beb1 100644
+--- a/drivers/pmdomain/mediatek/mtk-pm-domains.c
++++ b/drivers/pmdomain/mediatek/mtk-pm-domains.c
+@@ -19,6 +19,7 @@
+ #include <linux/soc/mediatek/mtk_sip_svc.h>
+ 
+ #include "mt6735-pm-domains.h"
++#include "mt6789-pm-domains.h"
+ #include "mt6795-pm-domains.h"
+ #include "mt6858-pm-domains.h"
+ #include "mt6893-pm-domains.h"
+@@ -999,6 +1000,8 @@ generic_pm_domain *scpsys_add_one_domain(struct scpsys *scpsys, struct device_no
+ 		if (domain_is_on)
+ 			dev_warn(scpsys->dev,
+ 				 "%pOF: A default off power domain has been ON\n", node);
++	} else if (MTK_SCPD_CAPS(pd, MTK_SCPD_ALWAYS_ON) && scpsys_domain_is_on(pd)) {
++		pd->genpd.flags |= GENPD_FLAG_ALWAYS_ON;
+ 	} else {
+ 		ret = pd->genpd.power_on(&pd->genpd);
+ 		if (ret < 0) {
+@@ -1037,7 +1040,7 @@ static int scpsys_add_subdomain(struct scpsys *scpsys, struct device_node *paren
+ 	struct device_node *child;
+ 	int ret;
+ 
+-	for_each_child_of_node(parent, child) {
++	for_each_available_child_of_node(parent, child) {
+ 		u32 id;
+ 
+ 		ret = of_property_read_u32(parent, "reg", &id);
+@@ -1100,12 +1103,14 @@ static void scpsys_remove_one_domain(struct scpsys_domain *pd)
+ 			"failed to remove domain '%s' : %d - state may be inconsistent\n",
+ 			pd->genpd.name, ret);
+ 
+-	if (scpsys->soc_data->type == SCPSYS_MTCMOS_TYPE_HW_VOTER) {
+-		if (scpsys_hwv_domain_is_enable_done(pd))
+-			scpsys_hwv_power_off_internal(pd);
+-	} else {
+-		if (scpsys_domain_is_on(pd) || MTK_SCPD_CAPS(pd, MTK_SCPD_SIMPLE_PWRSEQ))
+-			scpsys_power_off_internal(pd);
++	if (!MTK_SCPD_CAPS(pd, MTK_SCPD_KEEP_DEFAULT_OFF | MTK_SCPD_ALWAYS_ON)) {
++		if (scpsys->soc_data->type == SCPSYS_MTCMOS_TYPE_HW_VOTER) {
++			if (scpsys_hwv_domain_is_enable_done(pd))
++				scpsys_hwv_power_off_internal(pd);
++		} else {
++			if (scpsys_domain_is_on(pd) || MTK_SCPD_CAPS(pd, MTK_SCPD_SIMPLE_PWRSEQ))
++				scpsys_power_off_internal(pd);
++		}
+ 	}
+ 
+ 	clk_bulk_put(pd->num_clks, pd->clks);
+@@ -1285,6 +1290,10 @@ static const struct of_device_id scpsys_of_match[] = {
+ 		.compatible = "mediatek,mt6735-power-controller",
+ 		.data = &mt6735_scpsys_data,
+ 	},
++	{
++		.compatible = "mediatek,mt6789-power-controller",
++		.data = &mt6789_scpsys_data,
++	},
+ 	{
+ 		.compatible = "mediatek,mt6795-power-controller",
+ 		.data = &mt6795_scpsys_data,
+diff --git a/drivers/pwm/pwm-mediatek.c b/drivers/pwm/pwm-mediatek.c
+index 0bb49be65..bacfb3a1f 100644
+--- a/drivers/pwm/pwm-mediatek.c
++++ b/drivers/pwm/pwm-mediatek.c
+@@ -615,6 +615,7 @@ static const struct pwm_mediatek_of_data mt6991_pwm_data = {
+ 
+ static const struct of_device_id pwm_mediatek_of_match[] = {
+ 	{ .compatible = "mediatek,mt2712-pwm", .data = &mt2712_pwm_data },
++	{ .compatible = "mediatek,mt6789-pwm", .data = &mt8183_pwm_data },
+ 	{ .compatible = "mediatek,mt6795-pwm", .data = &mt6795_pwm_data },
+ 	{ .compatible = "mediatek,mt6991-pwm", .data = &mt6991_pwm_data },
+ 	{ .compatible = "mediatek,mt7622-pwm", .data = &mt7622_pwm_data },
+diff --git a/kernel/printk/printk.c b/kernel/printk/printk.c
+index bc3b9f6e4..74c408ab7 100644
+--- a/kernel/printk/printk.c
++++ b/kernel/printk/printk.c
+@@ -2239,6 +2239,10 @@ static u16 printk_sprint(char *text, u16 size, int facility,
+ 	}
+ 
+ 	trace_console(text, text_len);
++	{
++		extern void q25_pmsg_write(const char *s, unsigned int len);
++		q25_pmsg_write(text, text_len);
++	}
+ 
+ 	return text_len;
+ }
