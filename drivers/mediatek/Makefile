@@ -1,0 +1,19 @@
+export CONFIG_MTK_PLATFORM ?= mt6789
+export MTK_PLATFORM ?= mt6789
+export CONFIG_MTK_ECCCI_DRIVER ?= m
+export CONFIG_MTK_NET_CCMNI ?= m
+export CONFIG_MEDIATEK_MT6577_AUXADC ?= m
+export CONFIG_MTK_BTIF ?= m
+export CONFIG_MTK_CONN_MD ?= m
+export CONFIG_MTK_COMBO ?= m
+export CONFIG_MTK_COMBO_WIFI ?= m
+export CONFIG_MTK_COMBO_CHIP_CONSYS_6789 ?= y
+export CONFIG_MTK_CONNSYS_DEDICATED_LOG_PATH ?= y
+export CONFIG_MTK_PMIC_CHIP_MT6358 ?= y
+
+obj-$(CONFIG_MTK_ECCCI_DRIVER) += ccci_util/
+obj-$(CONFIG_MTK_NET_CCMNI)    += ccmni/
+obj-$(CONFIG_MTK_ECCCI_DRIVER) += eccci/
+obj-$(CONFIG_MTK_BTIF)         += btif/
+obj-$(CONFIG_MTK_CONN_MD)      += conn_md/
+obj-$(CONFIG_MTK_COMBO)        += connectivity/

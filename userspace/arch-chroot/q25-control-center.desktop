@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Q25 Control
+Comment=Zinwa Q25 Hardware Control Center (Wi-Fi, Bluetooth, LTE, Roaming, Audio, Backlight, Torch)
+Exec=/usr/local/bin/q25-control-center
+Icon=preferences-system
+Terminal=false
+Type=Application
+Categories=System;Settings;HardwareSettings;
+StartupNotify=true

@@ -1628,7 +1628,7 @@ static int oca72xxx_i2c_probe(struct i2c_client *client,
 			oca72xxx->dev_index, g_oca72xxx_dev_cnt);
 
 	if (oca72xxx->dev_index == 0) {
-		extern void q25_register_audio_card(void);
+		extern int q25_register_audio_card(void);
 		q25_register_audio_card();
 	}
 
@@ -1732,63 +1732,7 @@ static struct i2c_driver oca72xxx_i2c_driver = {
 	.id_table = oca72xxx_i2c_id,
 };
 
-static struct platform_device *q25_snd_pdev;
-
-SND_SOC_DAILINK_DEFS(q25_pri_dai,
-	DAILINK_COMP_ARRAY(COMP_DUMMY()),
-	DAILINK_COMP_ARRAY(COMP_CODEC("mt6358-sound", "mt6358-snd-codec-aif1")),
-	DAILINK_COMP_ARRAY(COMP_DUMMY()));
-
-static int q25_mt6358_oca72xxx_init(struct snd_soc_pcm_runtime *rtd)
-{
-	struct snd_soc_component *cmpnt = snd_soc_rtd_to_codec(rtd, 0)->component;
-
-	if (cmpnt)
-		oca72xxx_add_codec_controls(cmpnt);
-	return 0;
-}
-
-static struct snd_soc_dai_link q25_dai_links[] = {
-	{
-		.name = "MT6789-MT6358-OCA72XXX",
-		.stream_name = "Multimedia",
-		.init = q25_mt6358_oca72xxx_init,
-		SND_SOC_DAILINK_REG(q25_pri_dai),
-	},
-};
-
-static struct snd_soc_card q25_soc_card = {
-	.name = "ZinwaQ25Audio",
-	.long_name = "Zinwa-Q25-MT6789-MT6358-OCA72XXX",
-	.owner = THIS_MODULE,
-	.dai_link = q25_dai_links,
-	.num_links = ARRAY_SIZE(q25_dai_links),
-};
-
-void q25_register_audio_card(void)
-{
-	int ret;
-
-	if (q25_snd_pdev)
-		return;
-
-	q25_snd_pdev = platform_device_register_simple("mt6789-mt6358-snd", -1, NULL, 0);
-	if (IS_ERR(q25_snd_pdev)) {
-		OCA_LOGE("Failed to register mt6789-mt6358-snd pdev");
-		q25_snd_pdev = NULL;
-		return;
-	}
-
-	q25_soc_card.dev = &q25_snd_pdev->dev;
-	ret = snd_soc_register_card(&q25_soc_card);
-	if (ret) {
-		OCA_LOGE("Failed to register ZinwaQ25Audio card: %d", ret);
-		platform_device_unregister(q25_snd_pdev);
-		q25_snd_pdev = NULL;
-	} else {
-		OCA_LOGI("Registered ZinwaQ25Audio ALSA card (MT6358 + OCA7255)");
-	}
-}
+extern void q25_unregister_audio_card(void);
 
 static int __init oca72xxx_pa_init(void)
 {
@@ -1807,11 +1751,7 @@ static int __init oca72xxx_pa_init(void)
 static void __exit oca72xxx_pa_exit(void)
 {
 	OCA_LOGI("enter");
-	if (q25_snd_pdev) {
-		snd_soc_unregister_card(&q25_soc_card);
-		platform_device_unregister(q25_snd_pdev);
-		q25_snd_pdev = NULL;
-	}
+	q25_unregister_audio_card();
 	i2c_del_driver(&oca72xxx_i2c_driver);
 }
 

@@ -118,10 +118,12 @@ All 11 hardware kernel modules from the vendor `5.10` kernel (`LineageOS/android
 | `panel-q20-hd720-lcm-dsi-vdo.ko` | `&dsi0` `@ 0` | `mediatek,q20_panel_general,vdo` | Zinwa Q25 720x720@60Hz MIPI DSI video-mode DRM panel (`reset` GPIO 85, `AVDD` GPIO 156). Ported to Linux 7.0 `drm_panel`, `mipi_dsi_driver`, and `<linux/backlight.h>` APIs. |
 | `upm6922_charger.ko` | `&i2c5` `@ 0x6b` | `up,upm6922_charger` | Unisemipower UPM6922 primary switching charger (3A charge, BC1.2 detection, `upm6922-charger` `power_supply`, and `usb-otg-vbus` 5V/1.2A boost `regulator_dev`). Ported to Linux 7.0 `power_supply_config.fwnode` & bitmask `usb_types`. |
 | `upm6722.ko` | `&i2c5` `@ 0x65` | `unisemipower,upm6722-standalone` | Unisemipower UPM6722 standalone switched-capacitor fast-charge pump with internal 10-channel ADC (`VBAT`, `IBAT`, `VBUS`, `IBUS`, `TDIE`). |
-| `snd-soc-oca72xxx.ko` | `&i2c3` `@ 0x58` | `ocs,oca72xxx_pa` | Orient-Chip OCA72xxx Smart Audio Amplifier (`ASoC` component & firmware loader for `ocs72xxx_cf.bin`). |
+| `snd-soc-oca72xxx.ko` | `&i2c3` `@ 0x58` + `0x11210000` | `ocs,oca72xxx_pa` | Orient-Chip OCA72xxx Smart Audio Amplifier (`ASoC` component & firmware loader for `ocs72xxx_cf.bin`) + **Mainline MT6789 AFE PCM & MT6358 ASoC Machine Driver** (`q25_afe_pcm.c`, Card 0 `ZinwaQ25Audio`: 48kHz Playback via DL1/ADDA + Stereo Microphone Capture via VUL12/MTKAIF + Speaker/Receiver/Headphone routing). |
 | `st21nfc.ko` | `&i2c3` `@ 0x08` | `st,st21nfc` | STMicroelectronics ST21NFC controller (`/dev/st21nfc`, IRQ GPIO 1, Reset GPIO 150, ClkReq GPIO 68). |
 | `aw36518.ko` | I2C `@ 0x63` | `mediatek,aw36518` | AW36518 V4L2 camera flash / torch LED subdev driver with thermal cooling device support. |
-| `flashlight-gpio-v4l2.ko` | I2C / GPIO | `mediatek,flashlightgpio` | Pinctrl/GPIO V4L2 camera flash / torch subdev driver. |
+| `flashlight-gpio-v4l2.ko` | I2C / GPIO | `mediatek,flashlightgpio` | Pinctrl/GPIO V4L2 camera flash / torch subdev driver; plus direct GPIO 154 (`q25:white:torch` / `/proc/q20_torch`) & MT6358 `vibr` haptics (`/proc/q20_vibrator`) integrated in `bbqX0kbd.ko`. |
+| `wmt_drv.ko`, `wlan_drv_gen4m_6789.ko`, `bt_drv_connac1x.ko`, `btif_drv.ko`, `connadp.ko`, `connfem.ko`, `wmt_chrdev_wifi.ko` | `0x18000000` (`CONNSYS`) | `mediatek,mt6789-consys` | Forward-ported MediaTek CONNSYS Combo (`MT6631` A-die), Dual-Band 802.11a/b/g/n/ac Wi-Fi (`wlan0`, `wlan1`, `p2p0`, `ap0`), and Bluetooth 5.4 (`hci0` via `q25-bt-vhci` + `q25-wmt-init`). |
+| `ccci_md_all.ko`, `ccci_dpmaif.ko`, `ccci_ccif.ko`, `ccci_cldma.ko`, `ccci_util_lib.ko`, `ccmni.ko`, `conn_md_drv.ko`, `ccci_auxadc.ko`, `ccci_rtc.ko` | `0x10209000` (`DPMAIF`/`CCIF`) | `mediatek,mddriver` | Forward-ported MediaTek ECCCI / DPMAIF / CCMNI 4G LTE Cellular Modem stack (`ccmni0`..`ccmni20`, `/dev/ttyC0`, non-linear SKB SMEM UL DMA fix, DL BAT ring fix, and standalone Bionic property/wakelock shim `libprop_preload.so` + `q25-modem-init`). |
 
 ### Building the Kernel Modules (`drivers/`)
 
@@ -180,7 +182,13 @@ makepkg -si
 
 ---
 
-## Built-In Q25 Helper Commands (`userspace/bin/`)
+## Built-In Q25 Helper Commands & GUI Control Center (`userspace/bin/`, `userspace/sbin/`)
+- `q25-control-center` — Native **GTK4 + Libadwaita Hardware Control Center GUI** (`720x720` square display optimized) with 3 tabs:
+  - **Controls:** Screen Backlight (`10–1023`), Physical Keyboard Backlight (`0–255`), Audio Volume (`PipeWire` + `MT6358` ALSA), Audio Output Route (`Speaker` / `Receiver` / `Headphone`), Optical Trackpad Mode (`Cursor` vs `D-Pad`), Rear Torch LED (`GPIO 154`), and Vibrator Haptic test (`MT6358 vibr`).
+  - **Wireless:** Cellular 4G LTE (`ccmni0` packet data toggle, Data Roaming `AT+EROAMING` toggle, Carrier APN setting, live Operator/Signal/IP telemetry), Wi-Fi (`wlan0` scan & connect via NetworkManager), and Bluetooth 5.4 (`hci0` power & BLE/BR-EDR device scan via BlueZ).
+  - **System:** Live Battery %, Voltage, Current, Charger & SoC Temps, IP addresses (`wlan0` / `ccmni0` / `usb0`), RGB Status LED toggles (`red` / `green` / `blue`), Kernel/Scheduler info, and one-tap `Foot` Wayland terminal launcher.
+- `q25-wmt-init` & `q25-bt-vhci` — Standalone native C daemons initializing MediaTek CONNSYS (`0x6789` / `MT6631`), downloading MCU/Wi-Fi/BT firmware, powering `wlan0`, and bridging `/dev/stpbt` to Linux BlueZ `hci0` (`VHCI`).
+- `q25-modem-init [start|data-up|data-down|roaming on|off|status]` — Standalone 4G LTE modem manager & NetAgent AT handshake tool using `libprop_preload.so`.
 - `keys` — Print the Q25 physical keyboard shortcut cheatsheet
 - `status-q25` (or `q25-status`) — Show live Battery %, charging/discharging current (mA), temperature (°C), screen brightness %, trackpad mode, and WLAN/USB IPs
 - `bright [up|down|min|max|1..100%]` — View or set screen brightness from the CLI

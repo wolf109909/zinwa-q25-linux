@@ -1,0 +1,893 @@
+#!/usr/bin/env python3
+"""
+Zinwa Q25 Hardware Control Center (GTK4 / Libadwaita)
+Minimal, fast, touch & keyboard friendly hardware dashboard for Mainline Linux 7.3.3-cachyos-q25.
+"""
+
+import json
+import os
+import subprocess
+import threading
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Gtk, Gdk, Adw, GLib
+
+
+def read_sysfs_int(path, default=0):
+    try:
+        with open(path, "r") as f:
+            return int(f.read().strip())
+    except Exception:
+        return default
+
+
+def read_sysfs_str(path, default=""):
+    try:
+        with open(path, "r") as f:
+            return f.read().strip()
+    except Exception:
+        return default
+
+
+def write_sysfs(path, value):
+    try:
+        with open(path, "w") as f:
+            f.write(f"{value}\n")
+        return True
+    except Exception as e:
+        print(f"write_sysfs({path}, {value}) failed: {e}")
+        return False
+
+
+def run_cmd(cmd, timeout=15):
+    try:
+        r = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+        )
+        return r.returncode == 0, (r.stdout or "").strip(), (r.stderr or "").strip()
+    except Exception as e:
+        return False, "", str(e)
+
+
+class Q25ControlCenter(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id="org.zinwa.Q25ControlCenter")
+        self.connect("activate", self.on_activate)
+        self._updating_ui = False
+        self._busy_cellular = False
+        self._busy_wifi = False
+        self._busy_bt = False
+        self._cached_modem = None
+
+    def on_activate(self, app):
+        style_mgr = Adw.StyleManager.get_default()
+        style_mgr.set_color_scheme(Adw.ColorScheme.PREFER_DARK)
+
+        css = Gtk.CssProvider()
+        css.load_from_data(
+            b"preferencespage scrolledwindow > viewport > clamp > box { margin-top: 6px; margin-bottom: 6px; border-spacing: 10px; }\n"
+            b"preferencesgroup > box > label.heading { margin-bottom: 2px; font-size: 0.92em; }\n"
+            b"row.action { min-height: 44px; }\n"
+        )
+        Gtk.StyleContext.add_provider_for_display(
+            Gdk.Display.get_default(), css, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+
+        self.win = Adw.ApplicationWindow(application=app)
+        self.win.set_title("Q25 Control Center")
+        self.win.set_default_size(720, 680)
+
+        self.toast_overlay = Adw.ToastOverlay()
+        self.win.set_content(self.toast_overlay)
+
+        vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.toast_overlay.set_child(vbox)
+
+        # Header Bar with ViewSwitcher
+        header = Adw.HeaderBar()
+        self.stack = Adw.ViewStack()
+        switcher = Adw.ViewSwitcher()
+        switcher.set_stack(self.stack)
+        switcher.set_policy(Adw.ViewSwitcherPolicy.WIDE)
+        header.set_title_widget(switcher)
+
+        refresh_btn = Gtk.Button(icon_name="view-refresh-symbolic")
+        refresh_btn.set_tooltip_text("Refresh Status (Ctrl+R)")
+        refresh_btn.connect("clicked", lambda *_: self.refresh_all(force_modem=True))
+        header.pack_start(refresh_btn)
+
+        vbox.append(header)
+
+        # Status Banner Bar
+        self.status_label = Gtk.Label(label="Loading hardware telemetry...")
+        self.status_label.add_css_class("caption")
+        self.status_label.set_margin_top(4)
+        self.status_label.set_margin_bottom(4)
+        vbox.append(self.status_label)
+
+        self.stack.set_vexpand(True)
+        vbox.append(self.stack)
+
+        # Build Tabs
+        self._build_quick_page()
+        self._build_network_page()
+        self._build_system_page()
+
+        #Key controller (Ctrl+Q quit, Ctrl+R refresh, Alt+1/2/3 switch tabs)
+        key_ctrl = Gtk.EventControllerKey()
+        key_ctrl.connect("key-pressed", self._on_key_pressed)
+        self.win.add_controller(key_ctrl)
+
+        start_tab = os.environ.get("Q25_CC_TAB", "")
+        if start_tab in ("quick", "network", "system"):
+            self.stack.set_visible_child_name(start_tab)
+
+        self.win.present()
+        self.refresh_all(force_modem=True)
+        GLib.timeout_add_seconds(6, self._periodic_refresh)
+
+    def toast(self, msg):
+        GLib.idle_add(lambda: self.toast_overlay.add_toast(Adw.Toast.new(msg)))
+
+    def _on_key_pressed(self, controller, keyval, keycode, state):
+        ctrl = bool(state & Gtk.accelerator_get_default_mod_mask() & GLib.ModifierType.CONTROL_MASK)
+        alt = bool(state & Gtk.accelerator_get_default_mod_mask() & GLib.ModifierType.ALT_MASK)
+        if ctrl and keyval in (ord("q"), ord("Q")):
+            self.quit()
+            return True
+        if ctrl and keyval in (ord("r"), ord("R")):
+            self.refresh_all(force_modem=True)
+            return True
+        if alt and keyval == ord("1"):
+            self.stack.set_visible_child_name("quick")
+            return True
+        if alt and keyval == ord("2"):
+            self.stack.set_visible_child_name("network")
+            return True
+        if alt and keyval == ord("3"):
+            self.stack.set_visible_child_name("system")
+            return True
+        return False
+
+    # -------------------------------------------------------------------------
+    # Page 1: Display, Audio & Peripherals
+    # -------------------------------------------------------------------------
+    def _build_quick_page(self):
+        page = Adw.PreferencesPage()
+
+        # Display and Backlight Group
+        disp_grp = Adw.PreferencesGroup(title="Display and Keyboard Backlight")
+        page.add(disp_grp)
+
+        # Screen Backlight Row (0..1023)
+        bl_row = Adw.ActionRow(title="Screen Brightness", subtitle="PWM Backlight (0-1023)")
+        self.bl_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 10, 1023, 10)
+        self.bl_scale.set_hexpand(True)
+        self.bl_scale.set_size_request(220, -1)
+        self.bl_scale.set_draw_value(True)
+        self.bl_scale.set_value_pos(Gtk.PositionType.LEFT)
+        self.bl_scale.connect("value-changed", self._on_bl_changed)
+        bl_row.add_suffix(self.bl_scale)
+        disp_grp.add(bl_row)
+
+        # Keyboard Backlight Row (0..255)
+        kbd_row = Adw.ActionRow(title="Keyboard Backlight", subtitle="Physical QWERTY LEDs (0-255)")
+        self.kbd_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 255, 5)
+        self.kbd_scale.set_hexpand(True)
+        self.kbd_scale.set_size_request(220, -1)
+        self.kbd_scale.set_draw_value(True)
+        self.kbd_scale.set_value_pos(Gtk.PositionType.LEFT)
+        self.kbd_scale.connect("value-changed", self._on_kbd_changed)
+        kbd_row.add_suffix(self.kbd_scale)
+        disp_grp.add(kbd_row)
+
+        # Audio Group
+        aud_grp = Adw.PreferencesGroup(title="Audio and Volume (MT6789 + OCA72xxx)")
+        page.add(aud_grp)
+
+        vol_row = Adw.ActionRow(title="Master Volume", subtitle="PipeWire / MT6358 Lineout Gain")
+        self.vol_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 2)
+        self.vol_scale.set_hexpand(True)
+        self.vol_scale.set_size_request(200, -1)
+        self.vol_scale.set_draw_value(True)
+        self.vol_scale.set_value_pos(Gtk.PositionType.LEFT)
+        self.vol_scale.connect("value-changed", self._on_vol_changed)
+        vol_row.add_suffix(self.vol_scale)
+
+        self.mute_toggle = Gtk.ToggleButton(label="Mute")
+        self.mute_toggle.set_valign(Gtk.Align.CENTER)
+        self.mute_toggle.connect("toggled", self._on_mute_toggled)
+        vol_row.add_suffix(self.mute_toggle)
+        aud_grp.add(vol_row)
+
+        route_row = Adw.ActionRow(title="Audio Output Route", subtitle="Hardware Path Selection")
+        self.route_dropdown = Gtk.DropDown.new_from_strings(
+            ["Speaker", "Receiver", "Headphone", "Speaker+Headphone"]
+        )
+        self.route_dropdown.set_valign(Gtk.Align.CENTER)
+        self.route_dropdown.connect("notify::selected", self._on_route_changed)
+        route_row.add_suffix(self.route_dropdown)
+
+        test_tone_btn = Gtk.Button(label="Test Tone")
+        test_tone_btn.set_valign(Gtk.Align.CENTER)
+        test_tone_btn.connect("clicked", self._on_test_tone)
+        route_row.add_suffix(test_tone_btn)
+        aud_grp.add(route_row)
+
+        # Peripherals Group
+        periph_grp = Adw.PreferencesGroup(title="Input and Torch Controls")
+        page.add(periph_grp)
+
+        tp_row = Adw.ActionRow(
+            title="Optical Trackpad Mode",
+            subtitle="ON = Cursor / Mouse Pointer | OFF = Arrow Keys",
+        )
+        self.tp_switch = Gtk.Switch()
+        self.tp_switch.set_valign(Gtk.Align.CENTER)
+        self.tp_switch.connect("state-set", self._on_tp_toggled)
+        tp_row.add_suffix(self.tp_switch)
+        periph_grp.add(tp_row)
+
+        torch_row = Adw.ActionRow(
+            title="Rear Flashlight / Torch",
+            subtitle="GPIO154/155 Dual LED Torch (Off / Torch / High)",
+        )
+        self.torch_dropdown = Gtk.DropDown.new_from_strings(["Off", "Torch (Low)", "Flash (High)"])
+        self.torch_dropdown.set_valign(Gtk.Align.CENTER)
+        self.torch_dropdown.connect("notify::selected", self._on_torch_changed)
+        torch_row.add_suffix(self.torch_dropdown)
+
+        vib_btn = Gtk.Button(label="Haptic Buzz")
+        vib_btn.set_valign(Gtk.Align.CENTER)
+        vib_btn.connect("clicked", self._on_vibrate_clicked)
+        torch_row.add_suffix(vib_btn)
+        periph_grp.add(torch_row)
+
+        self.stack.add_titled_with_icon(
+            page, "quick", "Controls", "preferences-system-symbolic"
+        )
+
+    # -------------------------------------------------------------------------
+    # Page 2: Wireless & Cellular (LTE, Roaming, Wi-Fi, Bluetooth)
+    # -------------------------------------------------------------------------
+    def _build_network_page(self):
+        page = Adw.PreferencesPage()
+
+        # Cellular Group
+        cell_grp = Adw.PreferencesGroup(title="Cellular 4G LTE and Roaming (MT6789 MD1)")
+        page.add(cell_grp)
+
+        self.cell_status_row = Adw.ActionRow(
+            title="Modem and SIM Status", subtitle="Checking MD1 state..."
+        )
+        cell_grp.add(self.cell_status_row)
+
+        cell_data_row = Adw.ActionRow(
+            title="Mobile Data (ccmni0)",
+            subtitle="Activate PDN context and route via 4G LTE",
+        )
+        self.cell_data_switch = Gtk.Switch()
+        self.cell_data_switch.set_valign(Gtk.Align.CENTER)
+        self.cell_data_switch.connect("state-set", self._on_cell_data_toggled)
+        cell_data_row.add_suffix(self.cell_data_switch)
+        cell_grp.add(cell_data_row)
+
+        apn_row = Adw.ActionRow(title="APN and Roaming", subtitle="Carrier APN and Data Roaming")
+        self.apn_entry = Gtk.Entry()
+        self.apn_entry.set_text("ctnet")
+        self.apn_entry.set_valign(Gtk.Align.CENTER)
+        self.apn_entry.set_width_chars(10)
+        apn_row.add_suffix(self.apn_entry)
+
+        apn_btn = Gtk.Button(label="Apply")
+        apn_btn.set_valign(Gtk.Align.CENTER)
+        apn_btn.connect("clicked", self._on_apply_apn)
+        apn_row.add_suffix(apn_btn)
+
+        roam_lbl = Gtk.Label(label="Roam")
+        roam_lbl.set_valign(Gtk.Align.CENTER)
+        apn_row.add_suffix(roam_lbl)
+
+        self.roam_switch = Gtk.Switch()
+        self.roam_switch.set_valign(Gtk.Align.CENTER)
+        self.roam_switch.set_tooltip_text("Allow cellular packet data while roaming (AT+EROAMING)")
+        self.roam_switch.connect("state-set", self._on_roam_toggled)
+        apn_row.add_suffix(self.roam_switch)
+        cell_grp.add(apn_row)
+
+        # Wi-Fi Group
+        wifi_grp = Adw.PreferencesGroup(title="Wi-Fi (MT6631 Dual-Band 802.11ac)")
+        page.add(wifi_grp)
+
+        self.wifi_row = Adw.ActionRow(title="Wi-Fi Radio (wlan0)", subtitle="Checking Wi-Fi...")
+        self.wifi_switch = Gtk.Switch()
+        self.wifi_switch.set_valign(Gtk.Align.CENTER)
+        self.wifi_switch.connect("state-set", self._on_wifi_toggled)
+        self.wifi_row.add_suffix(self.wifi_switch)
+
+        wifi_scan_btn = Gtk.Button(label="Scan")
+        wifi_scan_btn.set_valign(Gtk.Align.CENTER)
+        wifi_scan_btn.connect("clicked", self._on_wifi_scan)
+        self.wifi_row.add_suffix(wifi_scan_btn)
+        wifi_grp.add(self.wifi_row)
+
+        wifi_conn_row = Adw.ActionRow(title="Connect to Wi-Fi", subtitle="Select SSID and Password")
+        self.wifi_ssid_combo = Gtk.DropDown.new_from_strings(["(Click Scan)"])
+        self.wifi_ssid_combo.set_valign(Gtk.Align.CENTER)
+        wifi_conn_row.add_suffix(self.wifi_ssid_combo)
+
+        self.wifi_pass_entry = Gtk.PasswordEntry()
+        self.wifi_pass_entry.set_show_peek_icon(True)
+        self.wifi_pass_entry.set_valign(Gtk.Align.CENTER)
+        wifi_conn_row.add_suffix(self.wifi_pass_entry)
+
+        wifi_join_btn = Gtk.Button(label="Connect")
+        wifi_join_btn.add_css_class("suggested-action")
+        wifi_join_btn.set_valign(Gtk.Align.CENTER)
+        wifi_join_btn.connect("clicked", self._on_wifi_connect)
+        wifi_conn_row.add_suffix(wifi_join_btn)
+        wifi_grp.add(wifi_conn_row)
+
+        # Bluetooth Group
+        bt_grp = Adw.PreferencesGroup(title="Bluetooth 5.4 (MT6631 + BlueZ)")
+        page.add(bt_grp)
+
+        self.bt_row = Adw.ActionRow(title="Bluetooth Adapter (hci0)", subtitle="Checking hci0...")
+        self.bt_switch = Gtk.Switch()
+        self.bt_switch.set_valign(Gtk.Align.CENTER)
+        self.bt_switch.connect("state-set", self._on_bt_toggled)
+        self.bt_row.add_suffix(self.bt_switch)
+
+        bt_scan_btn = Gtk.Button(label="Scan Nearby")
+        bt_scan_btn.set_valign(Gtk.Align.CENTER)
+        bt_scan_btn.connect("clicked", self._on_bt_scan)
+        self.bt_row.add_suffix(bt_scan_btn)
+        bt_grp.add(self.bt_row)
+
+        self.bt_devices_row = Adw.ActionRow(
+            title="Discovered Devices", subtitle="Click 'Scan Nearby' to discover BLE/BT devices"
+        )
+        bt_grp.add(self.bt_devices_row)
+
+        self.stack.add_titled_with_icon(
+            page, "network", "Wireless", "network-wireless-symbolic"
+        )
+
+    # -------------------------------------------------------------------------
+    # Page 3: Power, Thermal & RGB Status LEDs
+    # -------------------------------------------------------------------------
+    def _build_system_page(self):
+        page = Adw.PreferencesPage()
+
+        pwr_grp = Adw.PreferencesGroup(title="Battery, Charger and Thermal Telemetry")
+        page.add(pwr_grp)
+
+        self.bat_row = Adw.ActionRow(title="Battery (MT6358 Gauge + SGM41513)", subtitle="...")
+        pwr_grp.add(self.bat_row)
+
+        self.therm_row = Adw.ActionRow(title="SoC and Peripheral Temperatures", subtitle="...")
+        pwr_grp.add(self.therm_row)
+
+        self.net_ip_row = Adw.ActionRow(title="IPv4 Interfaces", subtitle="...")
+        pwr_grp.add(self.net_ip_row)
+
+        led_grp = Adw.PreferencesGroup(title="Notification RGB LEDs")
+        page.add(led_grp)
+
+        led_row = Adw.ActionRow(title="Front Status Indicator LEDs", subtitle="GPIO 46/48/49")
+        self.led_red_btn = Gtk.ToggleButton(label="Red")
+        self.led_green_btn = Gtk.ToggleButton(label="Green")
+        self.led_blue_btn = Gtk.ToggleButton(label="Blue")
+        for b, color in (
+            (self.led_red_btn, "red"),
+            (self.led_green_btn, "green"),
+            (self.led_blue_btn, "blue"),
+        ):
+            b.set_valign(Gtk.Align.CENTER)
+            b.connect("toggled", self._on_rgb_toggled, color)
+            led_row.add_suffix(b)
+        led_grp.add(led_row)
+
+        sys_grp = Adw.PreferencesGroup(title="Kernel and System Actions")
+        page.add(sys_grp)
+
+        uname = os.uname()
+        kern_row = Adw.ActionRow(
+            title="Kernel Release",
+            subtitle=f"{uname.sysname} {uname.release} ({uname.machine})",
+        )
+        term_btn = Gtk.Button(label="Open Foot Terminal")
+        term_btn.set_valign(Gtk.Align.CENTER)
+        term_btn.connect(
+            "clicked",
+            lambda *_: subprocess.Popen(["foot"], env={**os.environ, "WAYLAND_DISPLAY": "wayland-0"}),
+        )
+        kern_row.add_suffix(term_btn)
+        sys_grp.add(kern_row)
+
+        self.stack.add_titled_with_icon(
+            page, "system", "System", "battery-full-symbolic"
+        )
+
+    # -------------------------------------------------------------------------
+    # Hardware Callbacks
+    # -------------------------------------------------------------------------
+    def _on_bl_changed(self, scale):
+        if self._updating_ui:
+            return
+        val = int(scale.get_value())
+        write_sysfs("/sys/class/backlight/backlight/bl_power", 0)
+        write_sysfs("/sys/class/backlight/backlight/brightness", val)
+
+    def _on_kbd_changed(self, scale):
+        if self._updating_ui:
+            return
+        val = int(scale.get_value())
+        write_sysfs("/sys/class/leds/q25:white:kbd_backlight/brightness", val)
+
+    def _on_vol_changed(self, scale):
+        if self._updating_ui:
+            return
+        pct = int(scale.get_value())
+        # Update both PipeWire default sink volume and ALSA Lineout Volume (0..18)
+        alsa_step = max(0, min(18, round(pct * 18 / 100)))
+        threading.Thread(
+            target=self._apply_volume_worker, args=(pct, alsa_step), daemon=True
+        ).start()
+
+    def _apply_volume_worker(self, pct, alsa_step):
+        run_cmd(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{pct}%"], timeout=3)
+        run_cmd(["amixer", "-c", "0", "cset", "name=Lineout Volume", f"{alsa_step},{alsa_step}"], timeout=3)
+        run_cmd(["amixer", "-c", "0", "cset", "name=Headphone Volume", f"{alsa_step},{alsa_step}"], timeout=3)
+
+    def _on_mute_toggled(self, btn):
+        if self._updating_ui:
+            return
+        muted = btn.get_active()
+        threading.Thread(
+            target=lambda: run_cmd(
+                ["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "1" if muted else "0"], timeout=3
+            ),
+            daemon=True,
+        ).start()
+
+    def _on_route_changed(self, dropdown, _pspec):
+        if self._updating_ui:
+            return
+        idx = dropdown.get_selected()
+        routes = ["Speaker", "Receiver", "Headphone", "Speaker+Headphone"]
+        if 0 <= idx < len(routes):
+            rname = routes[idx]
+            threading.Thread(
+                target=lambda: run_cmd(
+                    ["amixer", "-c", "0", "cset", "name=Q25 Output Route", rname], timeout=3
+                ),
+                daemon=True,
+            ).start()
+            self.toast(f"Audio route set to {rname}")
+
+    def _on_test_tone(self, _btn):
+        def worker():
+            run_cmd(
+                [
+                    "python3",
+                    "-c",
+                    "import wave,struct,math\n"
+                    "with wave.open('/tmp/q25_ui_tone.wav','w') as w:\n"
+                    " w.setnchannels(2);w.setsampwidth(2);w.setframerate(48000)\n"
+                    " w.writeframes(b''.join(struct.pack('<hh',int(9000*math.sin(2*math.pi*523.25*i/48000)),int(9000*math.sin(2*math.pi*523.25*i/48000))) for i in range(24000)))\n",
+                ],
+                timeout=5,
+            )
+            ok, _, _ = run_cmd(["pw-play", "/tmp/q25_ui_tone.wav"], timeout=5)
+            if not ok:
+                run_cmd(["aplay", "-D", "hw:0,0", "/tmp/q25_ui_tone.wav"], timeout=5)
+
+        threading.Thread(target=worker, daemon=True).start()
+        self.toast("Playing 523 Hz test tone...")
+
+    def _on_tp_toggled(self, switch, state):
+        if self._updating_ui:
+            return False
+        write_sysfs("/proc/q20_switch_key_mouse", "1" if state else "0")
+        self.toast("Trackpad: Mouse Mode" if state else "Trackpad: Arrow Keys Mode")
+        return False
+
+    def _on_torch_changed(self, dropdown, _pspec):
+        if self._updating_ui:
+            return
+        idx = dropdown.get_selected()
+        write_sysfs("/sys/class/leds/q25:white:torch/brightness", idx)
+
+    def _on_vibrate_clicked(self, _btn):
+        def buzz():
+            import time
+
+            write_sysfs("/sys/class/leds/q25:vibrator/brightness", 1)
+            time.sleep(0.18)
+            write_sysfs("/sys/class/leds/q25:vibrator/brightness", 0)
+
+        threading.Thread(target=buzz, daemon=True).start()
+
+    def _on_rgb_toggled(self, btn, color):
+        if self._updating_ui:
+            return
+        write_sysfs(f"/sys/class/leds/{color}/brightness", 1 if btn.get_active() else 0)
+
+    # -------------------------------------------------------------------------
+    # Cellular, Roaming, Wi-Fi & Bluetooth Callbacks
+    # -------------------------------------------------------------------------
+    def _on_cell_data_toggled(self, switch, state):
+        if self._updating_ui or self._busy_cellular:
+            return False
+        self._busy_cellular = True
+        apn = self.apn_entry.get_text().strip() or "ctnet"
+        self.toast(f"{'Activating' if state else 'Deactivating'} LTE data ({apn})...")
+
+        def worker():
+            try:
+                if state:
+                    ok, out, err = run_cmd(
+                        ["/usr/local/sbin/q25-modem-init", "data-up", apn], timeout=35
+                    )
+                else:
+                    ok, out, err = run_cmd(
+                        ["/usr/local/sbin/q25-modem-init", "data-down"], timeout=15
+                    )
+                msg = (out.splitlines()[-1] if out else err) or ("OK" if ok else "Failed")
+                self.toast(f"LTE: {msg}")
+            finally:
+                self._busy_cellular = False
+                GLib.idle_add(lambda: self.refresh_all(force_modem=True))
+
+        threading.Thread(target=worker, daemon=True).start()
+        return False
+
+    def _on_roam_toggled(self, switch, state):
+        if self._updating_ui or self._busy_cellular:
+            return False
+
+        def worker():
+            ok, out, err = run_cmd(
+                ["/usr/local/sbin/q25-modem-init", "roaming", "1" if state else "0"],
+                timeout=12,
+            )
+            self.toast(out or err or f"Data roaming {'enabled' if state else 'disabled'}")
+            GLib.idle_add(lambda: self.refresh_all(force_modem=True))
+
+        threading.Thread(target=worker, daemon=True).start()
+        return False
+
+    def _on_apply_apn(self, _btn):
+        apn = self.apn_entry.get_text().strip() or "ctnet"
+        write_sysfs("/tmp/mtk_props/q25.cellular.apn", apn)
+        self.toast(f"Saved APN: {apn}")
+
+    def _on_wifi_toggled(self, switch, state):
+        if self._updating_ui or self._busy_wifi:
+            return False
+        self._busy_wifi = True
+        self.toast(f"Turning Wi-Fi {'ON' if state else 'OFF'}...")
+
+        def worker():
+            try:
+                run_cmd(["nmcli", "radio", "wifi", "on" if state else "off"], timeout=10)
+                if state:
+                    run_cmd(["ip", "link", "set", "wlan0", "up"], timeout=5)
+            finally:
+                self._busy_wifi = False
+                GLib.idle_add(self.refresh_all)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return False
+
+    def _on_wifi_scan(self, _btn):
+        self.toast("Scanning Wi-Fi networks on 2.4GHz / 5GHz...")
+
+        def worker():
+            ok, out, _ = run_cmd(
+                ["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY", "dev", "wifi", "list", "--rescan", "yes"],
+                timeout=15,
+            )
+            ssids = []
+            seen = set()
+            for line in out.splitlines():
+                parts = line.split(":")
+                if parts and parts[0] and parts[0] != "--" and parts[0] not in seen:
+                    seen.add(parts[0])
+                    ssids.append(parts[0])
+            if not ssids:
+                ssids = ["(No networks found)"]
+
+            def update_combo():
+                self._wifi_ssid_list = ssids
+                self.wifi_ssid_combo.set_model(Gtk.StringList.new(ssids))
+                self.toast(f"Found {len(seen)} Wi-Fi network(s)")
+
+            GLib.idle_add(update_combo)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_wifi_connect(self, _btn):
+        idx = self.wifi_ssid_combo.get_selected()
+        ssids = getattr(self, "_wifi_ssid_list", [])
+        if idx >= len(ssids) or ssids[idx].startswith("("):
+            self.toast("Scan and select an SSID first")
+            return
+        ssid = ssids[idx]
+        pwd = self.wifi_pass_entry.get_text().strip()
+        self.toast(f"Connecting to {ssid}...")
+
+        def worker():
+            cmd = ["nmcli", "dev", "wifi", "connect", ssid]
+            if pwd:
+                cmd += ["password", pwd]
+            ok, out, err = run_cmd(cmd, timeout=25)
+            self.toast(out if ok else f"Wi-Fi error: {err or out}")
+            GLib.idle_add(self.refresh_all)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _on_bt_toggled(self, switch, state):
+        if self._updating_ui or self._busy_bt:
+            return False
+        self._busy_bt = True
+
+        def worker():
+            try:
+                run_cmd(
+                    [
+                        "python3",
+                        "-c",
+                        f"import dbus; b=dbus.SystemBus(); p=dbus.Interface(b.get_object('org.bluez','/org/bluez/hci0'),'org.freedesktop.DBus.Properties'); p.Set('org.bluez.Adapter1','Powered',dbus.Boolean({bool(state)}))",
+                    ],
+                    timeout=8,
+                )
+            finally:
+                self._busy_bt = False
+                GLib.idle_add(self.refresh_all)
+
+        threading.Thread(target=worker, daemon=True).start()
+        return False
+
+    def _on_bt_scan(self, _btn):
+        self.bt_devices_row.set_subtitle("Scanning Bluetooth / BLE for 4 seconds...")
+
+        def worker():
+            code = (
+                "import dbus, time\n"
+                "bus = dbus.SystemBus()\n"
+                "om = dbus.Interface(bus.get_object('org.bluez', '/'), 'org.freedesktop.DBus.ObjectManager')\n"
+                "ad = dbus.Interface(bus.get_object('org.bluez', '/org/bluez/hci0'), 'org.bluez.Adapter1')\n"
+                "pr = dbus.Interface(bus.get_object('org.bluez', '/org/bluez/hci0'), 'org.freedesktop.DBus.Properties')\n"
+                "pr.Set('org.bluez.Adapter1', 'Powered', dbus.Boolean(True))\n"
+                "try: ad.StartDiscovery()\n"
+                "except Exception: pass\n"
+                "time.sleep(4)\n"
+                "objs = om.GetManagedObjects()\n"
+                "devs = []\n"
+                "for p, ifs in objs.items():\n"
+                "    if 'org.bluez.Device1' in ifs:\n"
+                "        d = ifs['org.bluez.Device1']\n"
+                "        devs.append(f\"{d.get('Name', d.get('Alias', d.get('Address', '?')))}\")\n"
+                "try: ad.StopDiscovery()\n"
+                "except Exception: pass\n"
+                "print(f'{len(devs)} found: ' + ', '.join(devs[:6]) if devs else 'No devices found')\n"
+            )
+            ok, out, err = run_cmd(["python3", "-c", code], timeout=10)
+            GLib.idle_add(
+                lambda: self.bt_devices_row.set_subtitle(out if ok and out else (err or "Scan failed"))
+            )
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # -------------------------------------------------------------------------
+    # Status Refresh
+    # -------------------------------------------------------------------------
+    def _periodic_refresh(self):
+        self.refresh_all(force_modem=False)
+        return True
+
+    def refresh_all(self, force_modem=False):
+        threading.Thread(
+            target=self._gather_state_worker, args=(force_modem,), daemon=True
+        ).start()
+
+    def _gather_state_worker(self, force_modem=False):
+        state = {}
+        state["bl"] = read_sysfs_int("/sys/class/backlight/backlight/brightness", 512)
+        state["kbd"] = read_sysfs_int("/sys/class/leds/q25:white:kbd_backlight/brightness", 255)
+        state["tp"] = read_sysfs_int("/proc/q20_switch_key_mouse", 1) == 1
+        state["torch"] = read_sysfs_int("/sys/class/leds/q25:white:torch/brightness", 0)
+        state["led_r"] = read_sysfs_int("/sys/class/leds/red/brightness", 0) > 0
+        state["led_g"] = read_sysfs_int("/sys/class/leds/green/brightness", 0) > 0
+        state["led_b"] = read_sysfs_int("/sys/class/leds/blue/brightness", 0) > 0
+        state["vol"] = getattr(self, "_last_vol", 85)
+        state["muted"] = getattr(self, "_last_muted", False)
+        state["route_idx"] = getattr(self, "_last_route_idx", 0)
+
+        # Battery & Thermal (instant sysfs)
+        cap = read_sysfs_int("/sys/class/power_supply/battery/capacity", 100)
+        bstat = read_sysfs_str("/sys/class/power_supply/battery/status", "Unknown")
+        vnow = read_sysfs_int("/sys/class/power_supply/battery/voltage_now", 4350000) / 1e6
+        cnow = read_sysfs_int("/sys/class/power_supply/battery/current_now", 0) // 1000
+        btemp = read_sysfs_int("/sys/class/power_supply/battery/temp", 280) / 10.0
+        state["bat_text"] = f"{cap}% ({bstat}) · {vnow:.2f}V · {cnow}mA · {btemp:.1f}°C"
+
+        tz_parts = []
+        for idx in range(6):
+            ttype = read_sysfs_str(f"/sys/class/thermal/thermal_zone{idx}/type", "")
+            tval = read_sysfs_int(f"/sys/class/thermal/thermal_zone{idx}/temp", -1)
+            if ttype and tval > 0:
+                tz_parts.append(f"{ttype}: {tval/1000.0:.1f}°C")
+        state["therm_text"] = " · ".join(tz_parts[:4]) if tz_parts else "Normal"
+
+        # Fast Network IPs
+        _, ip_out, _ = run_cmd(["ip", "-4", "-br", "addr"], timeout=2)
+        ips = {}
+        for line in ip_out.splitlines():
+            cols = line.split()
+            if len(cols) >= 3:
+                ips[cols[0]] = cols[2].split("/")[0]
+        state["ips"] = ips
+
+        # Fast Wi-Fi & Bluetooth check
+        wlan_flags = read_sysfs_str("/sys/class/net/wlan0/flags", "0x0")
+        try:
+            wlan_up = (int(wlan_flags, 16) & 0x1) != 0
+        except Exception:
+            wlan_up = False
+        state["wifi_on"] = wlan_up
+        state["wifi_sub"] = getattr(
+            self,
+            "_last_wifi_sub",
+            f"IP: {ips.get('wlan0', 'none')} · {'Ready' if wlan_up else 'Radio OFF'}",
+        )
+
+        try:
+            import dbus
+
+            bus = dbus.SystemBus()
+            p = dbus.Interface(
+                bus.get_object("org.bluez", "/org/bluez/hci0"),
+                "org.freedesktop.DBus.Properties",
+            )
+            bt_on = bool(p.Get("org.bluez.Adapter1", "Powered"))
+            bt_mac = str(p.Get("org.bluez.Adapter1", "Address"))
+            state["bt_on"] = bt_on
+            state["bt_sub"] = f"MAC: {bt_mac} · {'Powered ON' if bt_on else 'OFF'}"
+        except Exception:
+            state["bt_on"] = False
+            state["bt_sub"] = "Adapter offline"
+
+        # Fast Cellular status from sysfs + cached AT info
+        boot_str = read_sysfs_str("/sys/kernel/ccci/boot", "")
+        md_ready = "md1:4" in boot_str
+        ccmni_ip = ips.get("ccmni0", "")
+        apn_val = read_sysfs_str("/tmp/mtk_props/q25.cellular.apn", "ctnet") or "ctnet"
+        roam_val = read_sysfs_str("/tmp/mtk_props/q25.cellular.roaming", "0") == "1"
+        if self._cached_modem:
+            m = dict(self._cached_modem)
+            m["md_state"] = "ready" if md_ready else "off"
+            m["ipv4"] = ccmni_ip
+            m["data_enabled"] = bool(ccmni_ip)
+            m["apn"] = apn_val
+            m["roaming"] = roam_val
+            state["modem"] = m
+        else:
+            state["modem"] = {
+                "md_state": "ready" if md_ready else "off",
+                "sim": "READY" if md_ready else "ABSENT",
+                "operator": "46011" if ccmni_ip else "",
+                "reg": "Home LTE" if ccmni_ip else ("Searching" if md_ready else "Unregistered"),
+                "csq": 14 if md_ready else 0,
+                "ipv4": ccmni_ip,
+                "data_enabled": bool(ccmni_ip),
+                "roaming": roam_val,
+                "apn": apn_val,
+            }
+
+        state["Banner"] = (
+            f"Bat: {cap}% ({btemp:.0f}°C) | "
+            f"LTE: {ips.get('ccmni0', 'off')} | "
+            f"Wi-Fi: {ips.get('wlan0', 'off')} | "
+            f"USB: {ips.get('usb0', 'off')}"
+        )
+
+        # Stage 1: Immediate UI update (<100ms)
+        GLib.idle_add(self._apply_state_to_ui, dict(state))
+
+        # Stage 2: Audio & NetworkManager / Modem details
+        ok, vout, _ = run_cmd(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], timeout=2)
+        if ok and "Volume:" in vout:
+            try:
+                self._last_vol = int(round(float(vout.split()[1]) * 100))
+                self._last_muted = "MUTED" in vout
+                state["vol"] = self._last_vol
+                state["muted"] = self._last_muted
+            except Exception:
+                pass
+
+        ok, rout, _ = run_cmd(["amixer", "-c", "0", "cget", "name=Q25 Output Route"], timeout=2)
+        if ok and ": values=" in rout:
+            try:
+                self._last_route_idx = max(
+                    0, min(3, int(rout.split(": values=")[-1].splitlines()[0].strip()))
+                )
+                state["route_idx"] = self._last_route_idx
+            except Exception:
+                pass
+
+        _, wf_dev, _ = run_cmd(["nmcli", "-t", "-f", "DEVICE,STATE,CONNECTION", "dev"], timeout=2)
+        wf_conn = ""
+        for line in wf_dev.splitlines():
+            if line.startswith("wlan0:"):
+                parts = line.split(":")
+                if len(parts) >= 3:
+                    wf_conn = f"{parts[1]} ({parts[2] or 'no AP'})"
+        if wf_conn:
+            self._last_wifi_sub = f"IP: {ips.get('wlan0', 'none')} · {wf_conn}"
+            state["wifi_sub"] = self._last_wifi_sub
+
+        if not self._busy_cellular and (force_modem or self._cached_modem is None):
+            ok, mjson, _ = run_cmd(["/usr/local/sbin/q25-modem-init", "status"], timeout=5)
+            if ok and mjson.startswith("{"):
+                try:
+                    m = json.loads(mjson)
+                    self._cached_modem = m
+                    state["modem"] = m
+                except Exception:
+                    pass
+
+        GLib.idle_add(self._apply_state_to_ui, dict(state))
+
+    def _apply_state_to_ui(self, s):
+        self._updating_ui = True
+        try:
+            self.status_label.set_text(s.get("Banner", ""))
+            self.bl_scale.set_value(s.get("bl", 512))
+            self.kbd_scale.set_value(s.get("kbd", 255))
+            self.vol_scale.set_value(s.get("vol", 85))
+            self.mute_toggle.set_active(s.get("muted", False))
+            self.route_dropdown.set_selected(s.get("route_idx", 0))
+            self.tp_switch.set_active(s.get("tp", True))
+            self.torch_dropdown.set_selected(max(0, min(2, s.get("torch", 0))))
+
+            self.led_red_btn.set_active(s.get("led_r", False))
+            self.led_green_btn.set_active(s.get("led_g", False))
+            self.led_blue_btn.set_active(s.get("led_b", False))
+
+            self.bat_row.set_subtitle(s.get("bat_text", ""))
+            self.therm_row.set_subtitle(s.get("therm_text", ""))
+            ips = s.get("ips", {})
+            self.net_ip_row.set_subtitle(
+                f"ccmni0: {ips.get('ccmni0', '-')} · wlan0: {ips.get('wlan0', '-')} · usb0: {ips.get('usb0', '-')}"
+            )
+
+            self.wifi_switch.set_active(s.get("wifi_on", False))
+            self.wifi_row.set_subtitle(s.get("wifi_sub", ""))
+            self.bt_switch.set_active(s.get("bt_on", False))
+            self.bt_row.set_subtitle(s.get("bt_sub", ""))
+
+            m = s.get("modem")
+            if m:
+                self.cell_status_row.set_subtitle(
+                    f"MD: {m.get('md_state')} · SIM: {m.get('sim')} · Net: {m.get('operator') or '-'} ({m.get('reg')}) · CSQ: {m.get('csq')} · IP: {m.get('ipv4') or 'none'}"
+                )
+                self.cell_data_switch.set_active(bool(m.get("data_enabled")))
+                self.roam_switch.set_active(bool(m.get("roaming")))
+                if m.get("apn") and not self.apn_entry.has_focus():
+                    self.apn_entry.set_text(m.get("apn"))
+        finally:
+            self._updating_ui = False
+
+
+if __name__ == "__main__":
+    app = Q25ControlCenter()
+    app.run()

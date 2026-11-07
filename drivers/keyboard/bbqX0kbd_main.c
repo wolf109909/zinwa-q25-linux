@@ -108,6 +108,244 @@ static ssize_t q20_spec_power_flag_debug_write(struct file *filp, const char  *b
 	return len;
 }
 
+static int q20_kbd_brightness_debug_read(struct seq_file *m, void *v)
+{
+	if (g_bbqX0kbd_data)
+		seq_printf(m, "%u\n", g_bbqX0kbd_data->keyboardBrightness);
+	return 0;
+}
+
+static int hodafone_q20_kbd_brightness_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, q20_kbd_brightness_debug_read, NULL);
+}
+
+static ssize_t q20_kbd_brightness_debug_write(struct file *filp, const char *buff, size_t len, loff_t *data)
+{
+	char writebuf[32];
+	unsigned int val = 0;
+	size_t n = len < sizeof(writebuf) - 1 ? len : sizeof(writebuf) - 1;
+
+	if (copy_from_user(writebuf, buff, n))
+		return -EFAULT;
+	writebuf[n] = '\0';
+	if (!g_bbqX0kbd_data || !g_bbqX0kbd_data->i2c_client)
+		return -ENODEV;
+	if (kstrtouint(strim(writebuf), 0, &val) == 0) {
+		if (val > 255)
+			val = 255;
+		g_bbqX0kbd_data->keyboardBrightness = (uint8_t)val;
+		bbqX0kbd_write(g_bbqX0kbd_data->i2c_client, BBQX0KBD_I2C_ADDRESS,
+			       REG_BKL, &g_bbqX0kbd_data->keyboardBrightness, sizeof(uint8_t));
+	}
+	return len;
+}
+
+static const struct proc_ops q20_kbd_brightness_proc_ops = {
+	.proc_open    = hodafone_q20_kbd_brightness_open,
+	.proc_read    = seq_read,
+	.proc_write   = q20_kbd_brightness_debug_write,
+	.proc_release = single_release,
+};
+
+static int bbqX0kbd_led_set_blocking(struct led_classdev *cdev, enum led_brightness value)
+{
+	struct bbqX0kbd_data *kbd = container_of(cdev, struct bbqX0kbd_data, kbd_led);
+
+	if (!kbd || !kbd->i2c_client)
+		return -ENODEV;
+	kbd->keyboardBrightness = (uint8_t)(value > 255 ? 255 : value);
+	return bbqX0kbd_write(kbd->i2c_client, BBQX0KBD_I2C_ADDRESS,
+			      REG_BKL, &kbd->keyboardBrightness, sizeof(uint8_t));
+}
+
+static enum led_brightness bbqX0kbd_led_get(struct led_classdev *cdev)
+{
+	struct bbqX0kbd_data *kbd = container_of(cdev, struct bbqX0kbd_data, kbd_led);
+
+	return kbd ? kbd->keyboardBrightness : 0;
+}
+
+static int q25_resolve_soc_gpio(unsigned int hwnum)
+{
+	struct device_node *np;
+	struct gpio_device *gdev;
+	struct gpio_desc *desc;
+
+	np = of_find_compatible_node(NULL, NULL, "mediatek,mt6789-pinctrl");
+	if (!np)
+		return -ENODEV;
+	gdev = gpio_device_find_by_fwnode(of_fwnode_handle(np));
+	of_node_put(np);
+	if (!gdev)
+		return -ENODEV;
+	desc = gpio_device_get_desc(gdev, hwnum);
+	gpio_device_put(gdev);
+	if (IS_ERR(desc))
+		return PTR_ERR(desc);
+	return desc_to_gpio(desc);
+}
+
+static void q25_apply_torch(struct bbqX0kbd_data *kbd, uint8_t state)
+{
+	if (!kbd || kbd->torch_en_gpio < 0 || kbd->torch_mode_gpio < 0)
+		return;
+	if (state > 2)
+		state = 2;
+	kbd->torch_state = state;
+	if (state == 0) {
+		gpio_set_value(kbd->torch_en_gpio, 0);
+		gpio_set_value(kbd->torch_mode_gpio, 0);
+	} else if (state == 1) {
+		gpio_set_value(kbd->torch_mode_gpio, 0);
+		gpio_set_value(kbd->torch_en_gpio, 1);
+	} else {
+		gpio_set_value(kbd->torch_mode_gpio, 1);
+		gpio_set_value(kbd->torch_en_gpio, 1);
+	}
+}
+
+static int q25_torch_led_set_blocking(struct led_classdev *cdev, enum led_brightness value)
+{
+	struct bbqX0kbd_data *kbd = container_of(cdev, struct bbqX0kbd_data, torch_led);
+
+	q25_apply_torch(kbd, (uint8_t)value);
+	return 0;
+}
+
+static enum led_brightness q25_torch_led_get(struct led_classdev *cdev)
+{
+	struct bbqX0kbd_data *kbd = container_of(cdev, struct bbqX0kbd_data, torch_led);
+
+	return kbd ? kbd->torch_state : 0;
+}
+
+static int q20_torch_debug_read(struct seq_file *m, void *v)
+{
+	if (g_bbqX0kbd_data)
+		seq_printf(m, "%u\n", g_bbqX0kbd_data->torch_state);
+	return 0;
+}
+
+static int hodafone_q20_torch_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, q20_torch_debug_read, NULL);
+}
+
+static ssize_t q20_torch_debug_write(struct file *filp, const char *buff, size_t len, loff_t *data)
+{
+	char writebuf[32];
+	unsigned int val = 0;
+	size_t n = len < sizeof(writebuf) - 1 ? len : sizeof(writebuf) - 1;
+
+	if (copy_from_user(writebuf, buff, n))
+		return -EFAULT;
+	writebuf[n] = '\0';
+	if (!g_bbqX0kbd_data)
+		return -ENODEV;
+	if (kstrtouint(strim(writebuf), 0, &val) == 0)
+		q25_apply_torch(g_bbqX0kbd_data, (uint8_t)val);
+	return len;
+}
+
+static const struct proc_ops q20_torch_proc_ops = {
+	.proc_open    = hodafone_q20_torch_open,
+	.proc_read    = seq_read,
+	.proc_write   = q20_torch_debug_write,
+	.proc_release = single_release,
+};
+
+static void q25_set_vibrator(struct bbqX0kbd_data *kbd, bool on)
+{
+	int ret;
+
+	if (!kbd || IS_ERR_OR_NULL(kbd->vibr_reg))
+		return;
+	mutex_lock(&kbd->vibr_lock);
+	if (on && !kbd->vibr_enabled) {
+		ret = regulator_enable(kbd->vibr_reg);
+		if (ret == 0)
+			kbd->vibr_enabled = true;
+	} else if (!on && kbd->vibr_enabled) {
+		regulator_disable(kbd->vibr_reg);
+		kbd->vibr_enabled = false;
+	}
+	mutex_unlock(&kbd->vibr_lock);
+}
+
+static void q25_vibr_off_work_fn(struct work_struct *work)
+{
+	struct bbqX0kbd_data *kbd = container_of(work, struct bbqX0kbd_data, vibr_off_work.work);
+
+	q25_set_vibrator(kbd, false);
+}
+
+static int q25_vibr_led_set_blocking(struct led_classdev *cdev, enum led_brightness value)
+{
+	struct bbqX0kbd_data *kbd = container_of(cdev, struct bbqX0kbd_data, vibr_led);
+
+	if (!kbd)
+		return -ENODEV;
+	cancel_delayed_work_sync(&kbd->vibr_off_work);
+	q25_set_vibrator(kbd, value > 0);
+	return 0;
+}
+
+static enum led_brightness q25_vibr_led_get(struct led_classdev *cdev)
+{
+	struct bbqX0kbd_data *kbd = container_of(cdev, struct bbqX0kbd_data, vibr_led);
+
+	return (kbd && kbd->vibr_enabled) ? 1 : 0;
+}
+
+static int q20_vibrator_debug_read(struct seq_file *m, void *v)
+{
+	if (g_bbqX0kbd_data)
+		seq_printf(m, "%u\n", g_bbqX0kbd_data->vibr_enabled ? 1 : 0);
+	return 0;
+}
+
+static int hodafone_q20_vibrator_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, q20_vibrator_debug_read, NULL);
+}
+
+static ssize_t q20_vibrator_debug_write(struct file *filp, const char *buff, size_t len, loff_t *data)
+{
+	char writebuf[32];
+	unsigned int val = 0;
+	size_t n = len < sizeof(writebuf) - 1 ? len : sizeof(writebuf) - 1;
+
+	if (copy_from_user(writebuf, buff, n))
+		return -EFAULT;
+	writebuf[n] = '\0';
+	if (!g_bbqX0kbd_data)
+		return -ENODEV;
+	if (kstrtouint(strim(writebuf), 0, &val) == 0) {
+		if (val == 0) {
+			cancel_delayed_work_sync(&g_bbqX0kbd_data->vibr_off_work);
+			q25_set_vibrator(g_bbqX0kbd_data, false);
+		} else if (val == 1) {
+			cancel_delayed_work_sync(&g_bbqX0kbd_data->vibr_off_work);
+			q25_set_vibrator(g_bbqX0kbd_data, true);
+		} else {
+			if (val > 5000)
+				val = 5000;
+			q25_set_vibrator(g_bbqX0kbd_data, true);
+			mod_delayed_work(system_wq, &g_bbqX0kbd_data->vibr_off_work,
+					 msecs_to_jiffies(val));
+		}
+	}
+	return len;
+}
+
+static const struct proc_ops q20_vibrator_proc_ops = {
+	.proc_open    = hodafone_q20_vibrator_open,
+	.proc_read    = seq_read,
+	.proc_write   = q20_vibrator_debug_write,
+	.proc_release = single_release,
+};
+
 static uint8_t bbqX0kbd_modkeys_to_bits(unsigned short mod_keycode)
 {
 	uint8_t returnValue;
@@ -1141,6 +1379,52 @@ static int bbqX0kbd_probe(struct i2c_client *client, const struct i2c_device_id 
     {
         BBQX0KBD_KEYBOARD_LOG("proc_create q20_spec_power_flag_proc_entry    Succesfull*****\n");
     }
+
+	q20_kbd_brightness_proc_entry = proc_create(Q20_KBD_BRIGHTNESS_PROC_NAME, 0666, NULL, &q20_kbd_brightness_proc_ops);
+
+	bbqX0kbd_data->kbd_led.name = "q25:white:kbd_backlight";
+	bbqX0kbd_data->kbd_led.max_brightness = 255;
+	bbqX0kbd_data->kbd_led.brightness = bbqX0kbd_data->keyboardBrightness;
+	bbqX0kbd_data->kbd_led.brightness_set_blocking = bbqX0kbd_led_set_blocking;
+	bbqX0kbd_data->kbd_led.brightness_get = bbqX0kbd_led_get;
+	devm_led_classdev_register(dev, &bbqX0kbd_data->kbd_led);
+
+	/* Torch / Flashlight (GPIO 154 = enable, GPIO 155 = mode) */
+	bbqX0kbd_data->torch_en_gpio = q25_resolve_soc_gpio(154);
+	bbqX0kbd_data->torch_mode_gpio = q25_resolve_soc_gpio(155);
+	if (bbqX0kbd_data->torch_en_gpio >= 0 && bbqX0kbd_data->torch_mode_gpio >= 0) {
+		if (gpio_request(bbqX0kbd_data->torch_en_gpio, "q25_torch_en") == 0 &&
+		    gpio_request(bbqX0kbd_data->torch_mode_gpio, "q25_torch_mode") == 0) {
+			gpio_direction_output(bbqX0kbd_data->torch_en_gpio, 0);
+			gpio_direction_output(bbqX0kbd_data->torch_mode_gpio, 0);
+			bbqX0kbd_data->torch_led.name = "q25:white:torch";
+			bbqX0kbd_data->torch_led.max_brightness = 2;
+			bbqX0kbd_data->torch_led.brightness = 0;
+			bbqX0kbd_data->torch_led.brightness_set_blocking = q25_torch_led_set_blocking;
+			bbqX0kbd_data->torch_led.brightness_get = q25_torch_led_get;
+			devm_led_classdev_register(dev, &bbqX0kbd_data->torch_led);
+			q20_torch_proc_entry = proc_create(Q20_TORCH_PROC_NAME, 0666, NULL, &q20_torch_proc_ops);
+		} else {
+			if (bbqX0kbd_data->torch_en_gpio >= 0)
+				gpio_free(bbqX0kbd_data->torch_en_gpio);
+			bbqX0kbd_data->torch_en_gpio = -1;
+			bbqX0kbd_data->torch_mode_gpio = -1;
+		}
+	}
+
+	/* Vibrator (MT6358 "vibr" regulator at 2.8V) */
+	mutex_init(&bbqX0kbd_data->vibr_lock);
+	INIT_DELAYED_WORK(&bbqX0kbd_data->vibr_off_work, q25_vibr_off_work_fn);
+	bbqX0kbd_data->vibr_reg = regulator_get_optional(NULL, "vibr");
+	if (!IS_ERR_OR_NULL(bbqX0kbd_data->vibr_reg)) {
+		bbqX0kbd_data->vibr_led.name = "q25:vibrator";
+		bbqX0kbd_data->vibr_led.max_brightness = 1;
+		bbqX0kbd_data->vibr_led.brightness = 0;
+		bbqX0kbd_data->vibr_led.brightness_set_blocking = q25_vibr_led_set_blocking;
+		bbqX0kbd_data->vibr_led.brightness_get = q25_vibr_led_get;
+		devm_led_classdev_register(dev, &bbqX0kbd_data->vibr_led);
+		q20_vibrator_proc_entry = proc_create(Q20_VIBRATOR_PROC_NAME, 0666, NULL, &q20_vibrator_proc_ops);
+	}
     
 	device_init_wakeup(&client->dev, false);
 
@@ -1356,6 +1640,31 @@ static void __exit bbqX0kbd_exit(void)
 	msleep(500);
 	destroy_workqueue(workqueue_struct);
 #endif
+	if (q20_vibrator_proc_entry)
+		proc_remove(q20_vibrator_proc_entry);
+	if (q20_torch_proc_entry)
+		proc_remove(q20_torch_proc_entry);
+	if (q20_kbd_brightness_proc_entry)
+		proc_remove(q20_kbd_brightness_proc_entry);
+	if (q20_spec_power_flag_proc_entry)
+		proc_remove(q20_spec_power_flag_proc_entry);
+	if (q20_switch_key_mouse_proc_entry)
+		proc_remove(q20_switch_key_mouse_proc_entry);
+	if (fwu_proc_entry)
+		proc_remove(fwu_proc_entry);
+	if (g_bbqX0kbd_data) {
+		cancel_delayed_work_sync(&g_bbqX0kbd_data->vibr_off_work);
+		q25_set_vibrator(g_bbqX0kbd_data, false);
+		if (!IS_ERR_OR_NULL(g_bbqX0kbd_data->vibr_reg)) {
+			regulator_put(g_bbqX0kbd_data->vibr_reg);
+			g_bbqX0kbd_data->vibr_reg = NULL;
+		}
+		q25_apply_torch(g_bbqX0kbd_data, 0);
+		if (g_bbqX0kbd_data->torch_en_gpio >= 0)
+			gpio_free(g_bbqX0kbd_data->torch_en_gpio);
+		if (g_bbqX0kbd_data->torch_mode_gpio >= 0)
+			gpio_free(g_bbqX0kbd_data->torch_mode_gpio);
+	}
 	i2c_del_driver(&bbqX0kbd_driver);
 #if BBQX0KBD_REGISTE_PLATFORM_DRIVER
 	platform_driver_unregister(&bbqX0kdb_pdrv_driver);

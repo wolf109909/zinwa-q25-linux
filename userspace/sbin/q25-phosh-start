@@ -11,13 +11,32 @@ export WLR_NO_HARDWARE_CURSORS=1
 export GSETTINGS_BACKEND=memory
 export G_RESOURCE_OVERLAYS=/mobi/phosh/ui/home.ui=/etc/phosh/home.ui
 
-mkdir -p /run/user/0 /var/log /run/dbus
+mkdir -p /run/user/0 /var/log /run/dbus /dev/shm
 chmod 0700 /run/user/0
+if ! grep -q " /dev/shm " /proc/mounts 2>/dev/null; then
+    mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
+fi
+chmod 1777 /dev/shm 2>/dev/null || true
+
+# Fix RTC year if PMIC RTC drifted (e.g. 2086)
+CUR_YEAR="$(date +%Y 2>/dev/null || echo 0)"
+if [ "$CUR_YEAR" -gt 2035 ] || [ "$CUR_YEAR" -lt 2025 ]; then
+    date -s "2026-11-08 00:00:00" 2>/dev/null || true
+fi
 
 # Ensure PWM backlight is unblanked
 if [ -f /sys/class/backlight/backlight/bl_power ]; then
     echo 0 > /sys/class/backlight/backlight/bl_power 2>/dev/null || true
 fi
+
+# Start systemd-udevd so libinput, PipeWire, and NetworkManager see device tags
+if ! pgrep -x systemd-udevd >/dev/null 2>&1; then
+    /usr/lib/systemd/systemd-udevd --daemon 2>/dev/null || true
+    udevadm trigger --type=subsystems --action=add 2>/dev/null || true
+    udevadm trigger --type=devices --action=add 2>/dev/null || true
+    udevadm settle --timeout=3 2>/dev/null || true
+fi
+chmod 0666 /dev/snd/* /dev/dri/* /dev/input/event* 2>/dev/null || true
 
 # Start system D-Bus if not running
 if ! pgrep -x dbus-daemon >/dev/null 2>&1; then
@@ -36,20 +55,67 @@ if ! pgrep -x upowerd >/dev/null 2>&1; then
     /usr/lib/upowerd </dev/null >/var/log/upowerd.log 2>&1 &
 fi
 
+# Initialize MediaTek CONNSYS (Wi-Fi wlan0 + Bluetooth hci0) in background
+(
+    if [ -x /usr/local/sbin/q25-wmt-init ] && [ ! -d /sys/class/net/wlan0 ]; then
+        /usr/local/sbin/q25-wmt-init >/var/log/q25-wmt-init.log 2>&1 || true
+    fi
+    if [ -x /usr/local/sbin/q25-bt-vhci ] && ! pgrep -x q25-bt-vhci >/dev/null 2>&1; then
+        nohup /usr/local/sbin/q25-bt-vhci </dev/null >/var/log/q25-bt-vhci.log 2>&1 &
+        sleep 1
+    fi
+    if ! pgrep -x bluetoothd >/dev/null 2>&1 && [ -x /usr/lib/bluetooth/bluetoothd ]; then
+        nohup /usr/lib/bluetooth/bluetoothd -n </dev/null >/var/log/bluetoothd.log 2>&1 &
+    fi
+    if ! pgrep -x wpa_supplicant >/dev/null 2>&1; then
+        nohup /usr/bin/wpa_supplicant -u -s </dev/null >/var/log/wpa_supplicant.log 2>&1 &
+    fi
+    if ! pgrep -x NetworkManager >/dev/null 2>&1; then
+        nohup /usr/bin/NetworkManager --no-daemon </dev/null >/var/log/NetworkManager.log 2>&1 &
+    fi
+    if [ -x /usr/local/sbin/q25-modem-init ]; then
+        /usr/local/sbin/q25-modem-init start >/var/log/q25-modem-init.log 2>&1 || true
+    fi
+) &
+
+# Set initial ALSA mixer routing and Start PipeWire + WirePlumber audio server
+amixer -c 0 cset name='LOL Mux' 'Playback' >/dev/null 2>&1 || true
+amixer -c 0 cset name='Lineout Volume' 16 >/dev/null 2>&1 || true
+amixer -c 0 cset name='Headphone Volume' 16 >/dev/null 2>&1 || true
+amixer -c 0 cset name='Q25 Output Route' 'Speaker' >/dev/null 2>&1 || true
+amixer -c 0 cset name='Mic Type Mux' 'ACC' >/dev/null 2>&1 || true
+amixer -c 0 cset name='ADC L Mux' 'Left Preamplifier' >/dev/null 2>&1 || true
+amixer -c 0 cset name='ADC R Mux' 'Right Preamplifier' >/dev/null 2>&1 || true
+amixer -c 0 cset name='PGA L Mux' 'AIN0' >/dev/null 2>&1 || true
+amixer -c 0 cset name='PGA R Mux' 'AIN0' >/dev/null 2>&1 || true
+
+if ! pgrep -x pipewire >/dev/null 2>&1; then
+    PIPEWIRE_REMOTE= nohup /usr/bin/pipewire </dev/null >/var/log/pipewire.log 2>&1 &
+    sleep 0.5
+    nohup /usr/bin/wireplumber </dev/null >/var/log/wireplumber.log 2>&1 &
+    nohup /usr/bin/pipewire-pulse </dev/null >/var/log/pipewire-pulse.log 2>&1 &
+fi
+
 # Restart q25-logind-shim (org.freedesktop.login1 for backlight/leds)
 for pid in $(pgrep -f "/usr/local/sbin/q25-logind-shim" 2>/dev/null); do
     kill -9 "$pid" 2>/dev/null || true
 done
 /usr/local/sbin/q25-logind-shim </dev/null >/var/log/q25-logind-shim.log 2>&1 &
 
-# Stop any previous Phosh/Phoc/Foot instances
+# Stop any previous Phosh/Phoc/Foot/Control Center instances
 killall -9 phosh phoc foot 2>/dev/null || true
+for pid in $(pgrep -f "/usr/local/bin/q25-control-center" 2>/dev/null); do
+    kill -9 "$pid" 2>/dev/null || true
+done
 sleep 1
 
 # Launch Phoc + Phosh unlocked
 nohup dbus-run-session -- /usr/bin/phoc -C /etc/phosh/phoc.ini -E "/usr/lib/phosh/phosh -U" </dev/null >/var/log/phosh-live.log 2>&1 &
 sleep 3
 
-# Launch Foot terminal on wayland-0
+# Launch Foot terminal and Q25 Control Center on wayland-0
 export WAYLAND_DISPLAY=wayland-0
 nohup foot </dev/null >/var/log/foot.log 2>&1 &
+if [ -x /usr/local/bin/q25-control-center ]; then
+    nohup /usr/local/bin/q25-control-center </dev/null >/var/log/q25-control-center.log 2>&1 &
+fi

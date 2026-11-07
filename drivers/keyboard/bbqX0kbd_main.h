@@ -7,6 +7,10 @@
 #define BBQX0KBD_MAIN_H_
 
 #include <linux/backlight.h>
+#include <linux/leds.h>
+#include <linux/regulator/consumer.h>
+#include <linux/gpio/consumer.h>
+#include <linux/gpio/driver.h>
 #include <linux/delay.h>
 #include <linux/i2c.h>
 #include <linux/init.h>
@@ -117,6 +121,16 @@ struct bbqX0kbd_data {
 	uint8_t q20_spec_switch_key_mouse;
 	//keyboard poweroff/poweron
 	uint8_t q20_spec_power_flag;
+	struct led_classdev kbd_led;
+	struct led_classdev torch_led;
+	struct led_classdev vibr_led;
+	int torch_en_gpio;
+	int torch_mode_gpio;
+	uint8_t torch_state;
+	struct regulator *vibr_reg;
+	bool vibr_enabled;
+	struct mutex vibr_lock;
+	struct delayed_work vibr_off_work;
 };
 
 struct bbqX0kbd_data *g_bbqX0kbd_data;
@@ -127,6 +141,12 @@ static struct proc_dir_entry *fwu_proc_entry;
 static struct proc_dir_entry * q20_switch_key_mouse_proc_entry;
 #define Q20_SPEC_POWER_FLAG_PROC_NAME	"q20_spec_power_flag"
 static struct proc_dir_entry * q20_spec_power_flag_proc_entry;
+#define Q20_KBD_BRIGHTNESS_PROC_NAME	"q20_kbd_brightness"
+static struct proc_dir_entry * q20_kbd_brightness_proc_entry;
+#define Q20_TORCH_PROC_NAME		"q20_torch"
+static struct proc_dir_entry * q20_torch_proc_entry;
+#define Q20_VIBRATOR_PROC_NAME		"q20_vibrator"
+static struct proc_dir_entry * q20_vibrator_proc_entry;
 
 static const struct i2c_device_id bbqX0kbd_i2c_device_id[] = {
 	{ DEVICE_NAME, 0, },

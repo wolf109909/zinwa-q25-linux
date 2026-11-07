@@ -47,6 +47,12 @@ static inline int of_get_named_gpio(const struct device_node *np,
 	return desc_to_gpio(desc);
 }
 
+static inline int of_gpio_named_count(const struct device_node *np,
+				      const char *propname)
+{
+	return of_count_phandle_with_args(np, propname, "#gpio-cells");
+}
+
 #endif /* __has_include_next(<linux/of_gpio.h>) */
 
 #endif /* __Q25_COMPAT_LINUX_OF_GPIO_H */
