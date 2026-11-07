@@ -1,0 +1,55 @@
+#!/bin/bash
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+export XDG_RUNTIME_DIR=/run/user/0
+export SEATD_SOCK=/run/seatd.sock
+export LIBSEAT_BACKEND=seatd
+export WLR_BACKENDS=drm,libinput
+export WLR_DRM_DEVICES=/dev/dri/card2:/dev/dri/card1
+export WLR_NO_HARDWARE_CURSORS=1
+export GSETTINGS_BACKEND=memory
+export G_RESOURCE_OVERLAYS=/mobi/phosh/ui/home.ui=/etc/phosh/home.ui
+
+mkdir -p /run/user/0 /var/log /run/dbus
+chmod 0700 /run/user/0
+
+# Ensure PWM backlight is unblanked
+if [ -f /sys/class/backlight/backlight/bl_power ]; then
+    echo 0 > /sys/class/backlight/backlight/bl_power 2>/dev/null || true
+fi
+
+# Start system D-Bus if not running
+if ! pgrep -x dbus-daemon >/dev/null 2>&1; then
+    rm -f /run/dbus/pid
+    dbus-daemon --system --fork
+fi
+
+# Start seatd if not running
+if ! pgrep -x seatd >/dev/null 2>&1; then
+    seatd -g wheel -n /run/seatd.sock </dev/null >/var/log/seatd.log 2>&1 &
+    sleep 0.5
+fi
+
+# Start upowerd if not running
+if ! pgrep -x upowerd >/dev/null 2>&1; then
+    /usr/lib/upowerd </dev/null >/var/log/upowerd.log 2>&1 &
+fi
+
+# Restart q25-logind-shim (org.freedesktop.login1 for backlight/leds)
+for pid in $(pgrep -f "/usr/local/sbin/q25-logind-shim" 2>/dev/null); do
+    kill -9 "$pid" 2>/dev/null || true
+done
+/usr/local/sbin/q25-logind-shim </dev/null >/var/log/q25-logind-shim.log 2>&1 &
+
+# Stop any previous Phosh/Phoc/Foot instances
+killall -9 phosh phoc foot 2>/dev/null || true
+sleep 1
+
+# Launch Phoc + Phosh unlocked
+nohup dbus-run-session -- /usr/bin/phoc -C /etc/phosh/phoc.ini -E "/usr/lib/phosh/phosh -U" </dev/null >/var/log/phosh-live.log 2>&1 &
+sleep 3
+
+# Launch Foot terminal on wayland-0
+export WAYLAND_DISPLAY=wayland-0
+nohup foot </dev/null >/var/log/foot.log 2>&1 &

@@ -1,5 +1,5 @@
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
-index cf276a7f0..cc07db674 100644
+index cf276a7f0..de91fd29c 100644
 --- a/arch/arm64/boot/dts/mediatek/mt6789.dtsi
 +++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
 @@ -272,7 +272,7 @@ clk32k: oscillator-32k {
@@ -110,11 +110,20 @@ index cf276a7f0..cc07db674 100644
  
  						power-domain@MT6789_POWER_DOMAIN_CAM_RAWA {
  							reg = <MT6789_POWER_DOMAIN_CAM_RAWA>;
+@@ -1114,7 +1121,7 @@ rdma0: rdma@14007000 {
+ 			status = "disabled";
+ 		};
+ 
+-		dither0: dither@14012000 {
++		dither0: dither@1400f000 {
+ 			compatible = "mediatek,mt6789-disp-dither";
+ 			reg = <0 0x1400f000 0 0x1000>;
+ 			interrupts = <GIC_SPI 297 IRQ_TYPE_LEVEL_HIGH &ppi_cluster0>;
 diff --git a/arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts b/arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts
-index c5bf38f4f..e1028bbfc 100644
+index c5bf38f4f..a2e78940f 100644
 --- a/arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts
 +++ b/arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts
-@@ -1,9 +1,23 @@
+@@ -1,11 +1,26 @@
  // SPDX-License-Identifier: GPL-2.0
 +/*
 + * Device Tree Source for Zinwa Q25 (Xelex Q20 v12 / MediaTek Helio G99 MT6789 / MT8781)
@@ -137,8 +146,11 @@ index c5bf38f4f..e1028bbfc 100644
 +#include <dt-bindings/iio/adc/mediatek,mt6358-auxadc.h>
  #include <dt-bindings/regulator/mediatek,mt6397-regulator.h>
  #include <dt-bindings/pinctrl/mediatek,mt6789-pinfunc.h>
++#include <dt-bindings/thermal/thermal.h>
  #include "mt6789.dtsi"
-@@ -20,15 +34,19 @@ aliases {
+ 
+ / {
+@@ -20,15 +35,19 @@ aliases {
  		serial0 = &uart0;
  	};
  
@@ -151,7 +163,7 @@ index c5bf38f4f..e1028bbfc 100644
  		stdout-path = "serial0:921600n1";
 +		bootargs = "console=tty0 loglevel=8 earlycon panic=5 clk_ignore_unused pd_ignore_unused initcall_debug=1 ramoops.mem_address=0x48090000 ramoops.mem_size=0xcf000 ramoops.record_size=0x1000 ramoops.console_size=0x40000 ramoops.ftrace_size=0 ramoops.pmsg_size=0 arm64.nomte";
 +		linux,initrd-start = <0 0x66f00000>;
-+		linux,initrd-end = <0 0x69202911>;
++		linux,initrd-end = <0 0x691a90f8>;
  
  		framebuffer@ff97c000 {
  			compatible = "simple-framebuffer";
@@ -159,7 +171,7 @@ index c5bf38f4f..e1028bbfc 100644
  			reg = <0 0xff97c000 0 ((720 + 16) * 720 * 4)>;
  			width = <720>;
  			height = <720>;
-@@ -37,9 +55,40 @@ framebuffer@ff97c000 {
+@@ -37,9 +56,40 @@ framebuffer@ff97c000 {
  		};
  	};
  
@@ -200,7 +212,7 @@ index c5bf38f4f..e1028bbfc 100644
  
  		wifi_mem: wifi@bf000000 {
  			reg = <0 0xbf000000 0 0x600000>;
-@@ -56,6 +105,11 @@ sspm_ap_mem: sspm_ap@9f560000 {
+@@ -56,6 +106,11 @@ sspm_ap_mem: sspm_ap@9f560000 {
  			no-map;
  		};
  
@@ -212,7 +224,7 @@ index c5bf38f4f..e1028bbfc 100644
  		apmdc_mem: ap_md_c_smem@8c000000 {
  			reg = <0 0x8c000000 0 0x16a0000>;
  			no-map;
-@@ -86,7 +140,7 @@ md4_mem: md_mem4@de000000 {
+@@ -86,7 +141,7 @@ md4_mem: md_mem4@de000000 {
  			no-map;
  		};
  
@@ -221,7 +233,7 @@ index c5bf38f4f..e1028bbfc 100644
  			reg = <0 0xbf7f0000 0 0x10000>;
  			no-map;
  		};
-@@ -102,10 +156,15 @@ scp_res_mem: scp@bf800000 {
+@@ -102,10 +157,15 @@ scp_res_mem: scp@bf800000 {
  			no-map;
  		};
  
@@ -241,7 +253,7 @@ index c5bf38f4f..e1028bbfc 100644
  
  		crypto_mem: crypto_hw@48401000 {
  			reg = <0 0x48401000 0 0x1000>;
-@@ -122,18 +181,23 @@ tee_sec_mem: tee_sec@7ea00000 {
+@@ -122,18 +182,23 @@ tee_sec_mem: tee_sec@7ea00000 {
  			no-map;
  		};
  
@@ -269,7 +281,7 @@ index c5bf38f4f..e1028bbfc 100644
  			no-map;
  		};
  
-@@ -147,36 +211,6 @@ aee_lk_mem: aee_lk@50700000 {
+@@ -147,36 +212,6 @@ aee_lk_mem: aee_lk@50700000 {
  			no-map;
  		};
  
@@ -306,7 +318,7 @@ index c5bf38f4f..e1028bbfc 100644
  		unmap_mem: unmap@7f400000 {
  			reg = <0 0x7f400000 0 0x400000>;
  			no-map;
-@@ -192,21 +226,13 @@ mbist_mem: emi_mbist@7ffff000 {
+@@ -192,21 +227,13 @@ mbist_mem: emi_mbist@7ffff000 {
  			no-map;
  		};
  
@@ -334,10 +346,156 @@ index c5bf38f4f..e1028bbfc 100644
  			no-map;
  		};
  	};
-@@ -217,6 +243,62 @@ reg_vsys: regulator-vsys {
+@@ -217,6 +244,208 @@ reg_vsys: regulator-vsys {
  		regulator-always-on;
  		regulator-boot-on;
  	};
++
++	soc_thermal_sensor: thermal-sensor-soc {
++		compatible = "generic-adc-thermal";
++		#thermal-sensor-cells = <0>;
++		io-channels = <&pmic_adc MT6358_AUXADC_CHIP_TEMP>;
++		io-channel-names = "sensor-channel";
++	};
++
++	cpu_thermal_sensor: thermal-sensor-cpu {
++		compatible = "generic-adc-thermal";
++		#thermal-sensor-cells = <0>;
++		io-channels = <&pmic_adc MT6358_AUXADC_VPROC_TEMP>;
++		io-channel-names = "sensor-channel";
++	};
++
++	gpu_thermal_sensor: thermal-sensor-gpu {
++		compatible = "generic-adc-thermal";
++		#thermal-sensor-cells = <0>;
++		io-channels = <&pmic_adc MT6358_AUXADC_VGPU_TEMP>;
++		io-channel-names = "sensor-channel";
++	};
++
++	vcore_thermal_sensor: thermal-sensor-vcore {
++		compatible = "generic-adc-thermal";
++		#thermal-sensor-cells = <0>;
++		io-channels = <&pmic_adc MT6358_AUXADC_VCORE_TEMP>;
++		io-channel-names = "sensor-channel";
++	};
++
++	battery_thermal_sensor: thermal-sensor-battery {
++		compatible = "generic-adc-thermal";
++		#thermal-sensor-cells = <0>;
++		io-channels = <&pmic_adc MT6358_AUXADC_BAT_TEMP>;
++		io-channel-names = "sensor-channel";
++	};
++
++	thermal-zones {
++		soc-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&soc_thermal_sensor>;
++
++			trips {
++				soc_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				soc_crit: trip-crit {
++					temperature = <110000>;
++					hysteresis = <2000>;
++					type = "critical";
++				};
++			};
++		};
++
++		cpu-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&cpu_thermal_sensor>;
++
++			trips {
++				cpu_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				cpu_crit: trip-crit {
++					temperature = <110000>;
++					hysteresis = <2000>;
++					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&cpu_alert>;
++					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++					                 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++					                 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++					                 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++					                 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++					                 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++					                 <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
++					                 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++			};
++		};
++
++		gpu-thermal {
++			polling-delay-passive = <250>;
++			polling-delay = <1000>;
++			thermal-sensors = <&gpu_thermal_sensor>;
++
++			trips {
++				gpu_alert: trip-alert {
++					temperature = <85000>;
++					hysteresis = <2000>;
++					type = "passive";
++				};
++
++				gpu_crit: trip-crit {
++					temperature = <110000>;
++					hysteresis = <2000>;
++					type = "critical";
++				};
++			};
++
++			cooling-maps {
++				map0 {
++					trip = <&gpu_alert>;
++					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
++				};
++			};
++		};
++
++		vcore-thermal {
++			polling-delay-passive = <500>;
++			polling-delay = <2000>;
++			thermal-sensors = <&vcore_thermal_sensor>;
++
++			trips {
++				vcore_crit: trip-crit {
++					temperature = <110000>;
++					hysteresis = <2000>;
++					type = "critical";
++				};
++			};
++		};
++
++		battery-thermal {
++			polling-delay-passive = <1000>;
++			polling-delay = <2000>;
++			thermal-sensors = <&battery_thermal_sensor>;
++
++			trips {
++				bat_crit: trip-crit {
++					temperature = <60000>;
++					hysteresis = <2000>;
++					type = "critical";
++				};
++			};
++		};
++	};
 +
 +	/* Zinwa Q25 RGB Notification LEDs */
 +	leds {
@@ -397,7 +555,7 @@ index c5bf38f4f..e1028bbfc 100644
  };
  
  &pwrap {
-@@ -304,10 +386,12 @@ mt6366_vproc12_reg: vproc12 {
+@@ -304,10 +533,12 @@ mt6366_vproc12_reg: vproc12 {
  
  			mt6366_vgpu_reg: vgpu {
  				regulator-name = "vgpu";
@@ -411,7 +569,7 @@ index c5bf38f4f..e1028bbfc 100644
  				regulator-allowed-modes = <MT6397_BUCK_MODE_AUTO
  				                           MT6397_BUCK_MODE_FORCE_PWM>;
  
-@@ -462,10 +546,12 @@ mt6366_vsram_core_reg: vsram-core {
+@@ -462,10 +693,12 @@ mt6366_vsram_core_reg: vsram-core {
  
  			mt6366_vsram_gpu_reg: vsram-gpu {
  				regulator-name = "vsram_gpu";
@@ -425,7 +583,7 @@ index c5bf38f4f..e1028bbfc 100644
  
  				regulator-coupled-with = <&mt6366_vgpu_reg>;
  				regulator-coupled-max-spread = <100000>;
-@@ -616,6 +702,17 @@ mt6358_rtc: rtc {
+@@ -616,6 +849,17 @@ mt6358_rtc: rtc {
  			compatible = "mediatek,mt6358-rtc";
  		};
  
@@ -443,7 +601,7 @@ index c5bf38f4f..e1028bbfc 100644
  		mt6358_keys: keys {
  			compatible = "mediatek,mt6358-keys";
  
-@@ -634,9 +731,19 @@ home {
+@@ -634,9 +878,30 @@ home {
  	};
  };
  
@@ -452,10 +610,21 @@ index c5bf38f4f..e1028bbfc 100644
 +	domain-supply = <&mt6366_vgpu_reg>;
 +};
 +
++&cpu0 { #cooling-cells = <2>; };
++&cpu1 { #cooling-cells = <2>; };
++&cpu2 { #cooling-cells = <2>; };
++&cpu3 { #cooling-cells = <2>; };
++&cpu4 { #cooling-cells = <2>; };
++&cpu5 { #cooling-cells = <2>; };
++&cpu6 { #cooling-cells = <2>; };
++&cpu7 { #cooling-cells = <2>; };
++
 +/* Open-Source Panfrost GPU (Arm Mali-G57 MC2) */
 +&gpu {
-+	/delete-property/ operating-points-v2;
++	operating-points-v2 = <&gpu_opp_table>;
 +	mali-supply = <&mt6366_vgpu_reg>;
++	assigned-clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>;
++	assigned-clock-parents = <&topckgen CLK_TOP_MFGPLL>;
  	status = "okay";
 +};
  
@@ -464,7 +633,7 @@ index c5bf38f4f..e1028bbfc 100644
  	dr_mode = "peripheral";
  	maximum-speed = "high-speed";
  };
-@@ -649,11 +756,10 @@ &mmc1 {
+@@ -649,11 +914,10 @@ &mmc1 {
  	status = "okay";
  
  	pinctrl-names = "default", "state_uhs";
@@ -478,7 +647,7 @@ index c5bf38f4f..e1028bbfc 100644
  	max-frequency = <200000000>;
  
  	cap-sd-highspeed;
-@@ -675,14 +781,314 @@ &uart0 {
+@@ -675,14 +939,314 @@ &uart0 {
  };
  
  &ufsphy {
@@ -508,28 +677,27 @@ index c5bf38f4f..e1028bbfc 100644
 -&pio {
 +&disp_pwm0 {
 +	status = "okay";
- };
- 
-+/* Keep mtk-drm display pipeline disabled while using simple-framebuffer */
++};
++
++&mutex {
++	status = "okay";
++};
++
 +&mipi_tx0 {
-+	status = "disabled";
++	status = "okay";
 +};
 +
 +&ovl0 {
-+	status = "disabled";
++	status = "okay";
 +};
 +
 +&rdma0 {
-+	status = "disabled";
-+};
-+
-+&dither0 {
-+	status = "disabled";
-+};
-+
++	status = "okay";
+ };
+ 
 +/* Q20 720x720 60Hz MIPI DSI Video Panel */
 +&dsi0 {
-+	status = "disabled";
++	status = "okay";
 +	#address-cells = <1>;
 +	#size-cells = <0>;
 +
@@ -627,8 +795,9 @@ index c5bf38f4f..e1028bbfc 100644
 +		phys = <&u2port0 PHY_TYPE_USB2>;
 +		phy-names = "usb2-phy";
 +		io-channels = <&pmic_adc MT6358_AUXADC_VCDT>,
-+		              <&pmic_adc MT6358_AUXADC_BATADC>;
-+		io-channel-names = "vbus", "vbat";
++		              <&pmic_adc MT6358_AUXADC_BATADC>,
++		              <&pmic_adc MT6358_AUXADC_BAT_TEMP>;
++		io-channel-names = "vbus", "vbat", "bat_temp";
 +
 +		upm6922_otg_vbus: otg {
 +			regulator-compatible = "upm6922,otg-vbus";
@@ -1084,7 +1253,7 @@ index f8c06b847..36dad706a 100644
  static const struct mtk_gate mdp_clks[] = {
  	GATE_MDP0(CLK_MDP_RDMA0, "mdp_rdma0", "mdp_ck", 0),
 diff --git a/drivers/clk/mediatek/clk-mt6789-mfgcfg.c b/drivers/clk/mediatek/clk-mt6789-mfgcfg.c
-index 0306e1d06..5c4094455 100644
+index 0306e1d06..6f56bd7d5 100644
 --- a/drivers/clk/mediatek/clk-mt6789-mfgcfg.c
 +++ b/drivers/clk/mediatek/clk-mt6789-mfgcfg.c
 @@ -1,14 +1,61 @@
@@ -1149,17 +1318,21 @@ index 0306e1d06..5c4094455 100644
  static const struct mtk_gate_regs mfgcfg_cg_regs = {
  	.set_ofs = 0x4,
  	.clr_ofs = 0x8,
-@@ -21,7 +68,7 @@ static const struct mtk_gate_regs mfgcfg_cg_regs = {
+@@ -19,9 +66,10 @@ static const struct mtk_gate_regs mfgcfg_cg_regs = {
+ 		.id = _id,				\
+ 		.name = _name,				\
  		.parent_name = _parent,			\
- 		.regs = &mfgcfg_cg_regs,			\
+-		.regs = &mfgcfg_cg_regs,			\
++		.regs = &mfgcfg_cg_regs,		\
  		.shift = _shift,			\
 -		.ops = &mtk_clk_gate_ops_setclr,	\
 +		.ops = &mt6789_mfgcfg_clk_gate_ops,	\
++		.flags = CLK_SET_RATE_PARENT,		\
  	}
  
  static const struct mtk_gate mfgcfg_clks[] = {
 diff --git a/drivers/clk/mediatek/clk-mt6789-mm.c b/drivers/clk/mediatek/clk-mt6789-mm.c
-index 00e295383..b52261644 100644
+index 00e295383..dc1a6b97c 100644
 --- a/drivers/clk/mediatek/clk-mt6789-mm.c
 +++ b/drivers/clk/mediatek/clk-mt6789-mm.c
 @@ -23,10 +23,10 @@ static const struct mtk_gate_regs mm1_cg_regs = {
@@ -1175,37 +1348,329 @@ index 00e295383..b52261644 100644
  
  static const struct mtk_gate mm_clks[] = {
  	GATE_MM0(CLK_MM_DISP_MUTEX0, "mm_disp_mutex0", "disp_ck", 0),
-@@ -61,6 +61,16 @@ static const struct mtk_clk_desc mm_desc = {
- };
+diff --git a/drivers/clk/mediatek/clk-mt6789-topckgen.c b/drivers/clk/mediatek/clk-mt6789-topckgen.c
+index 5bbbe8458..47984fc70 100644
+--- a/drivers/clk/mediatek/clk-mt6789-topckgen.c
++++ b/drivers/clk/mediatek/clk-mt6789-topckgen.c
+@@ -663,7 +663,7 @@ static const struct mtk_mux top_muxes[] = {
+ 	MUX_GATE_CLR_SET_UPD(CLK_TOP_MFG_REF_SEL , "mfg_ref_sel", mfg_ref_parents , 0x50, 0x54,
+ 			     0x58 , 16 , 2 , 23 , 0x04 , 18 ),
+ 	MUX_CLR_SET_UPD(CLK_TOP_MFG_PLL_SEL , "mfg_pll_sel", mfg_pll_parents , 0x50, 0x54,
+-			0x58 , 18 , 1 , -1 , -1 ),
++			0x58 , 18 , 1 , 0x04 , 18 ),
+ 	MUX_GATE_CLR_SET_UPD(CLK_TOP_CAMTG_SEL , "camtg_sel", camtg_parents , 0x50, 0x54,
+ 			     0x58 , 24 , 3 , 31 , 0x04 , 19 ),
+ 	/* CLK_CFG_5 */
+@@ -812,6 +812,20 @@ static const struct mtk_composite top_aud_divs[] = {
+ 		 "apll_i2s9_mck_sel" , 0x0320 ,10 , 0x0338 , 8 ,16 ),
+ 	};
  
- 
-+static const struct of_device_id of_match_clk_mt6789_mm[] = {
-+	{
-+		.compatible = "mediatek,mt6789-mmsys",
-+		.data = &mm_desc,
-+	}, {
-+		/* sentinel */
-+	}
-+};
-+MODULE_DEVICE_TABLE(of, of_match_clk_mt6789_mm);
++static int clk_mt6789_reg_mfg_mux_notifier(struct device *dev, struct clk *clk)
++{
++	struct mtk_mux_nb *mfg_mux_nb;
 +
- static const struct platform_device_id clk_mt6789_mm_id_table[] = {
- 	{ .name = "clk-mt6789-mm", .driver_data = (kernel_ulong_t)&mm_desc },
- 	{ /* sentinel */ }
-@@ -68,10 +78,11 @@ static const struct platform_device_id clk_mt6789_mm_id_table[] = {
- MODULE_DEVICE_TABLE(platform, clk_mt6789_mm_id_table);
- 
- static struct platform_driver clk_mt6789_mm_drv = {
--	.probe = mtk_clk_pdev_probe,
--	.remove = mtk_clk_pdev_remove,
-+	.probe = mtk_clk_simple_probe,
-+	.remove = mtk_clk_simple_remove,
- 	.driver = {
- 		.name = "clk-mt6789-mm",
-+		.of_match_table = of_match_clk_mt6789_mm,
- 	},
- 	.id_table = clk_mt6789_mm_id_table,
++	mfg_mux_nb = devm_kzalloc(dev, sizeof(*mfg_mux_nb), GFP_KERNEL);
++	if (!mfg_mux_nb)
++		return -ENOMEM;
++
++	mfg_mux_nb->ops = &mtk_mux_clr_set_upd_ops;
++	mfg_mux_nb->bypass_index = 0; /* Bypass to mfg_ref_ck (364 MHz) */
++
++	return devm_mtk_clk_mux_notifier_register(dev, clk, mfg_mux_nb);
++}
++
+ static const struct mtk_clk_desc topck_desc = {
+ 	.factor_clks = top_divs,
+ 	.num_factor_clks = ARRAY_SIZE(top_divs),
+@@ -820,6 +834,8 @@ static const struct mtk_clk_desc topck_desc = {
+ 	.composite_clks = top_aud_divs,
+ 	.num_composite_clks = ARRAY_SIZE(top_aud_divs),
+ 	.clk_lock = &mt6789_clk_lock,
++	.clk_notifier_func = clk_mt6789_reg_mfg_mux_notifier,
++	.mfg_clk_idx = CLK_TOP_MFG_PLL_SEL,
  };
+ 
+ static const struct of_device_id of_match_clk_mt6789_topckgen[] = {
+diff --git a/drivers/gpu/drm/mediatek/mtk_crtc.c b/drivers/gpu/drm/mediatek/mtk_crtc.c
+index 97e3ff412..99a2235ef 100644
+--- a/drivers/gpu/drm/mediatek/mtk_crtc.c
++++ b/drivers/gpu/drm/mediatek/mtk_crtc.c
+@@ -633,6 +633,11 @@ static void mtk_crtc_update_config(struct mtk_crtc *mtk_crtc, bool needs_vblank)
+ 		goto update_config_out;
+ 	}
+ #endif
++	if (!priv->data->shadow_register) {
++		if (!needs_vblank)
++			mtk_crtc_ddp_config(crtc, NULL);
++		mtk_ddp_comp_enable_vblank(mtk_crtc->ddp_comp[0]);
++	}
+ 	spin_lock_irqsave(&mtk_crtc->config_lock, flags);
+ 	mtk_crtc->config_updating = false;
+ 	spin_unlock_irqrestore(&mtk_crtc->config_lock, flags);
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
+index 97a899e4b..dba6ea1f4 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_ovl.c
+@@ -9,6 +9,7 @@
+ 
+ #include <linux/clk.h>
+ #include <linux/component.h>
++#include <linux/dma-mapping.h>
+ #include <linux/module.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+@@ -265,17 +266,19 @@ void mtk_ovl_start(struct device *dev)
+ 		unsigned int reg;
+ 
+ 		reg = readl(ovl->regs + DISP_REG_OVL_DATAPATH_CON);
+-		reg = reg | OVL_LAYER_SMI_ID_EN;
++		reg = (reg | OVL_LAYER_SMI_ID_EN | BIT(24) | BIT(26)) &
++		      ~OVL_BGCLR_SEL_IN;
+ 		writel_relaxed(reg, ovl->regs + DISP_REG_OVL_DATAPATH_CON);
+ 	}
+-	writel_relaxed(0x1, ovl->regs + DISP_REG_OVL_EN);
++	/* Enable OVL and keep DISP_OVL_BYPASS_SHADOW (BIT(22)) enabled */
++	writel_relaxed(0x1 | BIT(22), ovl->regs + DISP_REG_OVL_EN);
+ }
+ 
+ void mtk_ovl_stop(struct device *dev)
+ {
+ 	struct mtk_disp_ovl *ovl = dev_get_drvdata(dev);
+ 
+-	writel_relaxed(0x0, ovl->regs + DISP_REG_OVL_EN);
++	writel_relaxed(BIT(22), ovl->regs + DISP_REG_OVL_EN);
+ 	if (ovl->data->smi_id_en) {
+ 		unsigned int reg;
+ 
+@@ -327,6 +330,10 @@ void mtk_ovl_config(struct device *dev, unsigned int w,
+ 	mtk_ddp_write_relaxed(cmdq_pkt, OVL_COLOR_ALPHA, &ovl->cmdq_reg,
+ 			      ovl->regs, DISP_REG_OVL_ROI_BGCLR);
+ 
++	/* Ensure OVL generates its own background color when not chained behind another OVL */
++	mtk_ddp_write_mask(cmdq_pkt, 0, &ovl->cmdq_reg, ovl->regs,
++			   DISP_REG_OVL_DATAPATH_CON, OVL_BGCLR_SEL_IN);
++
+ 	mtk_ddp_write(cmdq_pkt, 0x1, &ovl->cmdq_reg, ovl->regs, DISP_REG_OVL_RST);
+ 	mtk_ddp_write(cmdq_pkt, 0x0, &ovl->cmdq_reg, ovl->regs, DISP_REG_OVL_RST);
+ }
+@@ -373,6 +380,9 @@ void mtk_ovl_layer_on(struct device *dev, unsigned int idx,
+ 	unsigned int gmc_value;
+ 	struct mtk_disp_ovl *ovl = dev_get_drvdata(dev);
+ 
++	if (!cmdq_pkt && (readl(ovl->regs + DISP_REG_OVL_SRC_CON) & BIT(idx)))
++		return;
++
+ 	mtk_ddp_write(cmdq_pkt, 0x1, &ovl->cmdq_reg, ovl->regs,
+ 		      DISP_REG_OVL_RDMA_CTRL(idx));
+ 	gmc_thrshd_l = GMC_THRESHOLD_LOW >>
+@@ -640,6 +650,13 @@ static int mtk_disp_ovl_probe(struct platform_device *pdev)
+ 	priv->data = of_device_get_match_data(dev);
+ 	platform_set_drvdata(pdev, priv);
+ 
++	dma_set_mask_and_coherent(dev, DMA_BIT_MASK(32));
++
++	/* Disable and clear pending interrupts and leftover layers from bootloader */
++	writel(0x0, priv->regs + DISP_REG_OVL_INTEN);
++	writel(0x0, priv->regs + DISP_REG_OVL_INTSTA);
++	writel(0x0, priv->regs + DISP_REG_OVL_SRC_CON);
++
+ 	ret = devm_request_irq(dev, irq, mtk_disp_ovl_irq_handler,
+ 			       IRQF_TRIGGER_NONE, dev_name(dev), priv);
+ 	if (ret < 0)
+@@ -756,6 +773,8 @@ static const struct of_device_id mtk_disp_ovl_driver_dt_match[] = {
+ 	  .data = &mt8167_ovl_driver_data},
+ 	{ .compatible = "mediatek,mt8173-disp-ovl",
+ 	  .data = &mt8173_ovl_driver_data},
++	{ .compatible = "mediatek,mt6789-disp-ovl",
++	  .data = &mt8192_ovl_driver_data},
+ 	{ .compatible = "mediatek,mt8183-disp-ovl",
+ 	  .data = &mt8183_ovl_driver_data},
+ 	{ .compatible = "mediatek,mt8183-disp-ovl-2l",
+diff --git a/drivers/gpu/drm/mediatek/mtk_disp_rdma.c b/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
+index c9d41d75e..fc2dee250 100644
+--- a/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
++++ b/drivers/gpu/drm/mediatek/mtk_disp_rdma.c
+@@ -209,8 +209,11 @@ void mtk_rdma_config(struct device *dev, unsigned int width,
+ 	threshold = rdma_fifo_size * 7 / 10;
+ 	reg = RDMA_FIFO_UNDERFLOW_EN |
+ 	      RDMA_FIFO_PSEUDO_SIZE(rdma_fifo_size) |
+-	      RDMA_OUTPUT_VALID_FIFO_THRESHOLD(threshold);
++	      (rdma->fifo_size ? 0 : RDMA_OUTPUT_VALID_FIFO_THRESHOLD(threshold));
+ 	mtk_ddp_write(cmdq_pkt, reg, &rdma->cmdq_reg, rdma->regs, DISP_REG_RDMA_FIFO_CON);
++	/* Bypass RDMA shadow registers when writing directly via CPU */
++	if (rdma->fifo_size)
++		mtk_ddp_write(cmdq_pkt, 0x6, &rdma->cmdq_reg, rdma->regs, 0x00bc);
+ }
+ 
+ static unsigned int rdma_fmt_convert(struct mtk_disp_rdma *rdma,
+@@ -405,6 +408,8 @@ static const struct of_device_id mtk_disp_rdma_driver_dt_match[] = {
+ 	  .data = &mt2701_rdma_driver_data},
+ 	{ .compatible = "mediatek,mt8173-disp-rdma",
+ 	  .data = &mt8173_rdma_driver_data},
++	{ .compatible = "mediatek,mt6789-disp-rdma",
++	  .data = &mt8183_rdma_driver_data},
+ 	{ .compatible = "mediatek,mt8183-disp-rdma",
+ 	  .data = &mt8183_rdma_driver_data},
+ 	{ .compatible = "mediatek,mt8195-disp-rdma",
+diff --git a/drivers/gpu/drm/mediatek/mtk_drm_drv.c b/drivers/gpu/drm/mediatek/mtk_drm_drv.c
+index dc8e3e917..9664ee581 100644
+--- a/drivers/gpu/drm/mediatek/mtk_drm_drv.c
++++ b/drivers/gpu/drm/mediatek/mtk_drm_drv.c
+@@ -141,6 +141,12 @@ static const unsigned int mt8173_mtk_ddp_ext[] = {
+ 	DDP_COMPONENT_DPI0,
+ };
+ 
++static const unsigned int mt6789_mtk_ddp_main[] = {
++	DDP_COMPONENT_OVL0,
++	DDP_COMPONENT_RDMA0,
++	DDP_COMPONENT_DSI0,
++};
++
+ static const unsigned int mt8183_mtk_ddp_main[] = {
+ 	DDP_COMPONENT_OVL0,
+ 	DDP_COMPONENT_OVL_2L0,
+@@ -273,6 +279,12 @@ static const struct mtk_mmsys_driver_data mt8173_mmsys_driver_data = {
+ 	.mmsys_dev_num = 1,
+ };
+ 
++static const struct mtk_mmsys_driver_data mt6789_mmsys_driver_data = {
++	.main_path = mt6789_mtk_ddp_main,
++	.main_len = ARRAY_SIZE(mt6789_mtk_ddp_main),
++	.mmsys_dev_num = 1,
++};
++
+ static const struct mtk_mmsys_driver_data mt8183_mmsys_driver_data = {
+ 	.main_path = mt8183_mtk_ddp_main,
+ 	.main_len = ARRAY_SIZE(mt8183_mtk_ddp_main),
+@@ -342,6 +354,8 @@ static const struct of_device_id mtk_drm_of_ids[] = {
+ 	  .data = &mt8167_mmsys_driver_data},
+ 	{ .compatible = "mediatek,mt8173-mmsys",
+ 	  .data = &mt8173_mmsys_driver_data},
++	{ .compatible = "mediatek,mt6789-mmsys",
++	  .data = &mt6789_mmsys_driver_data},
+ 	{ .compatible = "mediatek,mt8183-mmsys",
+ 	  .data = &mt8183_mmsys_driver_data},
+ 	{ .compatible = "mediatek,mt8186-mmsys",
+@@ -726,6 +740,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+ 	  .data = (void *)MTK_DISP_COLOR },
+ 	{ .compatible = "mediatek,mt8167-disp-dither",
+ 	  .data = (void *)MTK_DISP_DITHER },
++	{ .compatible = "mediatek,mt6789-disp-dither",
++	  .data = (void *)MTK_DISP_DITHER },
+ 	{ .compatible = "mediatek,mt8183-disp-dither",
+ 	  .data = (void *)MTK_DISP_DITHER },
+ 	{ .compatible = "mediatek,mt8195-disp-dsc",
+@@ -748,6 +764,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+ 	  .data = (void *)MTK_DISP_MUTEX },
+ 	{ .compatible = "mediatek,mt8173-disp-mutex",
+ 	  .data = (void *)MTK_DISP_MUTEX },
++	{ .compatible = "mediatek,mt6789-disp-mutex",
++	  .data = (void *)MTK_DISP_MUTEX },
+ 	{ .compatible = "mediatek,mt8183-disp-mutex",
+ 	  .data = (void *)MTK_DISP_MUTEX },
+ 	{ .compatible = "mediatek,mt8186-disp-mutex",
+@@ -768,6 +786,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+ 	  .data = (void *)MTK_DISP_OVL },
+ 	{ .compatible = "mediatek,mt8173-disp-ovl",
+ 	  .data = (void *)MTK_DISP_OVL },
++	{ .compatible = "mediatek,mt6789-disp-ovl",
++	  .data = (void *)MTK_DISP_OVL },
+ 	{ .compatible = "mediatek,mt8183-disp-ovl",
+ 	  .data = (void *)MTK_DISP_OVL },
+ 	{ .compatible = "mediatek,mt8192-disp-ovl",
+@@ -792,6 +812,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+ 	  .data = (void *)MTK_DISP_RDMA },
+ 	{ .compatible = "mediatek,mt8173-disp-rdma",
+ 	  .data = (void *)MTK_DISP_RDMA },
++	{ .compatible = "mediatek,mt6789-disp-rdma",
++	  .data = (void *)MTK_DISP_RDMA },
+ 	{ .compatible = "mediatek,mt8183-disp-rdma",
+ 	  .data = (void *)MTK_DISP_RDMA },
+ 	{ .compatible = "mediatek,mt8195-disp-rdma",
+@@ -822,6 +844,8 @@ static const struct of_device_id mtk_ddp_comp_dt_ids[] = {
+ 	  .data = (void *)MTK_DSI },
+ 	{ .compatible = "mediatek,mt8173-dsi",
+ 	  .data = (void *)MTK_DSI },
++	{ .compatible = "mediatek,mt6789-dsi",
++	  .data = (void *)MTK_DSI },
+ 	{ .compatible = "mediatek,mt8183-dsi",
+ 	  .data = (void *)MTK_DSI },
+ 	{ .compatible = "mediatek,mt8186-dsi",
+diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_dsi.c
+index 796113933..580fc8233 100644
+--- a/drivers/gpu/drm/mediatek/mtk_dsi.c
++++ b/drivers/gpu/drm/mediatek/mtk_dsi.c
+@@ -645,6 +645,7 @@ static irqreturn_t mtk_dsi_irq(int irq, void *dev_id)
+ 	struct mtk_dsi *dsi = dev_id;
+ 	u32 status, tmp;
+ 	u32 flag = LPRX_RD_RDY_INT_FLAG | CMD_DONE_INT_FLAG | VM_DONE_INT_FLAG;
++	int i = 0;
+ 
+ 	status = readl(dsi->regs + DSI_INTSTA) & flag;
+ 
+@@ -652,7 +653,7 @@ static irqreturn_t mtk_dsi_irq(int irq, void *dev_id)
+ 		do {
+ 			mtk_dsi_mask(dsi, DSI_RACK, RACK, RACK);
+ 			tmp = readl(dsi->regs + DSI_INTSTA);
+-		} while (tmp & DSI_BUSY);
++		} while ((tmp & DSI_BUSY) && ++i < 100);
+ 
+ 		mtk_dsi_mask(dsi, DSI_INTSTA, status, 0);
+ 		mtk_dsi_irq_data_set(dsi, status);
+@@ -700,6 +701,21 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
+ 	if (++dsi->refcount != 1)
+ 		return 0;
+ 
++	/* If bootloader left DSI running in video mode, keep its active D-PHY/DSI state */
++	if ((readl(dsi->regs + DSI_START) & 0x1) &&
++	    (readl(dsi->regs + DSI_MODE_CTRL) & MODE)) {
++		clk_prepare_enable(dsi->engine_clk);
++		clk_prepare_enable(dsi->digital_clk);
++		if (dsi->driver_data->has_shadow_ctl)
++			writel(FORCE_COMMIT | BYPASS_SHADOW,
++			       dsi->regs + dsi->driver_data->reg_shadow_dbg_off);
++		writel(0, dsi->regs + DSI_INTEN);
++		writel(0, dsi->regs + DSI_INTSTA);
++		dsi->lanes_ready = true;
++		dsi->enabled = true;
++		return 0;
++	}
++
+ 	ret = mipi_dsi_pixel_format_to_bpp(dsi->format);
+ 	if (ret < 0) {
+ 		dev_err(dev, "Unknown MIPI DSI format %d\n", dsi->format);
+@@ -1251,6 +1267,9 @@ static int mtk_dsi_probe(struct platform_device *pdev)
+ 	if (ret < 0)
+ 		return dev_err_probe(dev, ret, "Failed to register DSI host\n");
+ 
++	writel(0, dsi->regs + DSI_INTEN);
++	writel(0, dsi->regs + DSI_INTSTA);
++
+ 	ret = devm_request_irq(&pdev->dev, irq_num, mtk_dsi_irq,
+ 			       IRQF_TRIGGER_NONE, dev_name(&pdev->dev), dsi);
+ 	if (ret) {
+@@ -1310,10 +1329,21 @@ static const struct mtk_dsi_driver_data mt8188_dsi_driver_data = {
+ 	.support_per_frame_lp = true,
+ };
+ 
++static const struct mtk_dsi_driver_data mt6789_dsi_driver_data = {
++	.reg_cmdq_off = 0xd00,
++	.reg_vm_cmd_off = 0x200,
++	.reg_shadow_dbg_off = 0x190,
++	.has_shadow_ctl = true,
++	.has_size_ctl = true,
++	.cmdq_long_packet_ctl = true,
++	.support_per_frame_lp = true,
++};
++
+ static const struct of_device_id mtk_dsi_of_match[] = {
+ 	{ .compatible = "mediatek,mt2701-dsi", .data = &mt2701_dsi_driver_data },
+ 	{ .compatible = "mediatek,mt8167-dsi", .data = &mt2701_dsi_driver_data },
+ 	{ .compatible = "mediatek,mt8173-dsi", .data = &mt8173_dsi_driver_data },
++	{ .compatible = "mediatek,mt6789-dsi", .data = &mt6789_dsi_driver_data },
+ 	{ .compatible = "mediatek,mt8183-dsi", .data = &mt8183_dsi_driver_data },
+ 	{ .compatible = "mediatek,mt8186-dsi", .data = &mt8186_dsi_driver_data },
+ 	{ .compatible = "mediatek,mt8188-dsi", .data = &mt8188_dsi_driver_data },
 diff --git a/drivers/gpu/drm/panfrost/panfrost_drv.c b/drivers/gpu/drm/panfrost/panfrost_drv.c
 index 063c161c2..9c75640b1 100644
 --- a/drivers/gpu/drm/panfrost/panfrost_drv.c
@@ -1240,6 +1705,56 @@ index 063c161c2..9c75640b1 100644
  	{}
  };
  MODULE_DEVICE_TABLE(of, dt_match);
+diff --git a/drivers/iio/adc/mt6359-auxadc.c b/drivers/iio/adc/mt6359-auxadc.c
+index 88b0e2630..e7ac804b6 100644
+--- a/drivers/iio/adc/mt6359-auxadc.c
++++ b/drivers/iio/adc/mt6359-auxadc.c
+@@ -201,7 +201,8 @@ struct mtk_pmic_auxadc_info {
+ 		.endianness = IIO_CPU						\
+ 	},									\
+ 	.indexed = 1,								\
+-	.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) | BIT(IIO_CHAN_INFO_SCALE)	\
++	.info_mask_separate = BIT(IIO_CHAN_INFO_RAW) | BIT(IIO_CHAN_INFO_SCALE) | \
++			      BIT(IIO_CHAN_INFO_PROCESSED)			\
+ }
+ 
+ static const struct iio_chan_spec mt6357_auxadc_channels[] = {
+@@ -815,6 +816,35 @@ static int mt6359_auxadc_read_raw(struct iio_dev *indio_dev,
+ 	}
+ 	adc_dev->timed_out = false;
+ 
++	if (mask == IIO_CHAN_INFO_PROCESSED) {
++		int v_mv;
++
++		switch (chan->scan_index) {
++		case PMIC_AUXADC_CHAN_IBAT:
++		case PMIC_AUXADC_CHAN_VBAT:
++			break;
++		case PMIC_AUXADC_CHAN_CHIP_TEMP:
++		case PMIC_AUXADC_CHAN_VCORE_TEMP:
++		case PMIC_AUXADC_CHAN_VPROC_TEMP:
++		case PMIC_AUXADC_CHAN_VGPU_TEMP:
++		case PMIC_AUXADC_CHAN_TSX_TEMP:
++		case PMIC_AUXADC_CHAN_DCXO_TEMP:
++			v_mv = div_s64((s64)(*val) * desc->r_ratio.numerator * cinfo->vref_mV,
++				       (s64)desc->r_ratio.denominator << chan->scan_type.realbits);
++			*val = 25000 + ((750 - v_mv) * 1000) / 4;
++			break;
++		case PMIC_AUXADC_CHAN_BAT_TEMP:
++			v_mv = div_s64((s64)(*val) * desc->r_ratio.numerator * cinfo->vref_mV,
++				       (s64)desc->r_ratio.denominator << chan->scan_type.realbits);
++			*val = 25000 + ((850 - v_mv) * 1000) / 18;
++			break;
++		default:
++			*val = div_s64((s64)(*val) * desc->r_ratio.numerator * cinfo->vref_mV,
++				       (s64)desc->r_ratio.denominator << chan->scan_type.realbits);
++			break;
++		}
++	}
++
+ 	return IIO_VAL_INT;
+ }
+ 
 diff --git a/drivers/pmdomain/mediatek/mt6789-pm-domains.h b/drivers/pmdomain/mediatek/mt6789-pm-domains.h
 new file mode 100644
 index 000000000..ef82f6ac3
@@ -1581,6 +2096,147 @@ index 0bb49be65..bacfb3a1f 100644
  	{ .compatible = "mediatek,mt6795-pwm", .data = &mt6795_pwm_data },
  	{ .compatible = "mediatek,mt6991-pwm", .data = &mt6991_pwm_data },
  	{ .compatible = "mediatek,mt7622-pwm", .data = &mt7622_pwm_data },
+diff --git a/drivers/soc/mediatek/mtk-mmsys.c b/drivers/soc/mediatek/mtk-mmsys.c
+index 2f3e0778b..c8dcd067f 100644
+--- a/drivers/soc/mediatek/mtk-mmsys.c
++++ b/drivers/soc/mediatek/mtk-mmsys.c
+@@ -37,10 +37,28 @@ static const struct mtk_mmsys_driver_data mt2712_mmsys_driver_data = {
+ 	.num_routes = ARRAY_SIZE(mmsys_default_routing_table),
+ };
+ 
++static const struct mtk_mmsys_routes mmsys_mt6789_routing_table[] = {
++	MMSYS_ROUTE(OVL, 0, RDMA, 0, 0xf04, 0xf, 0x1),
++	MMSYS_ROUTE(OVL, 0, RDMA, 0, 0xf14, 0x7, 0x0),
++	MMSYS_ROUTE(OVL, 0, RDMA, 0, 0xf18, 0x7, 0x1),
++	MMSYS_ROUTE(OVL, 0, RDMA, 0, 0xf28, 0x3, 0x0),
++	MMSYS_ROUTE(RDMA, 0, DSI, 0, 0xf0c, 0x3, 0x1),
++	MMSYS_ROUTE(RDMA, 0, DSI, 0, 0xf20, 0x7, 0x1),
++	MMSYS_ROUTE(RDMA, 0, DSI, 0, 0xf30, 0x3, 0x1),
++};
++
+ static const struct mtk_mmsys_driver_data mt6779_mmsys_driver_data = {
+ 	.clk_driver = "clk-mt6779-mm",
+ };
+ 
++static const struct mtk_mmsys_driver_data mt6789_mmsys_driver_data = {
++	.clk_driver = "clk-mt6789-mm",
++	.routes = mmsys_mt6789_routing_table,
++	.num_routes = ARRAY_SIZE(mmsys_mt6789_routing_table),
++	.sw0_rst_offset = MT8183_MMSYS_SW0_RST_B,
++	.num_resets = 32,
++};
++
+ static const struct mtk_mmsys_driver_data mt6795_mmsys_driver_data = {
+ 	.clk_driver = "clk-mt6795-mm",
+ 	.routes = mt8173_mmsys_routing_table,
+@@ -461,6 +479,7 @@ static const struct of_device_id of_match_mtk_mmsys[] = {
+ 	{ .compatible = "mediatek,mt2701-mmsys", .data = &mt2701_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt2712-mmsys", .data = &mt2712_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt6779-mmsys", .data = &mt6779_mmsys_driver_data },
++	{ .compatible = "mediatek,mt6789-mmsys", .data = &mt6789_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt6795-mmsys", .data = &mt6795_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt6797-mmsys", .data = &mt6797_mmsys_driver_data },
+ 	{ .compatible = "mediatek,mt8167-mmsys", .data = &mt8167_mmsys_driver_data },
+diff --git a/drivers/soc/mediatek/mtk-mutex.c b/drivers/soc/mediatek/mtk-mutex.c
+index eb5d381ff..d349f3f31 100644
+--- a/drivers/soc/mediatek/mtk-mutex.c
++++ b/drivers/soc/mediatek/mtk-mutex.c
+@@ -66,6 +66,20 @@
+ #define MT8186_MUTEX_EOF_DSI0			(MT8186_MUTEX_SOF_DSI0 << 6)
+ #define MT8186_MUTEX_EOF_DPI0			(MT8186_MUTEX_SOF_DPI0 << 6)
+ 
++#define MT6789_MUTEX_MOD_DISP_OVL0		0
++#define MT6789_MUTEX_MOD_DISP_OVL0_2L		1
++#define MT6789_MUTEX_MOD_DISP_RDMA0		2
++#define MT6789_MUTEX_MOD_DISP_RSZ0		3
++#define MT6789_MUTEX_MOD_DISP_COLOR0		4
++#define MT6789_MUTEX_MOD_DISP_CCORR0		5
++#define MT6789_MUTEX_MOD_DISP_AAL0		7
++#define MT6789_MUTEX_MOD_DISP_GAMMA0		8
++#define MT6789_MUTEX_MOD_DISP_POSTMASK0		9
++#define MT6789_MUTEX_MOD_DISP_DITHER0		10
++#define MT6789_MUTEX_MOD_DISP_DSI0		14
++#define MT6789_MUTEX_MOD_DISP_WDMA0		15
++#define MT6789_MUTEX_MOD_DISP_PWM0		16
++
+ #define MT8167_MUTEX_MOD_DISP_PWM		1
+ #define MT8167_MUTEX_MOD_DISP_OVL0		6
+ #define MT8167_MUTEX_MOD_DISP_OVL1		7
+@@ -771,6 +785,29 @@ static const struct mtk_mutex_data mt8173_mutex_driver_data = {
+ 	.mutex_sof_reg = MT2701_MUTEX0_SOF0,
+ };
+ 
++static const u8 mt6789_mutex_mod[DDP_COMPONENT_ID_MAX] = {
++	[DDP_COMPONENT_OVL0] = MT6789_MUTEX_MOD_DISP_OVL0,
++	[DDP_COMPONENT_OVL_2L0] = MT6789_MUTEX_MOD_DISP_OVL0_2L,
++	[DDP_COMPONENT_RDMA0] = MT6789_MUTEX_MOD_DISP_RDMA0,
++	[DDP_COMPONENT_COLOR0] = MT6789_MUTEX_MOD_DISP_COLOR0,
++	[DDP_COMPONENT_CCORR] = MT6789_MUTEX_MOD_DISP_CCORR0,
++	[DDP_COMPONENT_AAL0] = MT6789_MUTEX_MOD_DISP_AAL0,
++	[DDP_COMPONENT_GAMMA] = MT6789_MUTEX_MOD_DISP_GAMMA0,
++	[DDP_COMPONENT_POSTMASK0] = MT6789_MUTEX_MOD_DISP_POSTMASK0,
++	[DDP_COMPONENT_DITHER0] = MT6789_MUTEX_MOD_DISP_DITHER0,
++	[DDP_COMPONENT_DSI0] = MT6789_MUTEX_MOD_DISP_DSI0,
++	[DDP_COMPONENT_WDMA0] = MT6789_MUTEX_MOD_DISP_WDMA0,
++	[DDP_COMPONENT_PWM0] = MT6789_MUTEX_MOD_DISP_PWM0,
++};
++
++static const struct mtk_mutex_data mt6789_mutex_driver_data = {
++	.mutex_mod = mt6789_mutex_mod,
++	.mutex_sof = mt8183_mutex_sof,
++	.mutex_mod_reg = MT8183_MUTEX0_MOD0,
++	.mutex_mod1_reg = MT8183_MUTEX0_MOD1,
++	.mutex_sof_reg = MT8183_MUTEX0_SOF0,
++};
++
+ static const struct mtk_mutex_data mt8183_mutex_driver_data = {
+ 	.mutex_mod = mt8183_mutex_mod,
+ 	.mutex_sof = mt8183_mutex_sof,
+@@ -927,6 +964,8 @@ void mtk_mutex_add_comp(struct mtk_mutex *mutex,
+ 		offset = DISP_REG_MUTEX_MOD(mtx, mtx->data->mutex_mod[id], mutex->id);
+ 		mod_id = mtx->data->mutex_mod[id] % 32;
+ 		reg = readl_relaxed(mtx->regs + offset);
++		if (mtx->data == &mt6789_mutex_driver_data && id == DDP_COMPONENT_OVL0)
++			reg &= ~BIT(MT6789_MUTEX_MOD_DISP_OVL0_2L);
+ 		reg |= BIT(mod_id);
+ 		writel_relaxed(reg, mtx->regs + offset);
+ 		return;
+@@ -935,6 +974,13 @@ void mtk_mutex_add_comp(struct mtk_mutex *mutex,
+ 	writel_relaxed(mtx->data->mutex_sof[sof_id],
+ 		       mtx->regs +
+ 		       DISP_REG_MUTEX_SOF(mtx->data->mutex_sof_reg, mutex->id));
++	if (mtx->data->mutex_mod[id]) {
++		offset = DISP_REG_MUTEX_MOD(mtx, mtx->data->mutex_mod[id], mutex->id);
++		mod_id = mtx->data->mutex_mod[id] % 32;
++		reg = readl_relaxed(mtx->regs + offset);
++		reg |= BIT(mod_id);
++		writel_relaxed(reg, mtx->regs + offset);
++	}
+ }
+ EXPORT_SYMBOL_GPL(mtk_mutex_add_comp);
+ 
+@@ -962,6 +1008,13 @@ void mtk_mutex_remove_comp(struct mtk_mutex *mutex,
+ 			       mtx->regs +
+ 			       DISP_REG_MUTEX_SOF(mtx->data->mutex_sof_reg,
+ 						  mutex->id));
++		if (mtx->data->mutex_mod[id]) {
++			offset = DISP_REG_MUTEX_MOD(mtx, mtx->data->mutex_mod[id], mutex->id);
++			mod_id = mtx->data->mutex_mod[id] % 32;
++			reg = readl_relaxed(mtx->regs + offset);
++			reg &= ~BIT(mod_id);
++			writel_relaxed(reg, mtx->regs + offset);
++		}
+ 		break;
+ 	default:
+ 		offset = DISP_REG_MUTEX_MOD(mtx, mtx->data->mutex_mod[id], mutex->id);
+@@ -1133,6 +1186,7 @@ static int mtk_mutex_probe(struct platform_device *pdev)
+ static const struct of_device_id mutex_driver_dt_match[] = {
+ 	{ .compatible = "mediatek,mt2701-disp-mutex", .data = &mt2701_mutex_driver_data },
+ 	{ .compatible = "mediatek,mt2712-disp-mutex", .data = &mt2712_mutex_driver_data },
++	{ .compatible = "mediatek,mt6789-disp-mutex", .data = &mt6789_mutex_driver_data },
+ 	{ .compatible = "mediatek,mt6795-disp-mutex", .data = &mt6795_mutex_driver_data },
+ 	{ .compatible = "mediatek,mt8167-disp-mutex", .data = &mt8167_mutex_driver_data },
+ 	{ .compatible = "mediatek,mt8173-disp-mutex", .data = &mt8173_mutex_driver_data },
 diff --git a/kernel/printk/printk.c b/kernel/printk/printk.c
 index bc3b9f6e4..74c408ab7 100644
 --- a/kernel/printk/printk.c

@@ -423,7 +423,7 @@ module_param(dbg_log_en, bool, 0644);
 enum upm6922_adc_chan {
 	ADC_CHAN_VBUS,
 	ADC_CHAN_VBAT,
-	ADC_CHAN_NOT_SUPPORT,
+	ADC_CHAN_BAT_TEMP,
 	ADC_CHAN_VSYS,
 	ADC_CHAN_IBAT,
 	ADC_CHAN_IBUS,

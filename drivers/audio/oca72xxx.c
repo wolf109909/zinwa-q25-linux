@@ -909,6 +909,66 @@ static int oca72xxx_init_default_prof(struct oca72xxx *oca72xxx)
 	return 0;
 }
 
+static int oca72xxx_init_builtin_prof(struct oca72xxx *oca72xxx)
+{
+	static uint8_t music_regs[] = {
+		0x02, 0x0c, /* MDCTRL: EN_2X=1, EN_SPK=1 */
+		0x03, 0x08, /* CPOVP: 8.0V */
+		0x04, 0x09, /* CPP */
+		0x05, 0x0c, /* PAG */
+		0x06, 0x07, /* AGC3P */
+		0x07, 0x4e, /* AGC3PA */
+		0x08, 0x06, /* AGC2P */
+		0x09, 0x08, /* AGC2PA */
+		0x0a, 0x4a, /* AGC1PA */
+		0x01, 0x07, /* SYSCTRL: EN_PA=1, EN_CP=1, PU_CPPA=1 */
+	};
+	static uint8_t voice_regs[] = {
+		0x02, 0x08, /* MDCTRL: EN_2X=1, EN_SPK=0 (Receiver mode) */
+		0x03, 0x08,
+		0x04, 0x09,
+		0x05, 0x0c,
+		0x01, 0x07, /* SYSCTRL: EN_PA=1, EN_CP=1, PU_CPPA=1 */
+	};
+	static uint8_t off_regs[] = {
+		0x01, 0x06, /* SYSCTRL: PU_CPPA=0 (power down) */
+	};
+	struct acf_bin_info *acf_info = &oca72xxx->acf_info;
+	struct oca_prof_info *prof_info = &acf_info->prof_info;
+
+	prof_info->count = 3;
+	prof_info->prof_desc = devm_kzalloc(oca72xxx->dev,
+			3 * sizeof(struct oca_prof_desc), GFP_KERNEL);
+	prof_info->prof_name_list = (char (*)[OCA_PROFILE_STR_MAX])devm_kzalloc(oca72xxx->dev,
+			3 * OCA_PROFILE_STR_MAX, GFP_KERNEL);
+	if (!prof_info->prof_desc || !prof_info->prof_name_list)
+		return -ENOMEM;
+
+	prof_info->prof_desc[0].prof_st = OCA_PROFILE_OK;
+	prof_info->prof_desc[0].prof_name = "Music";
+	snprintf(prof_info->prof_desc[0].dev_name, OCA_CUSTOMER_NAME_MAX, "oca72390");
+	prof_info->prof_desc[0].data_container.data = music_regs;
+	prof_info->prof_desc[0].data_container.len = sizeof(music_regs);
+	snprintf(prof_info->prof_name_list[0], OCA_PROFILE_STR_MAX, "Music");
+
+	prof_info->prof_desc[1].prof_st = OCA_PROFILE_OK;
+	prof_info->prof_desc[1].prof_name = "Voice";
+	snprintf(prof_info->prof_desc[1].dev_name, OCA_CUSTOMER_NAME_MAX, "oca72390");
+	prof_info->prof_desc[1].data_container.data = voice_regs;
+	prof_info->prof_desc[1].data_container.len = sizeof(voice_regs);
+	snprintf(prof_info->prof_name_list[1], OCA_PROFILE_STR_MAX, "Voice");
+
+	prof_info->prof_desc[2].prof_st = OCA_PROFILE_OK;
+	prof_info->prof_desc[2].prof_name = "Off";
+	snprintf(prof_info->prof_desc[2].dev_name, OCA_CUSTOMER_NAME_MAX, "oca72390");
+	prof_info->prof_desc[2].data_container.data = off_regs;
+	prof_info->prof_desc[2].data_container.len = sizeof(off_regs);
+	snprintf(prof_info->prof_name_list[2], OCA_PROFILE_STR_MAX, "Off");
+
+	prof_info->status = OCA_ACF_UPDATE;
+	return oca72xxx_init_default_prof(oca72xxx);
+}
+
 static void oca72xxx_fw_load_work(struct work_struct *work)
 {
 	int ret = -1;
@@ -919,19 +979,12 @@ static void oca72xxx_fw_load_work(struct work_struct *work)
 
 	OCA_DEV_LOGD(oca72xxx->dev, "enter");
 
-	ret = request_firmware(&cont, oca72xxx->fw_name, oca72xxx->dev);
+	ret = request_firmware_direct(&cont, oca72xxx->fw_name, oca72xxx->dev);
 	if ((ret) || (!cont)) {
-		OCA_DEV_LOGD(oca72xxx->dev, "load [%s] failed!", oca72xxx->fw_name);
-		if (acf_info->load_count == OCA_READ_CHIPID_RETRIES) {
-			acf_info->load_count = 0;
-		} else {
-			acf_info->load_count++;
-			/* sleep 1s */
-			msleep(1000);
-			OCA_DEV_LOGD(oca72xxx->dev, "load [%s] try [%d]!",
-						oca72xxx->fw_name, acf_info->load_count);
-			oca72xxx_fw_load_work(work);
-		}
+		mutex_lock(&oca72xxx->reg_lock);
+		if (oca72xxx_init_builtin_prof(oca72xxx) == 0)
+			OCA_DEV_LOGI(oca72xxx->dev, "loaded built-in OCA72xxx ACF profiles (Music, Voice, Off)");
+		mutex_unlock(&oca72xxx->reg_lock);
 		return;
 	}
 
@@ -1574,6 +1627,11 @@ static int oca72xxx_i2c_probe(struct i2c_client *client,
 	OCA_DEV_LOGI(oca72xxx->dev, "succeed, dev_index=[%d], g_oca72xxx_dev_cnt= [%d]",
 			oca72xxx->dev_index, g_oca72xxx_dev_cnt);
 
+	if (oca72xxx->dev_index == 0) {
+		extern void q25_register_audio_card(void);
+		q25_register_audio_card();
+	}
+
 	return 0;
 
 exit_device_init_failed:
@@ -1674,6 +1732,64 @@ static struct i2c_driver oca72xxx_i2c_driver = {
 	.id_table = oca72xxx_i2c_id,
 };
 
+static struct platform_device *q25_snd_pdev;
+
+SND_SOC_DAILINK_DEFS(q25_pri_dai,
+	DAILINK_COMP_ARRAY(COMP_DUMMY()),
+	DAILINK_COMP_ARRAY(COMP_CODEC("mt6358-sound", "mt6358-snd-codec-aif1")),
+	DAILINK_COMP_ARRAY(COMP_DUMMY()));
+
+static int q25_mt6358_oca72xxx_init(struct snd_soc_pcm_runtime *rtd)
+{
+	struct snd_soc_component *cmpnt = snd_soc_rtd_to_codec(rtd, 0)->component;
+
+	if (cmpnt)
+		oca72xxx_add_codec_controls(cmpnt);
+	return 0;
+}
+
+static struct snd_soc_dai_link q25_dai_links[] = {
+	{
+		.name = "MT6789-MT6358-OCA72XXX",
+		.stream_name = "Multimedia",
+		.init = q25_mt6358_oca72xxx_init,
+		SND_SOC_DAILINK_REG(q25_pri_dai),
+	},
+};
+
+static struct snd_soc_card q25_soc_card = {
+	.name = "ZinwaQ25Audio",
+	.long_name = "Zinwa-Q25-MT6789-MT6358-OCA72XXX",
+	.owner = THIS_MODULE,
+	.dai_link = q25_dai_links,
+	.num_links = ARRAY_SIZE(q25_dai_links),
+};
+
+void q25_register_audio_card(void)
+{
+	int ret;
+
+	if (q25_snd_pdev)
+		return;
+
+	q25_snd_pdev = platform_device_register_simple("mt6789-mt6358-snd", -1, NULL, 0);
+	if (IS_ERR(q25_snd_pdev)) {
+		OCA_LOGE("Failed to register mt6789-mt6358-snd pdev");
+		q25_snd_pdev = NULL;
+		return;
+	}
+
+	q25_soc_card.dev = &q25_snd_pdev->dev;
+	ret = snd_soc_register_card(&q25_soc_card);
+	if (ret) {
+		OCA_LOGE("Failed to register ZinwaQ25Audio card: %d", ret);
+		platform_device_unregister(q25_snd_pdev);
+		q25_snd_pdev = NULL;
+	} else {
+		OCA_LOGI("Registered ZinwaQ25Audio ALSA card (MT6358 + OCA7255)");
+	}
+}
+
 static int __init oca72xxx_pa_init(void)
 {
 	int ret;
@@ -1691,6 +1807,11 @@ static int __init oca72xxx_pa_init(void)
 static void __exit oca72xxx_pa_exit(void)
 {
 	OCA_LOGI("enter");
+	if (q25_snd_pdev) {
+		snd_soc_unregister_card(&q25_soc_card);
+		platform_device_unregister(q25_snd_pdev);
+		q25_snd_pdev = NULL;
+	}
 	i2c_del_driver(&oca72xxx_i2c_driver);
 }
 

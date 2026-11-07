@@ -30,6 +30,8 @@ zinwa-q25-linux/
 │   └── leds/                 # V4L2 camera flash / torch subdev drivers
 │       ├── aw36518.c         # -> aw36518.ko (mediatek,aw36518)
 │       └── flashlight-gpio-v4l2.c # -> flashlight-gpio-v4l2.ko (mediatek,flashlightgpio)
+├── firmware/
+│   └── ocs72xxx_cf.bin       # Extracted Orient-Chip OCA7255 Smart PA ACF firmware (Music/Receiver/Off profiles)
 ├── patches/
 │   ├── mt6789-soc/                   # 24 MT6789 / Helio G99 SoC + Q25 hardware patches for Linux 7.3.3
 │   └── cachyos-7.3/                  # CachyOS BORE scheduler patch rebased onto Linux 7.3.3
@@ -68,16 +70,17 @@ BORE CPU Scheduler modification 7.0.0 by Masahito Suzuki (kernel.sched_bore = 1)
 | **CPU & Scheduler** | `mtk-cpufreq-hw` + **CachyOS BORE v7.0.0** | `11bc10.performance-controller` | All 8 cores (`6x Cortex-A55` + `2x Cortex-A76`) online with DVFS & `kernel.sched_bore = 1`. |
 | **Memory** | Mainline arm64 MM | `memory@40000000` | `MemTotal: 11804604 kB` (12 GB LPDDR4X). |
 | **SCPSYS Power Domains** | `mtk-power-controller` (`CONFIG_MTK_SCPSYS_PM_DOMAINS=y`) | `10006000.syscon:power-controller` | `disp` (`on`), `mfg0` → `mfg1` → `mfg2`/`mfg3` (GPU PM domains), and `audio` registered in `pm_genpd_summary`. |
-| **Mali-G57 MC2 GPU** | `panfrost` (`CONFIG_DRM_PANFROST=y`) | `13000000.gpu` (`/dev/dri/card1`, `renderD128`) | Open-source **Panfrost 1.6.0** active on `mali-g57 id 0x9093` (`shader_present=0x5`, `l2_present=0x1`, `364 MHz`, THP enabled). |
-| **PMIC AuxADC & IIO** | `mt6359-auxadc` (`CONFIG_MEDIATEK_MT6359_AUXADC=y`) | `iio:device0` (`MT6358`) | 14 IIO ADC channels active (`bat_adc`, `batt_v`, `batt_temp`, `chip_temp`, `vcore_temp`, `vproc_temp`, `vgpu_temp`, `tsx_temp`, `dcxo_temp`, `acc_det`). |
-| **PMIC Audio Codec** | `mt6358-sound` (`CONFIG_SND_SOC_MT6358=y`) | `mt6358-sound` | MT6358 PMIC audio codec probed cleanly (`returned 0`). |
+| **Mali-G57 MC2 GPU & DVFS** | `panfrost` + `mediatek-regulator-coupler` | `13000000.gpu` (`/dev/dri/card1`, `renderD128`) | Open-source **Panfrost 1.6.0** active on `mali-g57 id 0x9093` (`Mesa 26.2.6` OpenGL 3.1 / ES 3.1) with `vgpu`↔`vsram_gpu` regulator coupling across all 36 OPPs (`390 MHz` – `1.1 GHz`). |
+| **Native DRM/KMS/DSI Display** | `mediatek-drm` (`mmsys` + `ovl0` + `rdma0` + `dsi0` + `mipi_tx0` + `panel-q20-hd720-lcm-dsi-vdo` + `ocp2131_drv`) | `14000000.syscon`, `14005000.ovl`, `14007000.rdma`, `14013000.dsi`, `/dev/dri/card2` | Native `card2-DSI-1` connected & enabled at `720x720@60Hz` (`mediatekdrmfb` on `/dev/fb0`), hardware vblank IRQs firing at 60 Hz on `14005000.ovl`, PWM backlight active (`1100e000.pwm`). |
+| **Arch Linux ARM Wayland / Phosh GUI** | `phoc 0.57.0` + `phosh 0.57.0` + `foot` + `seatd` + `upowerd` + `q25-logind-shim` | `wayland-0` on `DSI-1` (`720x720`) | Full graphical shell & terminal running on `wayland-0` accelerated by Panfrost (`Mali-G57 MC2`), with touchscreen, physical QWERTY keyboard (`keyd`), optical trackpad cursor, and `org.freedesktop.login1` backlight control. |
+| **PMIC AuxADC & 7 Thermal Zones** | `mt6359-auxadc` + `generic-adc-thermal` | `iio:device0`, `/sys/class/thermal/thermal_zone0..6` | 14 IIO ADC channels & 7 live thermal zones: `soc-thermal` (39.5°C), `cpu-thermal` (46.8°C), `gpu-thermal` (46.5°C), `vcore-thermal` (47.3°C), `battery-thermal` (31.6°C), `upm6922-charger` (31.3°C), `battery` (31.3°C). |
+| **ALSA Audio Card & Smart PA** | `mt6358-sound` + `snd_soc_oca72xxx` (`ZinwaQ25Audio`) | Card 0 (`ZinwaQ25Audio`), `3-0058` (`oca72xxx_pa`) | Registered ALSA Card 0 (`ZinwaQ25Audio`: MT6358 PMIC codec + OCA7255 Smart PA) with `firmware/ocs72xxx_cf.bin` ACF firmware loaded (`Music`, `Receiver`, `Off` profiles). |
 | **MMSYS, PWM, APDMA, Systimer** | `clk-mt6789-mm`, `pwm-mediatek`, `mediatek-disp-pwm`, `mtk_uart_apdma`, `timer-mediatek` | `14000000.syscon`, `10048000.pwm`, `1100e000.pwm`, `10217800.dma-controller`, `10017000.timer` | MMSYS clocks, SoC PWM, Display PWM, UART APDMA, and GICv3 IRQ 297 `systimer@10017000` probed cleanly. |
-| **UFS 256 GB Storage & LVM** | `ufshcd-mtk` + `dm-mod` | `11270000.ufs` (`/dev/mapper/droidian-droidian--rootfs`) | `SKhynix H9QT1GGCN6X147` 256 GB UFS with all 61 GPT partitions and 224.2 GB LVM rootfs mounted at `/rootfs` + `/opt/arch` Arch Linux ARM environment (363 packages). |
+| **UFS 256 GB Storage & LVM** | `ufshcd-mtk` + `dm-mod` | `11270000.ufs` (`/dev/mapper/droidian-droidian--rootfs`) | `SKhynix H9QT1GGCN6X147` 256 GB UFS with all 61 GPT partitions and 224.2 GB LVM rootfs mounted at `/rootfs` + `/opt/arch` Arch Linux ARM environment. |
 | **microSD Slot** | `mtk-msdc` | `11240000.mmc` | Probed cleanly (`returned 0`). |
-| **720x720 Display & Console** | `simpledrm` + `ocp2131_drv` + `pwm-backlight` | `ff97c000.framebuffer`, `7-003e` | `/dev/dri/card0`, `/dev/fb0` (`90x45` fbcon), interactive on-screen shell on `/dev/tty0`/`/dev/tty1`, OCP2131 bias IC (`0x3e`), and `backlight` PWM active. |
 | **QWERTY Keyboard, Trackpad & `keyd`** | `bbqX0kbd` + `q20_keyboard` + `keyd.rvaiya` | `6-001f` (`Q25_keyboard`, `event2`, `event4`, `event5`) | Firmware `0x11` verified, keyboard backlight enabled (`0xFF` -> reg `0x05`), `/proc/q20_switch_key_mouse` & `keyd` virtual keyboard/pointer daemon running. |
 | **Touchscreen (720x720)** | `synaptics_dsx_q25` | `0-0067` (`s2716b_ts`, `event3`) | Synaptics S2716B RMI4 touchscreen bound on I2C0 and registered as `input3`. |
-| **Primary Charger & OTG** | `upm6922_charger` | `5-006b` (`upm6922-charger`) | Part Num `2`, Rev `0`; `/sys/class/power_supply/upm6922-charger` (`Status=Charging`, `Health=Good`, `VOLTAGE_NOW=4379260` uV from IIO `BATADC`, `3000mA`) & `usb-otg-vbus` regulator registered. |
+| **Battery Fuel Gauge & Chargers** | `upm6922_charger` + `upm6722` | `5-006b` (`upm6922-charger`, `battery`), `5-0065` (`upm6722-standalone`) | Live `/sys/class/power_supply/battery` fuel gauge (`CAPACITY=100%`, `VOLTAGE_NOW=4352000` uV, `CURRENT_NOW=-250000` uA, `TEMP=315` [31.5°C]) + `upm6922-charger` & `usb-otg-vbus` regulator. |
 | **Fast Charge Pump** | `upm6722` | `5-0065` (`upm6722-standalone`) | Standalone charge pump probed on I2C5; `/sys/class/power_supply/upm6722-standalone` registered. |
 | **Smart Audio PA** | `snd_soc_oca72xxx` | `3-0058` (`oca72xxx_pa`) | Orient-Chip OCA72xxx chip ID `0x11` (`pid_76` class) verified on I2C3. |
 | **NFC Controller** | `st21nfc` | `3-0008` (`st21nfc`) | ST21NFC double-pulse reset & NCI ping (34B + 15B responses) verified on I2C3 (`irq_gpio = 513`). |

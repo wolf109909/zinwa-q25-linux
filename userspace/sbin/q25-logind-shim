@@ -1,0 +1,137 @@
+#!/usr/bin/env python3
+import ctypes
+import os
+
+libdbus = ctypes.CDLL("libdbus-1.so.3")
+
+DBUS_BUS_SYSTEM = 1
+DBUS_NAME_FLAG_REPLACE_EXISTING = 2
+
+DBUS_TYPE_STRING = ord("s")
+DBUS_TYPE_OBJECT_PATH = ord("o")
+DBUS_TYPE_UINT32 = ord("u")
+DBUS_TYPE_BOOLEAN = ord("b")
+DBUS_TYPE_ARRAY = ord("a")
+DBUS_TYPE_VARIANT = ord("v")
+DBUS_TYPE_UNIX_FD = ord("h")
+
+class DBusError(ctypes.Structure):
+    _fields_ = [
+        ("name", ctypes.c_char_p),
+        ("message", ctypes.c_char_p),
+        ("dummy1", ctypes.c_uint),
+        ("padding1", ctypes.c_void_p),
+    ]
+
+class DBusMessageIter(ctypes.Structure):
+    _fields_ = [("dummy", ctypes.c_byte * 128)]
+
+libdbus.dbus_error_init.argtypes = [ctypes.POINTER(DBusError)]
+libdbus.dbus_bus_get.argtypes = [ctypes.c_int, ctypes.POINTER(DBusError)]
+libdbus.dbus_bus_get.restype = ctypes.c_void_p
+libdbus.dbus_bus_request_name.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint, ctypes.POINTER(DBusError)]
+libdbus.dbus_bus_request_name.restype = ctypes.c_int
+libdbus.dbus_connection_read_write_dispatch.argtypes = [ctypes.c_void_p, ctypes.c_int]
+libdbus.dbus_connection_read_write_dispatch.restype = ctypes.c_uint
+libdbus.dbus_connection_pop_message.argtypes = [ctypes.c_void_p]
+libdbus.dbus_connection_pop_message.restype = ctypes.c_void_p
+libdbus.dbus_connection_send.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+libdbus.dbus_connection_flush.argtypes = [ctypes.c_void_p]
+libdbus.dbus_message_unref.argtypes = [ctypes.c_void_p]
+libdbus.dbus_message_get_type.argtypes = [ctypes.c_void_p]
+libdbus.dbus_message_get_type.restype = ctypes.c_int
+libdbus.dbus_message_get_interface.argtypes = [ctypes.c_void_p]
+libdbus.dbus_message_get_interface.restype = ctypes.c_char_p
+libdbus.dbus_message_get_member.argtypes = [ctypes.c_void_p]
+libdbus.dbus_message_get_member.restype = ctypes.c_char_p
+libdbus.dbus_message_new_method_return.argtypes = [ctypes.c_void_p]
+libdbus.dbus_message_new_method_return.restype = ctypes.c_void_p
+libdbus.dbus_message_iter_init.argtypes = [ctypes.c_void_p, ctypes.POINTER(DBusMessageIter)]
+libdbus.dbus_message_iter_init.restype = ctypes.c_uint
+libdbus.dbus_message_iter_next.argtypes = [ctypes.POINTER(DBusMessageIter)]
+libdbus.dbus_message_iter_next.restype = ctypes.c_uint
+libdbus.dbus_message_iter_get_basic.argtypes = [ctypes.POINTER(DBusMessageIter), ctypes.c_void_p]
+libdbus.dbus_message_iter_init_append.argtypes = [ctypes.c_void_p, ctypes.POINTER(DBusMessageIter)]
+libdbus.dbus_message_iter_append_basic.argtypes = [ctypes.POINTER(DBusMessageIter), ctypes.c_int, ctypes.c_void_p]
+libdbus.dbus_message_iter_open_container.argtypes = [ctypes.POINTER(DBusMessageIter), ctypes.c_int, ctypes.c_char_p, ctypes.POINTER(DBusMessageIter)]
+libdbus.dbus_message_iter_close_container.argtypes = [ctypes.POINTER(DBusMessageIter), ctypes.POINTER(DBusMessageIter)]
+
+err = DBusError()
+libdbus.dbus_error_init(ctypes.byref(err))
+conn = libdbus.dbus_bus_get(DBUS_BUS_SYSTEM, ctypes.byref(err))
+if not conn:
+    raise RuntimeError("Failed to connect to system D-Bus")
+
+ret = libdbus.dbus_bus_request_name(conn, b"org.freedesktop.login1", DBUS_NAME_FLAG_REPLACE_EXISTING, ctypes.byref(err))
+print(f"q25-logind-shim acquired org.freedesktop.login1 (ret={ret})", flush=True)
+
+r_fd, w_fd = os.pipe()
+
+while libdbus.dbus_connection_read_write_dispatch(conn, 100):
+    while True:
+        msg = libdbus.dbus_connection_pop_message(conn)
+        if not msg:
+            break
+        mtype = libdbus.dbus_message_get_type(msg)
+        if mtype == 1:
+            iface = (libdbus.dbus_message_get_interface(msg) or b"").decode()
+            member = (libdbus.dbus_message_get_member(msg) or b"").decode()
+            reply = libdbus.dbus_message_new_method_return(msg)
+            out_iter = DBusMessageIter()
+            libdbus.dbus_message_iter_init_append(reply, ctypes.byref(out_iter))
+
+            if member == "SetBrightness":
+                it = DBusMessageIter()
+                if libdbus.dbus_message_iter_init(msg, ctypes.byref(it)):
+                    s1 = ctypes.c_char_p()
+                    s2 = ctypes.c_char_p()
+                    val = ctypes.c_uint32()
+                    libdbus.dbus_message_iter_get_basic(ctypes.byref(it), ctypes.byref(s1))
+                    libdbus.dbus_message_iter_next(ctypes.byref(it))
+                    libdbus.dbus_message_iter_get_basic(ctypes.byref(it), ctypes.byref(s2))
+                    libdbus.dbus_message_iter_next(ctypes.byref(it))
+                    libdbus.dbus_message_iter_get_basic(ctypes.byref(it), ctypes.byref(val))
+                    subsys = (s1.value or b"").decode()
+                    name = (s2.value or b"").decode()
+                    bval = val.value
+                    if subsys in ("backlight", "leds") and "/" not in name and ".." not in name:
+                        base_dir = f"/sys/class/{subsys}/{name}"
+                        try:
+                            bl_power = f"{base_dir}/bl_power"
+                            if os.path.exists(bl_power):
+                                with open(bl_power, "w") as f:
+                                    f.write("0\n")
+                            max_p = f"{base_dir}/max_brightness"
+                            if os.path.exists(max_p):
+                                with open(max_p, "r") as f:
+                                    mval = int(f.read().strip())
+                                if bval > mval:
+                                    bval = mval
+                            with open(f"{base_dir}/brightness", "w") as f:
+                                f.write(f"{bval}\n")
+                        except Exception as e:
+                            print(f"SetBrightness error on {base_dir}: {e}", flush=True)
+            elif member in ("GetSession", "GetSessionByPID"):
+                opath = ctypes.c_char_p(b"/org/freedesktop/login1/session/auto")
+                libdbus.dbus_message_iter_append_basic(ctypes.byref(out_iter), DBUS_TYPE_OBJECT_PATH, ctypes.byref(opath))
+            elif member == "Inhibit":
+                fd_val = ctypes.c_int(r_fd)
+                libdbus.dbus_message_iter_append_basic(ctypes.byref(out_iter), DBUS_TYPE_UNIX_FD, ctypes.byref(fd_val))
+            elif iface == "org.freedesktop.DBus.Properties" and member == "GetAll":
+                arr_iter = DBusMessageIter()
+                libdbus.dbus_message_iter_open_container(ctypes.byref(out_iter), DBUS_TYPE_ARRAY, b"{sv}", ctypes.byref(arr_iter))
+                libdbus.dbus_message_iter_close_container(ctypes.byref(out_iter), ctypes.byref(arr_iter))
+            elif iface == "org.freedesktop.DBus.Properties" and member == "Get":
+                var_iter = DBusMessageIter()
+                libdbus.dbus_message_iter_open_container(ctypes.byref(out_iter), DBUS_TYPE_VARIANT, b"b", ctypes.byref(var_iter))
+                bval = ctypes.c_uint32(0)
+                libdbus.dbus_message_iter_append_basic(ctypes.byref(var_iter), DBUS_TYPE_BOOLEAN, ctypes.byref(bval))
+                libdbus.dbus_message_iter_close_container(ctypes.byref(out_iter), ctypes.byref(var_iter))
+            elif iface == "org.freedesktop.DBus.Introspectable" and member == "Introspect":
+                xml = ctypes.c_char_p(b"<node></node>")
+                libdbus.dbus_message_iter_append_basic(ctypes.byref(out_iter), DBUS_TYPE_STRING, ctypes.byref(xml))
+
+            libdbus.dbus_connection_send(conn, reply, None)
+            libdbus.dbus_connection_flush(conn)
+            libdbus.dbus_message_unref(reply)
+        libdbus.dbus_message_unref(msg)

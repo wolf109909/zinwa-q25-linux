@@ -169,6 +169,14 @@ if [ -b /dev/sdc14 ]; then
     echo "=== Saved /mnt/persist/q25-7.3.3-boot.log ==="
 fi
 
+touch /tmp/keep_alive
+
+# 7. Start Arch Linux ARM Phosh / Wayland graphical desktop session if installed
+if [ -x /opt/arch/usr/local/sbin/q25-phosh-start ]; then
+    echo "=== Starting Arch Linux ARM Phosh Wayland Graphical Session ==="
+    chroot /opt/arch /usr/local/sbin/q25-phosh-start &
+fi
+
 # Print banner and launch interactive shell on framebuffer console (/dev/tty1)
 if [ -c /dev/tty1 ]; then
     {

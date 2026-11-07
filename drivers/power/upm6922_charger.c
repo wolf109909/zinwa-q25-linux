@@ -97,11 +97,15 @@ struct upm6922 {
     struct power_supply_desc psy_desc;
     struct power_supply_config psy_cfg;
     struct power_supply *psy;
+    struct power_supply_desc bat_psy_desc;
+    struct power_supply_config bat_psy_cfg;
+    struct power_supply *bat_psy;
 
     struct regulator_dev *otg_rdev;
     struct power_supply *inform_psy;
     
     struct iio_channel *iio_adcs;
+    int num_iio_adcs;
 	struct mutex adc_lock;
 	
 	struct mutex attach_lock;
@@ -1775,10 +1779,112 @@ static enum power_supply_property upm6922_charger_props[] = {
     POWER_SUPPLY_PROP_USB_TYPE,
     POWER_SUPPLY_PROP_MANUFACTURER,
     POWER_SUPPLY_PROP_VOLTAGE_NOW,
+    POWER_SUPPLY_PROP_CURRENT_NOW,
+    POWER_SUPPLY_PROP_CAPACITY,
+    POWER_SUPPLY_PROP_TEMP,
     POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT,
     POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE,
     POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
 };
+
+static enum power_supply_property upm6922_battery_props[] = {
+    POWER_SUPPLY_PROP_STATUS,
+    POWER_SUPPLY_PROP_PRESENT,
+    POWER_SUPPLY_PROP_HEALTH,
+    POWER_SUPPLY_PROP_TECHNOLOGY,
+    POWER_SUPPLY_PROP_CAPACITY,
+    POWER_SUPPLY_PROP_VOLTAGE_NOW,
+    POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN,
+    POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN,
+    POWER_SUPPLY_PROP_CURRENT_NOW,
+    POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
+    POWER_SUPPLY_PROP_CHARGE_FULL,
+    POWER_SUPPLY_PROP_TEMP,
+    POWER_SUPPLY_PROP_MODEL_NAME,
+    POWER_SUPPLY_PROP_MANUFACTURER,
+};
+
+static int upm6922_get_vbat_uv(struct upm6922 *upm, int *uv)
+{
+    int ret, val = 0;
+
+    if (upm->iio_adcs && upm->num_iio_adcs > ADC_CHAN_VBAT) {
+        ret = iio_read_channel_processed(&upm->iio_adcs[ADC_CHAN_VBAT], &val);
+        if (ret >= 0 && val > 0) {
+            *uv = val * 1000;
+            return 0;
+        }
+        ret = iio_read_channel_raw(&upm->iio_adcs[ADC_CHAN_VBAT], &val);
+        if (ret >= 0 && val > 0) {
+            *uv = (int)(((s64)val * 5400000LL) >> 15);
+            return 0;
+        }
+    }
+    ret = upm6922_get_chargevolt(upm, &val);
+    if (!ret) {
+        *uv = val * 1000;
+        return 0;
+    }
+    return ret;
+}
+
+static int upm6922_get_bat_temp_deci_c(struct upm6922 *upm, int *temp_dc)
+{
+    int ret, val = 0;
+
+    if (upm->iio_adcs && upm->num_iio_adcs > ADC_CHAN_BAT_TEMP) {
+        ret = iio_read_channel_processed(&upm->iio_adcs[ADC_CHAN_BAT_TEMP], &val);
+        if (ret >= 0) {
+            *temp_dc = val / 100;
+            return 0;
+        }
+    }
+    *temp_dc = 280; /* 28.0 C fallback */
+    return 0;
+}
+
+static int upm6922_calc_capacity(struct upm6922 *upm)
+{
+    static const struct {
+        int mv;
+        int soc;
+    } ocv_tab[] = {
+        { 4350, 100 },
+        { 4200,  90 },
+        { 4050,  78 },
+        { 3920,  62 },
+        { 3820,  45 },
+        { 3740,  28 },
+        { 3660,  14 },
+        { 3550,   5 },
+        { 3300,   0 },
+    };
+    int uv = 0, mv, chg_stat = 0, i;
+
+    if (!upm6922_get_charging_stat(upm, &chg_stat) &&
+        chg_stat == POWER_SUPPLY_STATUS_FULL)
+        return 100;
+
+    if (upm6922_get_vbat_uv(upm, &uv) < 0 || uv <= 0)
+        return 50;
+
+    mv = uv / 1000;
+    if (mv >= ocv_tab[0].mv)
+        return 100;
+    if (mv <= ocv_tab[ARRAY_SIZE(ocv_tab) - 1].mv)
+        return 0;
+
+    for (i = 0; i < ARRAY_SIZE(ocv_tab) - 1; i++) {
+        if (mv >= ocv_tab[i + 1].mv) {
+            int dv = ocv_tab[i].mv - ocv_tab[i + 1].mv;
+            int ds = ocv_tab[i].soc - ocv_tab[i + 1].soc;
+
+            return ocv_tab[i + 1].soc +
+                   ((mv - ocv_tab[i + 1].mv) * ds + dv / 2) / dv;
+        }
+    }
+    return 50;
+}
 
 static int upm6922_charger_get_health(struct upm6922 *upm,
 		union power_supply_propval *val)
@@ -1958,20 +2064,26 @@ static int upm6922_charger_get_property(struct power_supply *psy,
 			ret = upm6922_charger_get_voltage(upm, val);
 			break;
 		case POWER_SUPPLY_PROP_VOLTAGE_NOW:
-			if (upm->iio_adcs) {
-				int vbat_raw = 0;
+			ret = upm6922_get_vbat_uv(upm, &val->intval);
+			break;
+		case POWER_SUPPLY_PROP_CURRENT_NOW: {
+			int chg_stat = 0, ma = 0;
 
-				ret = iio_read_channel_raw(&upm->iio_adcs[ADC_CHAN_VBAT], &vbat_raw);
-				if (ret >= 0 && vbat_raw > 0) {
-					/* MT6358 15-bit BATADC with 5400 mV full-scale (3 * 1800 mV) */
-					val->intval = (int)(((s64)vbat_raw * 5400000LL) >> 15);
-					ret = 0;
-					break;
-				}
-			}
-			ret = upm6922_charger_get_voltage(upm, val);
-			if (!ret)
-				val->intval *= 1000;
+			if (!upm6922_get_charging_stat(upm, &chg_stat) &&
+			    chg_stat == POWER_SUPPLY_STATUS_CHARGING &&
+			    !upm6922_get_chargecurrent(upm, &ma))
+				val->intval = ma * 1000;
+			else
+				val->intval = 0;
+			ret = 0;
+			break;
+		}
+		case POWER_SUPPLY_PROP_CAPACITY:
+			val->intval = upm6922_calc_capacity(upm);
+			ret = 0;
+			break;
+		case POWER_SUPPLY_PROP_TEMP:
+			ret = upm6922_get_bat_temp_deci_c(upm, &val->intval);
 			break;
 		case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
 			ret = upm6922_charger_get_iinlimit(upm, val);
@@ -2064,6 +2176,75 @@ static char *upm6922_charger_supplied_to[] = {
     "mtk-master-charger",
 };
 
+static int upm6922_battery_get_property(struct power_supply *psy,
+                enum power_supply_property psp,
+                union power_supply_propval *val)
+{
+    struct upm6922 *upm = power_supply_get_drvdata(psy);
+    int ret = 0, attach = 0;
+
+    val->intval = 0;
+    switch (psp) {
+    case POWER_SUPPLY_PROP_STATUS:
+        ret = upm6922_get_charging_stat(upm, &val->intval);
+        if (!ret && val->intval == POWER_SUPPLY_STATUS_NOT_CHARGING) {
+            attach = atomic_read(&upm->attach);
+            val->intval = attach ? POWER_SUPPLY_STATUS_CHARGING :
+                                   POWER_SUPPLY_STATUS_DISCHARGING;
+        }
+        break;
+    case POWER_SUPPLY_PROP_PRESENT:
+        val->intval = 1;
+        break;
+    case POWER_SUPPLY_PROP_HEALTH:
+        ret = upm6922_charger_get_health(upm, val);
+        break;
+    case POWER_SUPPLY_PROP_TECHNOLOGY:
+        val->intval = POWER_SUPPLY_TECHNOLOGY_LION;
+        break;
+    case POWER_SUPPLY_PROP_CAPACITY:
+        val->intval = upm6922_calc_capacity(upm);
+        break;
+    case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+        ret = upm6922_get_vbat_uv(upm, &val->intval);
+        break;
+    case POWER_SUPPLY_PROP_VOLTAGE_MAX_DESIGN:
+        val->intval = 4400000;
+        break;
+    case POWER_SUPPLY_PROP_VOLTAGE_MIN_DESIGN:
+        val->intval = 3300000;
+        break;
+    case POWER_SUPPLY_PROP_CURRENT_NOW: {
+        int chg_stat = 0, ma = 0;
+
+        if (!upm6922_get_charging_stat(upm, &chg_stat) &&
+            (chg_stat == POWER_SUPPLY_STATUS_CHARGING ||
+             atomic_read(&upm->attach)) &&
+            !upm6922_get_chargecurrent(upm, &ma))
+            val->intval = ma * 1000;
+        else
+            val->intval = -250000;
+        break;
+    }
+    case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
+    case POWER_SUPPLY_PROP_CHARGE_FULL:
+        val->intval = 3000000;
+        break;
+    case POWER_SUPPLY_PROP_TEMP:
+        ret = upm6922_get_bat_temp_deci_c(upm, &val->intval);
+        break;
+    case POWER_SUPPLY_PROP_MODEL_NAME:
+        val->strval = "Zinwa Q25 Li-ion";
+        break;
+    case POWER_SUPPLY_PROP_MANUFACTURER:
+        val->strval = "Zinwa";
+        break;
+    default:
+        return -EINVAL;
+    }
+    return ret;
+}
+
 static int upm6922_charger_psy_register(struct upm6922 *upm)
 {
     upm->psy_cfg.drv_data = upm;
@@ -2097,6 +2278,21 @@ static int upm6922_charger_psy_register(struct upm6922 *upm)
     if (IS_ERR(upm->psy)) {
         upm6922_err("failed to register charger_psy\n");
         return PTR_ERR(upm->psy);
+    }
+
+    upm->bat_psy_cfg.drv_data = upm;
+    upm->bat_psy_desc.name = "battery";
+    upm->bat_psy_desc.type = POWER_SUPPLY_TYPE_BATTERY;
+    upm->bat_psy_desc.properties = upm6922_battery_props;
+    upm->bat_psy_desc.num_properties = ARRAY_SIZE(upm6922_battery_props);
+    upm->bat_psy_desc.get_property = upm6922_battery_get_property;
+
+    upm->bat_psy = devm_power_supply_register(upm->dev,
+            &upm->bat_psy_desc, &upm->bat_psy_cfg);
+    if (IS_ERR(upm->bat_psy)) {
+        upm6922_err("failed to register battery psy (%ld)\n",
+                    PTR_ERR(upm->bat_psy));
+        upm->bat_psy = NULL;
     }
 
     upm6922_err("%s power supply register successfully\n", upm->psy_desc.name);
@@ -2575,13 +2771,21 @@ static const struct regulator_desc upm6922_otg_rdesc = {
 
 static int upm6922_get_iio_adc(struct upm6922 *upm)
 {
+	int n = 0;
+
 	upm6922_info("%s:carrot start \n", __func__);
 	upm->iio_adcs = devm_iio_channel_get_all(upm->dev);
 	if (IS_ERR(upm->iio_adcs)) {
 		upm6922_info("iio adc channels not available (%ld), continuing without iio\n",
 			     PTR_ERR(upm->iio_adcs));
 		upm->iio_adcs = NULL;
+		upm->num_iio_adcs = 0;
+		return 0;
 	}
+	while (upm->iio_adcs[n].indio_dev)
+		n++;
+	upm->num_iio_adcs = n;
+	upm6922_info("got %d iio adc channels\n", n);
 	return 0;
 }
 

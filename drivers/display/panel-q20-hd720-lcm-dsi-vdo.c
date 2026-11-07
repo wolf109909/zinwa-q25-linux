@@ -527,6 +527,8 @@ static int lcm_probe(struct mipi_dsi_device *dsi)
 	
 	ctx->prepared = true;
 	ctx->enabled = true;
+	if (ctx->backlight)
+		backlight_enable(ctx->backlight);
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 15, 0)
 	drm_panel_init(&ctx->panel, dev, &lcm_drm_funcs, DRM_MODE_CONNECTOR_DSI);

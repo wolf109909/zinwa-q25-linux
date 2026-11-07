@@ -20,6 +20,7 @@
 #include <dt-bindings/iio/adc/mediatek,mt6358-auxadc.h>
 #include <dt-bindings/regulator/mediatek,mt6397-regulator.h>
 #include <dt-bindings/pinctrl/mediatek,mt6789-pinfunc.h>
+#include <dt-bindings/thermal/thermal.h>
 #include "mt6789.dtsi"
 
 / {
@@ -42,7 +43,7 @@
 		stdout-path = "serial0:921600n1";
 		bootargs = "console=tty0 loglevel=8 earlycon panic=5 clk_ignore_unused pd_ignore_unused initcall_debug=1 ramoops.mem_address=0x48090000 ramoops.mem_size=0xcf000 ramoops.record_size=0x1000 ramoops.console_size=0x40000 ramoops.ftrace_size=0 ramoops.pmsg_size=0 arm64.nomte";
 		linux,initrd-start = <0 0x66f00000>;
-		linux,initrd-end = <0 0x69202911>;
+		linux,initrd-end = <0 0x691a90f8>;
 
 		framebuffer@ff97c000 {
 			compatible = "simple-framebuffer";
@@ -242,6 +243,152 @@
 		regulator-name = "vsys";
 		regulator-always-on;
 		regulator-boot-on;
+	};
+
+	soc_thermal_sensor: thermal-sensor-soc {
+		compatible = "generic-adc-thermal";
+		#thermal-sensor-cells = <0>;
+		io-channels = <&pmic_adc MT6358_AUXADC_CHIP_TEMP>;
+		io-channel-names = "sensor-channel";
+	};
+
+	cpu_thermal_sensor: thermal-sensor-cpu {
+		compatible = "generic-adc-thermal";
+		#thermal-sensor-cells = <0>;
+		io-channels = <&pmic_adc MT6358_AUXADC_VPROC_TEMP>;
+		io-channel-names = "sensor-channel";
+	};
+
+	gpu_thermal_sensor: thermal-sensor-gpu {
+		compatible = "generic-adc-thermal";
+		#thermal-sensor-cells = <0>;
+		io-channels = <&pmic_adc MT6358_AUXADC_VGPU_TEMP>;
+		io-channel-names = "sensor-channel";
+	};
+
+	vcore_thermal_sensor: thermal-sensor-vcore {
+		compatible = "generic-adc-thermal";
+		#thermal-sensor-cells = <0>;
+		io-channels = <&pmic_adc MT6358_AUXADC_VCORE_TEMP>;
+		io-channel-names = "sensor-channel";
+	};
+
+	battery_thermal_sensor: thermal-sensor-battery {
+		compatible = "generic-adc-thermal";
+		#thermal-sensor-cells = <0>;
+		io-channels = <&pmic_adc MT6358_AUXADC_BAT_TEMP>;
+		io-channel-names = "sensor-channel";
+	};
+
+	thermal-zones {
+		soc-thermal {
+			polling-delay-passive = <250>;
+			polling-delay = <1000>;
+			thermal-sensors = <&soc_thermal_sensor>;
+
+			trips {
+				soc_alert: trip-alert {
+					temperature = <85000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				soc_crit: trip-crit {
+					temperature = <110000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+		};
+
+		cpu-thermal {
+			polling-delay-passive = <250>;
+			polling-delay = <1000>;
+			thermal-sensors = <&cpu_thermal_sensor>;
+
+			trips {
+				cpu_alert: trip-alert {
+					temperature = <85000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				cpu_crit: trip-crit {
+					temperature = <110000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&cpu_alert>;
+					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					                 <&cpu1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					                 <&cpu2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					                 <&cpu3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					                 <&cpu4 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					                 <&cpu5 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					                 <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					                 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
+		};
+
+		gpu-thermal {
+			polling-delay-passive = <250>;
+			polling-delay = <1000>;
+			thermal-sensors = <&gpu_thermal_sensor>;
+
+			trips {
+				gpu_alert: trip-alert {
+					temperature = <85000>;
+					hysteresis = <2000>;
+					type = "passive";
+				};
+
+				gpu_crit: trip-crit {
+					temperature = <110000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				map0 {
+					trip = <&gpu_alert>;
+					cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+			};
+		};
+
+		vcore-thermal {
+			polling-delay-passive = <500>;
+			polling-delay = <2000>;
+			thermal-sensors = <&vcore_thermal_sensor>;
+
+			trips {
+				vcore_crit: trip-crit {
+					temperature = <110000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+		};
+
+		battery-thermal {
+			polling-delay-passive = <1000>;
+			polling-delay = <2000>;
+			thermal-sensors = <&battery_thermal_sensor>;
+
+			trips {
+				bat_crit: trip-crit {
+					temperature = <60000>;
+					hysteresis = <2000>;
+					type = "critical";
+				};
+			};
+		};
 	};
 
 	/* Zinwa Q25 RGB Notification LEDs */
@@ -735,10 +882,21 @@
 	domain-supply = <&mt6366_vgpu_reg>;
 };
 
+&cpu0 { #cooling-cells = <2>; };
+&cpu1 { #cooling-cells = <2>; };
+&cpu2 { #cooling-cells = <2>; };
+&cpu3 { #cooling-cells = <2>; };
+&cpu4 { #cooling-cells = <2>; };
+&cpu5 { #cooling-cells = <2>; };
+&cpu6 { #cooling-cells = <2>; };
+&cpu7 { #cooling-cells = <2>; };
+
 /* Open-Source Panfrost GPU (Arm Mali-G57 MC2) */
 &gpu {
-	/delete-property/ operating-points-v2;
+	operating-points-v2 = <&gpu_opp_table>;
 	mali-supply = <&mt6366_vgpu_reg>;
+	assigned-clocks = <&topckgen CLK_TOP_MFG_PLL_SEL>;
+	assigned-clock-parents = <&topckgen CLK_TOP_MFGPLL>;
 	status = "okay";
 };
 
@@ -806,26 +964,25 @@
 	status = "okay";
 };
 
-/* Keep mtk-drm display pipeline disabled while using simple-framebuffer */
+&mutex {
+	status = "okay";
+};
+
 &mipi_tx0 {
-	status = "disabled";
+	status = "okay";
 };
 
 &ovl0 {
-	status = "disabled";
+	status = "okay";
 };
 
 &rdma0 {
-	status = "disabled";
-};
-
-&dither0 {
-	status = "disabled";
+	status = "okay";
 };
 
 /* Q20 720x720 60Hz MIPI DSI Video Panel */
 &dsi0 {
-	status = "disabled";
+	status = "okay";
 	#address-cells = <1>;
 	#size-cells = <0>;
 
@@ -923,8 +1080,9 @@
 		phys = <&u2port0 PHY_TYPE_USB2>;
 		phy-names = "usb2-phy";
 		io-channels = <&pmic_adc MT6358_AUXADC_VCDT>,
-		              <&pmic_adc MT6358_AUXADC_BATADC>;
-		io-channel-names = "vbus", "vbat";
+		              <&pmic_adc MT6358_AUXADC_BATADC>,
+		              <&pmic_adc MT6358_AUXADC_BAT_TEMP>;
+		io-channel-names = "vbus", "vbat", "bat_temp";
 
 		upm6922_otg_vbus: otg {
 			regulator-compatible = "upm6922,otg-vbus";
