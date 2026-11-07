@@ -40,7 +40,7 @@ b2sums=('SKIP' 'SKIP' 'SKIP')
 prepare() {
   cd "linux-${pkgver}"
 
-  echo "Applying 23 rebased MT6789 / Helio G99 Mainline SoC patches for Linux 7.3..."
+  echo "Applying 24 rebased MT6789 / Helio G99 Mainline SoC & Q25 patches for Linux 7.3..."
   for p in "${startdir}"/../patches/mt6789-soc/*.patch; do
     echo "  -> $(basename "$p")"
     patch -Np1 -i "$p"
@@ -64,8 +64,10 @@ prepare() {
 build() {
   cd "linux-${pkgver}"
 
-  # Build Mainline 7.3 kernel Image, modules, and Zinwa Q25 DTB
-  make ARCH=arm64 LOCALVERSION=-cachyos-q25 -j"$(nproc)" Image.gz modules mediatek/mt8781-zinwa-q25.dtb
+  # Build Zinwa Q25 DTB first (embedded into arch/arm64/kernel/head.S), then Image.gz and modules
+  make ARCH=arm64 LOCALVERSION=-cachyos-q25 -j"$(nproc)" mediatek/mt8781-zinwa-q25.dtb
+  rm -f arch/arm64/kernel/head.o
+  make ARCH=arm64 LOCALVERSION=-cachyos-q25 -j"$(nproc)" Image.gz modules
 
   # Build all 11 Zinwa Q25 out-of-tree hardware drivers against the built kernel
   make -C "${PWD}" M="${startdir}/../drivers" ARCH=arm64 modules

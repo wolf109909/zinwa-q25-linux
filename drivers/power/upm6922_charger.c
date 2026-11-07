@@ -2560,8 +2560,11 @@ static int upm6922_get_iio_adc(struct upm6922 *upm)
 {
 	upm6922_info("%s:carrot start \n", __func__);
 	upm->iio_adcs = devm_iio_channel_get_all(upm->dev);
-	if (IS_ERR(upm->iio_adcs))
-		return PTR_ERR(upm->iio_adcs);
+	if (IS_ERR(upm->iio_adcs)) {
+		upm6922_info("iio adc channels not available (%ld), continuing without iio\n",
+			     PTR_ERR(upm->iio_adcs));
+		upm->iio_adcs = NULL;
+	}
 	return 0;
 }
 
@@ -2764,6 +2767,11 @@ static struct i2c_driver upm6922_charger_driver = {
 
 module_i2c_driver(upm6922_charger_driver);
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
+MODULE_IMPORT_NS("IIO_CONSUMER");
+#else
+MODULE_IMPORT_NS(IIO_CONSUMER);
+#endif
 MODULE_DESCRIPTION("Unisemipower UPM6922 Charger Driver");
 MODULE_LICENSE("GPL v2");
 MODULE_AUTHOR("lai.du@unisemipower.com");

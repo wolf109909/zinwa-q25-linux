@@ -39,9 +39,13 @@
 		ranges;
 
 		stdout-path = "serial0:921600n1";
+		bootargs = "console=tty0 loglevel=8 earlycon panic=5 clk_ignore_unused pd_ignore_unused initcall_debug=1 ramoops.mem_address=0x48090000 ramoops.mem_size=0xcf000 ramoops.record_size=0x1000 ramoops.console_size=0x40000 ramoops.ftrace_size=0 ramoops.pmsg_size=0 arm64.nomte";
+		linux,initrd-start = <0 0x66f00000>;
+		linux,initrd-end = <0 0x691b5cbc>;
 
 		framebuffer@ff97c000 {
 			compatible = "simple-framebuffer";
+			memory-region = <&framebuffer_mem>;
 			reg = <0 0xff97c000 0 ((720 + 16) * 720 * 4)>;
 			width = <720>;
 			height = <720>;
@@ -50,9 +54,40 @@
 		};
 	};
 
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0 0x40000000 3 0x00000000>;
+	};
+
 	reserved-memory {
 		#address-cells = <2>;
 		#size-cells = <2>;
+		ranges;
+
+		pstore@48090000 {
+			reg = <0 0x48090000 0 0xe0000>;
+			no-map;
+		};
+
+		framebuffer_mem: framebuffer@ff97c000 {
+			reg = <0 0xff97c000 0 0x683000>;
+			no-map;
+		};
+
+		ssmr_cma: ssmr-reserved-cma_memory@335000000 {
+			reg = <0x3 0x35000000 0 0x0a000000>;
+			no-map;
+		};
+
+		aee_debug_kinfo@48080000 {
+			reg = <0 0x48080000 0 0x10000>;
+			no-map;
+		};
+
+		minirdump@48170000 {
+			reg = <0 0x48170000 0 0x10000>;
+			no-map;
+		};
 
 		wifi_mem: wifi@bf000000 {
 			reg = <0 0xbf000000 0 0x600000>;
@@ -66,6 +101,11 @@
 
 		sspm_ap_mem: sspm_ap@9f560000 {
 			reg = <0 0x9f560000 0 0x110000>;
+			no-map;
+		};
+
+		debug_met_res: debug_met_res@9f670000 {
+			reg = <0 0x9f670000 0 0x800000>;
 			no-map;
 		};
 
@@ -99,7 +139,7 @@
 			no-map;
 		};
 
-		ccci_mem: ccci_tag@bf9f0000 {
+		ccci_mem: ccci_tag@bf7f0000 {
 			reg = <0 0xbf7f0000 0 0x10000>;
 			no-map;
 		};
@@ -112,6 +152,16 @@
 
 		scp_res_mem: scp@bf800000 {
 			reg = <0 0xbf800000 0 0x600000>;
+			no-map;
+		};
+
+		atf_log_mem: atf_log@bfe00000 {
+			reg = <0 0xbfe00000 0 0x200000>;
+			no-map;
+		};
+
+		dfdmcu_mem: dfdmcu@ff000000 {
+			reg = <0 0xff000000 0 0x100000>;
 			no-map;
 		};
 
@@ -130,18 +180,23 @@
 			no-map;
 		};
 
+		gz_log_mem: gz_log@7f200000 {
+			reg = <0 0x7f200000 0 0x41000>;
+			no-map;
+		};
+
 		mcupm_mem: mcupm@7feb0000 {
 			reg = <0 0x7feb0000 0 0x100000>;
 			no-map;
 		};
 
-		sspm_mem: sspm@9fe70000 {
-			reg = <0 0x9fe70000 0 0x180000>;
+		log_store_mem: log_store@7ffbf000 {
+			reg = <0 0x7ffbf000 0 0x40000>;
 			no-map;
 		};
 
-		fb_mem: framebuffer@ff97c000 {
-			reg = <0 0xff97c000 0 0x683000>;
+		sspm_mem: sspm@9fe70000 {
+			reg = <0 0x9fe70000 0 0x180000>;
 			no-map;
 		};
 
@@ -170,8 +225,13 @@
 			no-map;
 		};
 
-		dram_mem: dram-controller0@3ffff000 {
-			reg = <0x0 0xbffff000 0 0x3000>;
+		dram_rk0_mem: dramc_rk0@1bffff000 {
+			reg = <0x1 0xbffff000 0 0x1000>;
+			no-map;
+		};
+
+		dram_rk1_mem: dramc_rk1@33ffff000 {
+			reg = <0x3 0x3ffff000 0 0x1000>;
 			no-map;
 		};
 	};
@@ -655,10 +715,10 @@
 	};
 };
 
-/* Open-Source Panfrost GPU (Arm Mali-G57 MC2) */
+/* Open-Source Panfrost GPU (Arm Mali-G57 MC2) — disabled until MFG power-domain sequencing is ready */
 &gpu {
 	mali-supply = <&mt6366_vgpu_reg>;
-	status = "okay";
+	status = "disabled";
 };
 
 &usb2 {
@@ -700,36 +760,51 @@
 };
 
 &ufsphy {
-	status = "okay";
+	status = "disabled";
 };
 
 &ufs {
 	status = "okay";
+	/delete-property/ phys;
+	vcc-supply = <&mt6366_vemc_reg>;
+	clocks = <&infracfg_ao CLK_IFRAO_UFS>,
+	         <&infracfg_ao CLK_IFRAO_UFS_SAP_BCLK>,
+	         <&infracfg_ao CLK_IFRAO_UNIPRO_TICK>,
+	         <&infracfg_ao CLK_IFRAO_UNIPRO_SYSCLK>,
+	         <&infracfg_ao CLK_IFRAO_UFS_AES>,
+	         <&topckgen CLK_TOP_AES_UFSFDE>,
+	         <&topckgen CLK_TOP_UFS>,
+	         <&topckgen CLK_TOP_UFS_SEL>;
+	clock-names = "ufs", "ufs_mp", "unipro_tick", "unipro_sys",
+	              "ufs_aes", "ufsfde_ck", "ufs_ck", "ufs_sel";
+	freq-table-hz = <0 0>, <0 0>, <0 0>, <0 0>,
+	                <0 0>, <0 0>, <0 0>, <0 0>;
 };
 
 &disp_pwm0 {
 	status = "okay";
 };
 
+/* Keep mtk-drm display pipeline disabled while using simple-framebuffer */
 &mipi_tx0 {
-	status = "okay";
+	status = "disabled";
 };
 
 &ovl0 {
-	status = "okay";
+	status = "disabled";
 };
 
 &rdma0 {
-	status = "okay";
+	status = "disabled";
 };
 
 &dither0 {
-	status = "okay";
+	status = "disabled";
 };
 
 /* Q20 720x720 60Hz MIPI DSI Video Panel */
 &dsi0 {
-	status = "okay";
+	status = "disabled";
 	#address-cells = <1>;
 	#size-cells = <0>;
 

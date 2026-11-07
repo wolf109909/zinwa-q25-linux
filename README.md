@@ -31,7 +31,7 @@ zinwa-q25-linux/
 │       ├── aw36518.c         # -> aw36518.ko (mediatek,aw36518)
 │       └── flashlight-gpio-v4l2.c # -> flashlight-gpio-v4l2.ko (mediatek,flashlightgpio)
 ├── patches/
-│   ├── mt6789-soc/                   # 23 MT6789 / Helio G99 SoC patches rebased cleanly onto Linux 7.3.3
+│   ├── mt6789-soc/                   # 24 MT6789 / Helio G99 SoC + Q25 hardware patches for Linux 7.3.3
 │   └── cachyos-7.3/                  # CachyOS BORE scheduler patch rebased onto Linux 7.3.3
 ├── devicetree/
 │   ├── mt8781-zinwa-q25.dts          # Mainline Linux 7.0 / 7.3 DeviceTree for Zinwa Q25 with all peripherals wired
@@ -49,6 +49,47 @@ zinwa-q25-linux/
     ├── arch-chroot/                  # Arch rootfs configs (pacman.conf, Wayland wrappers, fish, starship, tmux)
     └── windows/install_fastboot_driver.ps1 # Automated Windows USB & Fastboot driver installer for Q25
 ```
+
+---
+
+## Live On-Device Hardware Verification (`Linux 7.3.3-cachyos-q25`)
+
+Booted and verified directly on the physical **Zinwa Q25** (`MT6789` / `MT8781`, 12 GB RAM, 256 GB UFS) over **USB NCM SSH (`10.15.19.82`)** with **0 kernel warnings**:
+
+```text
+Linux (none) 7.3.3-cachyos-q25-00024-ge50c42ce375d-dirty #11 SMP PREEMPT aarch64 GNU/Linux
+BORE CPU Scheduler modification 7.0.0 by Masahito Suzuki (kernel.sched_bore = 1)
+```
+
+### Verified Subsystems on Physical Q25 Hardware (`7.3.3-cachyos-q25`)
+
+| Subsystem | Kernel Driver / Module | Device Node / Bus | Hardware Verification Result |
+| :--- | :--- | :--- | :--- |
+| **CPU & Scheduler** | `mtk-cpufreq-hw` + **CachyOS BORE v7.0.0** | `11bc10.performance-controller` | All 8 cores (`6x Cortex-A55` + `2x Cortex-A76`) online with DVFS & `kernel.sched_bore = 1`. |
+| **Memory** | Mainline arm64 MM | `memory@40000000` | `MemTotal: 11804604 kB` (12 GB LPDDR4X). |
+| **UFS 256 GB Storage** | `ufshcd-mtk` | `11270000.ufs` (`sda`, `sdb`, `sdc`) | `SKhynix H9QT1GGCN6X147` 256 GB UFS detected with all 61 GPT partitions (`sdc1..sdc61`) & `ext4` R/W mount. |
+| **microSD Slot** | `mtk-msdc` | `11240000.mmc` | Probed cleanly (`returned 0`). |
+| **720x720 Display** | `simpledrm` + `ocp2131_drv` + `pwm-backlight` | `ff97c000.framebuffer`, `7-003e` | `/dev/dri/card0`, `/dev/fb0` (`90x45` fbcon), OCP2131 bias IC (`0x3e`), and `backlight` PWM active. |
+| **QWERTY Keyboard & Trackpad** | `bbqX0kbd` + `q20_keyboard` | `6-001f` (`Q25_keyboard`) | Firmware `0x11` verified, keyboard backlight enabled (`0xFF` -> reg `0x05`), `input2` & `/proc/q20_switch_key_mouse` active. |
+| **Touchscreen (720x720)** | `synaptics_dsx_q25` | `0-0067` (`s2716b_ts`) | Synaptics S2716B RMI4 touchscreen bound on I2C0 and registered as `input3`. |
+| **Primary Charger & OTG** | `upm6922_charger` | `5-006b` (`upm6922-charger`) | Part Num `2`, Rev `0`; `/sys/class/power_supply/upm6922-charger` (`Status=Full`, `Health=Good`, `3864mV`, `3000mA`) & `usb-otg-vbus` regulator registered. |
+| **Fast Charge Pump** | `upm6722` | `5-0065` (`upm6722-standalone`) | Standalone charge pump probed on I2C5; `/sys/class/power_supply/upm6722-standalone` registered. |
+| **Smart Audio PA** | `snd_soc_oca72xxx` | `3-0058` (`oca72xxx_pa`) | Orient-Chip OCA72xxx chip ID `0x11` (`pid_76` class) verified on I2C3. |
+| **NFC Controller** | `st21nfc` | `3-0008` (`st21nfc`) | ST21NFC double-pulse reset & NCI ping (34B + 15B responses) verified on I2C3 (`irq_gpio = 513`). |
+| **Camera Flash / Torch** | `aw36518` + `flashlight_gpio_v4l2` | V4L2 subdevs | Both flash/torch modules loaded and initialized cleanly. |
+| **Buttons & RGB LEDs** | `mtk-pmic-keys`, `gpio-keys`, `leds-gpio` | `input0`, `input1`, `/sys/class/leds/` | Power/Volume/PTT buttons and `red`/`green`/`blue` GPIO LEDs active. |
+| **USB NCM SSH** | `musb-mtk` + `usb_f_ncm` (`CONFIG_USB_INVENTRA_DMA=y`) | `11200000.usb` (`usb0`) | Enumerates `usb0` (`10.15.19.82`) with `dropbear` SSH & `telnetd`. |
+
+### Critical Mainline Linux `7.3.3` Hardware Fixes (`patches/mt6789-soc/0024-*.patch`)
+
+1. **MT6789 I2C Wrapper Clock Parent Fix (`SError` on I2C Probe):**
+   - In `drivers/clk/mediatek/clk-mt6789-imp_iic_wrap.c`, the 10 `imp_iic_wrap_*` clocks referenced a non-existent parent `"top_i2c"` instead of `"i2c_pseudo_ck"` (defined in `clk-mt6789-topckgen.c`), and `GATE_IFRAO0..5` in `clk-mt6789-infra_ao.c` lacked `CLK_OPS_PARENT_ENABLE`. Consequently, `mtk_i2c_probe()` accessed unclocked I2C wrapper APB registers and triggered a fatal hardware `SError`. Fixing the parent clock names to `"i2c_pseudo_ck"` (along with `"img1_ck"` in `clk-mt6789-img.c` and `"armpll_bl0"` in `clk-mt6789-mcu.c`) and adding `CLK_OPS_PARENT_ENABLE` brings all 5 Q25 I2C buses (`i2c-0`, `i2c-3`, `i2c-5`, `i2c-6`, `i2c-7`) online cleanly.
+2. **ARMv8 Arch Timer & GICv3 PPI Partition Phandle Fix:**
+   - Removed the broken `&ppi_cluster0` 4th interrupt cell from the root `timer` and `gic` nodes in `mt6789.dtsi` and set the arch timer trigger flags to `IRQ_TYPE_LEVEL_LOW` so `arch_timer_of_init()` registers the system clocksource on all 8 CPUs.
+3. **MediaTek MUSB Inventra DMA (`CONFIG_USB_INVENTRA_DMA=y`):**
+   - Enabled `CONFIG_USB_INVENTRA_DMA=y` so `musb-mtk` (`11200000.usb`) populates `dma_init = musbhs_dma_controller_create_noirq` and registers `/sys/class/udc/musb-hdrc.1.auto` for USB NCM (`usb0`).
+4. **SimpleDRM Reserved Framebuffer (`no-map` + `memory-region`):**
+   - Added `no-map;` to `reserved-memory/framebuffer@ff97c000` and `memory-region = <&framebuffer_mem>;` to `chosen/framebuffer@ff97c000` in `mt8781-zinwa-q25.dts` so `simpledrm` maps the 720x720 bootloader framebuffer via `MEMREMAP_WC` without conflicting with `System RAM`.
 
 ---
 

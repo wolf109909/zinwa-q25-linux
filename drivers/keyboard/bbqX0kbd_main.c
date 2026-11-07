@@ -1044,7 +1044,8 @@ static int bbqX0kbd_probe(struct i2c_client *client, const struct i2c_device_id 
 	bbqX0kbd_data->keycode[0x05] = KEY_ENTER;
 #endif	
 
-	fwu_proc_entry = proc_create(PROC_NAME, 0777, NULL,&firmware_upgrade_proc_ops);
+	if (!fwu_proc_entry)
+		fwu_proc_entry = proc_create(PROC_NAME, 0777, NULL,&firmware_upgrade_proc_ops);
 
 	input = devm_input_allocate_device(dev);
 	if (!input) {
@@ -1305,7 +1306,8 @@ static int bbqX0kdb_pdrv_probe(struct platform_device *pdev)
 	
 	bbqX0kbd_keyboard_probe_dt(pdev->dev.of_node, bbqX0kbd_data);
 	/*add by hodafone begin*/
-	fwu_proc_entry = proc_create(PROC_NAME, 0777, NULL,&firmware_upgrade_proc_ops);
+	if (!fwu_proc_entry)
+		fwu_proc_entry = proc_create(PROC_NAME, 0777, NULL,&firmware_upgrade_proc_ops);
 	/*add by hodafone end*/
 
 	bbqX0kbd_power_enable(bbqX0kbd_data, 1);

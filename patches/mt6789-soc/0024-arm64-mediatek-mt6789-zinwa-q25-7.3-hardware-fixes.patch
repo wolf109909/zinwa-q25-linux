@@ -1,0 +1,804 @@
+diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+index cf276a7f0..4c8d6870e 100644
+--- a/arch/arm64/boot/dts/mediatek/mt6789.dtsi
++++ b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
+@@ -446,10 +446,10 @@ psci {
+ 	timer: timer {
+ 		compatible = "arm,armv8-timer";
+ 		interrupt-parent = <&gic>;
+-		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_HIGH &ppi_cluster0>,
+-		             <GIC_PPI 14 IRQ_TYPE_LEVEL_HIGH &ppi_cluster0>,
+-		             <GIC_PPI 11 IRQ_TYPE_LEVEL_HIGH &ppi_cluster0>,
+-		             <GIC_PPI 10 IRQ_TYPE_LEVEL_HIGH &ppi_cluster0>;
++		interrupts = <GIC_PPI 13 IRQ_TYPE_LEVEL_LOW 0>,
++		             <GIC_PPI 14 IRQ_TYPE_LEVEL_LOW 0>,
++		             <GIC_PPI 11 IRQ_TYPE_LEVEL_LOW 0>,
++		             <GIC_PPI 10 IRQ_TYPE_LEVEL_LOW 0>;
+ 	};
+ 
+ 	soc {
+@@ -472,7 +472,7 @@ gic: interrupt-controller@c000000 {
+ 			interrupt-controller;
+ 			reg = <0 0x0c000000 0 0x40000>,
+ 			      <0 0x0c040000 0 0x200000>;
+-			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH &ppi_cluster0>;
++			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_HIGH 0>;
+ 
+ 			ppi-partitions {
+ 				ppi_cluster0: interrupt-partition-0 {
+diff --git a/arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts b/arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts
+index c5bf38f4f..70357452e 100644
+--- a/arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts
++++ b/arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts
+@@ -1,4 +1,17 @@
+ // SPDX-License-Identifier: GPL-2.0
++/*
++ * Device Tree Source for Zinwa Q25 (Xelex Q20 v12 / MediaTek Helio G99 MT6789 / MT8781)
++ *
++ * Mainline Linux 7.0+ DeviceTree with full Q25 peripheral wiring:
++ * - BBQX0 Physical QWERTY Keyboard + Optical Trackpad (&i2c6 @ 0x1f + pdrv_bbqX0kbd)
++ * - Synaptics S2716B 720x720 Capacitive Touchscreen (&i2c0 @ 0x67)
++ * - Q20 720x720 60Hz MIPI DSI Video Panel (&dsi0) + OCP2131 Bias IC (&i2c7 @ 0x3e)
++ * - UPM6922 Primary Charger + OTG VBUS (&i2c5 @ 0x6b) & UPM6722 Charge Pump (&i2c5 @ 0x65)
++ * - OCA72xxx Smart Audio PA (&i2c3 @ 0x58)
++ * - ST21NFC Controller (&i2c3 @ 0x08)
++ * - RGB Status LEDs (GPIO 46/48/49) & Hardware Keys (PMIC Power/VolUp + GPIO 43 VolDown)
++ * - Arm Mali-G57 MC2 GPU (Open-Source Panfrost)
++ */
+ 
+ /dts-v1/;
+ 
+@@ -20,15 +33,19 @@ aliases {
+ 		serial0 = &uart0;
+ 	};
+ 
+-	chosen {
++	chosen: chosen {
+ 		#address-cells = <2>;
+ 		#size-cells = <2>;
+ 		ranges;
+ 
+ 		stdout-path = "serial0:921600n1";
++		bootargs = "console=tty0 loglevel=8 earlycon panic=5 clk_ignore_unused pd_ignore_unused initcall_debug=1 ramoops.mem_address=0x48090000 ramoops.mem_size=0xcf000 ramoops.record_size=0x1000 ramoops.console_size=0x40000 ramoops.ftrace_size=0 ramoops.pmsg_size=0 arm64.nomte";
++		linux,initrd-start = <0 0x66f00000>;
++		linux,initrd-end = <0 0x691b5cbc>;
+ 
+ 		framebuffer@ff97c000 {
+ 			compatible = "simple-framebuffer";
++			memory-region = <&framebuffer_mem>;
+ 			reg = <0 0xff97c000 0 ((720 + 16) * 720 * 4)>;
+ 			width = <720>;
+ 			height = <720>;
+@@ -37,9 +54,40 @@ framebuffer@ff97c000 {
+ 		};
+ 	};
+ 
++	memory@40000000 {
++		device_type = "memory";
++		reg = <0 0x40000000 3 0x00000000>;
++	};
++
+ 	reserved-memory {
+ 		#address-cells = <2>;
+ 		#size-cells = <2>;
++		ranges;
++
++		pstore@48090000 {
++			reg = <0 0x48090000 0 0xe0000>;
++			no-map;
++		};
++
++		framebuffer_mem: framebuffer@ff97c000 {
++			reg = <0 0xff97c000 0 0x683000>;
++			no-map;
++		};
++
++		ssmr_cma: ssmr-reserved-cma_memory@335000000 {
++			reg = <0x3 0x35000000 0 0x0a000000>;
++			no-map;
++		};
++
++		aee_debug_kinfo@48080000 {
++			reg = <0 0x48080000 0 0x10000>;
++			no-map;
++		};
++
++		minirdump@48170000 {
++			reg = <0 0x48170000 0 0x10000>;
++			no-map;
++		};
+ 
+ 		wifi_mem: wifi@bf000000 {
+ 			reg = <0 0xbf000000 0 0x600000>;
+@@ -56,6 +104,11 @@ sspm_ap_mem: sspm_ap@9f560000 {
+ 			no-map;
+ 		};
+ 
++		debug_met_res: debug_met_res@9f670000 {
++			reg = <0 0x9f670000 0 0x800000>;
++			no-map;
++		};
++
+ 		apmdc_mem: ap_md_c_smem@8c000000 {
+ 			reg = <0 0x8c000000 0 0x16a0000>;
+ 			no-map;
+@@ -86,7 +139,7 @@ md4_mem: md_mem4@de000000 {
+ 			no-map;
+ 		};
+ 
+-		ccci_mem: ccci_tag@bf9f0000 {
++		ccci_mem: ccci_tag@bf7f0000 {
+ 			reg = <0 0xbf7f0000 0 0x10000>;
+ 			no-map;
+ 		};
+@@ -102,10 +155,15 @@ scp_res_mem: scp@bf800000 {
+ 			no-map;
+ 		};
+ 
+-//		dfdmcu_mem: dfdmcu_dump@fd000000 {
+-//			reg = <0 0xff000000 0 0x100000>;
+-//			no-map;
+-//		};
++		atf_log_mem: atf_log@bfe00000 {
++			reg = <0 0xbfe00000 0 0x200000>;
++			no-map;
++		};
++
++		dfdmcu_mem: dfdmcu@ff000000 {
++			reg = <0 0xff000000 0 0x100000>;
++			no-map;
++		};
+ 
+ 		crypto_mem: crypto_hw@48401000 {
+ 			reg = <0 0x48401000 0 0x1000>;
+@@ -122,18 +180,23 @@ tee_sec_mem: tee_sec@7ea00000 {
+ 			no-map;
+ 		};
+ 
++		gz_log_mem: gz_log@7f200000 {
++			reg = <0 0x7f200000 0 0x41000>;
++			no-map;
++		};
++
+ 		mcupm_mem: mcupm@7feb0000 {
+ 			reg = <0 0x7feb0000 0 0x100000>;
+ 			no-map;
+ 		};
+ 
+-		sspm_mem: sspm@9fe70000 {
+-			reg = <0 0x9fe70000 0 0x180000>;
++		log_store_mem: log_store@7ffbf000 {
++			reg = <0 0x7ffbf000 0 0x40000>;
+ 			no-map;
+ 		};
+ 
+-		fb_mem: framebuffer@ff97c000 {
+-			reg = <0 0xff97c000 0 0x683000>;
++		sspm_mem: sspm@9fe70000 {
++			reg = <0 0x9fe70000 0 0x180000>;
+ 			no-map;
+ 		};
+ 
+@@ -147,36 +210,6 @@ aee_lk_mem: aee_lk@50700000 {
+ 			no-map;
+ 		};
+ 
+-//		minirdump_mem: minirdump@48170000 {
+-//			reg = <0 0x48170000 0 0x10000>;
+-//			no-map;
+-//		};
+-
+-//		pstore_mem: pstore@48090000 {
+-//			reg = <0 0x48090000 0 0xe0000>;
+-//			no-map;
+-//		};
+-
+-//		aee_kinfo_mem: aee_kinfo@48080000 {
+-//			reg = <0 0x48080000 0 0x10000>;
+-//			no-map;
+-//		};
+-
+-//		atf_log_mem: atf_log@bfe00000 {
+-//			reg = <0 0xbfe00000 0 0x200000>;
+-//			no-map;
+-//		};
+-
+-//		log_mem: log_store@7ffbf000 {
+-//			reg = <0 0x7ffbf000 0 0x40000>;
+-//			no-map;
+-//		};
+-
+-//		gz_log_mem: gz_log@7f200000 {
+-//			reg = <0 0x7f200000 0 0x41000>;
+-//			no-map;
+-//		};
+-
+ 		unmap_mem: unmap@7f400000 {
+ 			reg = <0 0x7f400000 0 0x400000>;
+ 			no-map;
+@@ -192,21 +225,13 @@ mbist_mem: emi_mbist@7ffff000 {
+ 			no-map;
+ 		};
+ 
+-		// This SoC likely uses two DRAM bsanks,
+-		// so each bank needs 4K of reserved memory per bank.
+-		// ( Speculation, quotation needed :P )
+-//		dram1_mem: dram-controller1@3ffff000 {
+-//			reg = <0x3 0x3ffff000 0 0x1000>;
+-//			no-map;
+-//		};
+-
+-//		dram0_mem: dram-controller0@3ffff000 {
+-//			reg = <0x1 0xbffff000 0 0x1000>;
+-//			no-map;
+-//		};
++		dram_rk0_mem: dramc_rk0@1bffff000 {
++			reg = <0x1 0xbffff000 0 0x1000>;
++			no-map;
++		};
+ 
+-		dram_mem: dram-controller0@3ffff000 {
+-			reg = <0x0 0xbffff000 0 0x3000>;
++		dram_rk1_mem: dramc_rk1@33ffff000 {
++			reg = <0x3 0x3ffff000 0 0x1000>;
+ 			no-map;
+ 		};
+ 	};
+@@ -217,6 +242,62 @@ reg_vsys: regulator-vsys {
+ 		regulator-always-on;
+ 		regulator-boot-on;
+ 	};
++
++	/* Zinwa Q25 RGB Notification LEDs */
++	leds {
++		compatible = "gpio-leds";
++
++		led-red {
++			label = "red";
++			gpios = <&pio 46 GPIO_ACTIVE_HIGH>;
++			default-state = "keep";
++		};
++
++		led-green {
++			label = "green";
++			gpios = <&pio 48 GPIO_ACTIVE_HIGH>;
++			default-state = "keep";
++		};
++
++		led-blue {
++			label = "blue";
++			gpios = <&pio 49 GPIO_ACTIVE_HIGH>;
++			default-state = "off";
++		};
++	};
++
++	/* Volume Down GPIO key (KPD_KCOL0 on GPIO 43) */
++	gpio-keys {
++		compatible = "gpio-keys";
++
++		key-volumedown {
++			label = "Volume Down";
++			gpios = <&pio 43 GPIO_ACTIVE_LOW>;
++			linux,code = <KEY_VOLUMEDOWN>;
++			debounce-interval = <15>;
++			wakeup-source;
++		};
++	};
++
++	/* Display PWM Backlight */
++	backlight: backlight {
++		compatible = "pwm-backlight";
++		pwms = <&disp_pwm0 0 500000>;
++		brightness-levels = <0 1023>;
++		num-interpolated-steps = <1023>;
++		default-brightness-level = <400>;
++	};
++
++	/* Zinwa Q25 Keyboard & Optical Trackpad Power Sequencing / Firmware Control */
++	pdrv_bbqX0kbd: pdrv_bbqX0kbd {
++		compatible = "wallComputer,pdrv_bbqX0kbd";
++		irq-gpio = <&pio 12 GPIO_ACTIVE_HIGH>;
++		int-gpios = <&pio 12 GPIO_ACTIVE_HIGH>;
++		power-vdd-gpios = <&pio 159 GPIO_ACTIVE_HIGH>;
++		power-1v8-gpios = <&pio 157 GPIO_ACTIVE_HIGH>;
++		power-2v8-gpios = <&pio 158 GPIO_ACTIVE_HIGH>;
++		firmware-download-gpios = <&pio 47 GPIO_ACTIVE_HIGH>;
++	};
+ };
+ 
+ &pwrap {
+@@ -634,9 +715,14 @@ home {
+ 	};
+ };
+ 
++/* Open-Source Panfrost GPU (Arm Mali-G57 MC2) — disabled until MFG power-domain sequencing is ready */
++&gpu {
++	mali-supply = <&mt6366_vgpu_reg>;
++	status = "disabled";
++};
++
+ &usb2 {
+ 	status = "okay";
+-
+ 	dr_mode = "peripheral";
+ 	maximum-speed = "high-speed";
+ };
+@@ -649,11 +735,10 @@ &mmc1 {
+ 	status = "okay";
+ 
+ 	pinctrl-names = "default", "state_uhs";
+-//	pinctrl-0 = <&mmc1_pins_default>;
+-//	pinctrl-1 = <&mmc1_pins_default>;
++	pinctrl-0 = <&mmc1_pins_default>;
++	pinctrl-1 = <&mmc1_pins_default>;
+ 
+ 	bus-width = <4>;
+-
+ 	max-frequency = <200000000>;
+ 
+ 	cap-sd-highspeed;
+@@ -675,14 +760,311 @@ &uart0 {
+ };
+ 
+ &ufsphy {
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &ufs {
+ 	status = "okay";
+-//	vcc-supply = <&mt6366_vemc_reg>;
++	/delete-property/ phys;
++	vcc-supply = <&mt6366_vemc_reg>;
++	clocks = <&infracfg_ao CLK_IFRAO_UFS>,
++	         <&infracfg_ao CLK_IFRAO_UFS_SAP_BCLK>,
++	         <&infracfg_ao CLK_IFRAO_UNIPRO_TICK>,
++	         <&infracfg_ao CLK_IFRAO_UNIPRO_SYSCLK>,
++	         <&infracfg_ao CLK_IFRAO_UFS_AES>,
++	         <&topckgen CLK_TOP_AES_UFSFDE>,
++	         <&topckgen CLK_TOP_UFS>,
++	         <&topckgen CLK_TOP_UFS_SEL>;
++	clock-names = "ufs", "ufs_mp", "unipro_tick", "unipro_sys",
++	              "ufs_aes", "ufsfde_ck", "ufs_ck", "ufs_sel";
++	freq-table-hz = <0 0>, <0 0>, <0 0>, <0 0>,
++	                <0 0>, <0 0>, <0 0>, <0 0>;
+ };
+ 
+-&pio {
++&disp_pwm0 {
++	status = "okay";
++};
++
++/* Keep mtk-drm display pipeline disabled while using simple-framebuffer */
++&mipi_tx0 {
++	status = "disabled";
++};
++
++&ovl0 {
++	status = "disabled";
++};
++
++&rdma0 {
++	status = "disabled";
+ };
+ 
++&dither0 {
++	status = "disabled";
++};
++
++/* Q20 720x720 60Hz MIPI DSI Video Panel */
++&dsi0 {
++	status = "disabled";
++	#address-cells = <1>;
++	#size-cells = <0>;
++
++	panel1@0 {
++		compatible = "mediatek,q20_panel_general,vdo";
++		reg = <0>;
++		reset-gpios = <&pio 85 GPIO_ACTIVE_HIGH>;
++		avdd-gpios = <&pio 156 GPIO_ACTIVE_HIGH>;
++		backlight = <&backlight>;
++		board_name = "q20_v12";
++
++		port {
++			panel_in1: endpoint {
++				remote-endpoint = <&dsi_out>;
++			};
++		};
++	};
++
++	ports {
++		port {
++			dsi_out: endpoint {
++				remote-endpoint = <&panel_in1>;
++			};
++		};
++	};
++};
++
++/* I2C0: Synaptics S2716B 720x720 Capacitive Touchscreen */
++&i2c0 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	synaptics: touchscreen@67 {
++		compatible = "mediatek,cap_touch_synaptics", "synaptics,dsx-i2c";
++		reg = <0x67>;
++		boot_mode = <&chosen>;
++		synaptics,irq-gpio = <&pio 9 GPIO_ACTIVE_HIGH>;
++		synaptics,irq-on-state = <0>;
++		synaptics,reset-gpio = <&pio 152 GPIO_ACTIVE_HIGH>;
++		synaptics,reset-on-state = <0>;
++		synaptics,reset-active-ms = <20>;
++		synaptics,reset-delay-ms = <200>;
++		synaptics,power-gpio = <&pio 27 GPIO_ACTIVE_HIGH>;
++		synaptics,power-on-state = <1>;
++		synaptics,power-delay-ms = <200>;
++		synaptics,input-device-name = "s2716b_ts";
++	};
++};
++
++/* I2C3: OCA72xxx Smart Audio PA + ST21NFC Controller */
++&i2c3 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	oca72xxx_pa: audio-codec@58 {
++		compatible = "ocs,oca72xxx_pa", "mediatek,k9_pa";
++		reg = <0x58>;
++		dev_index = <0>;
++		status = "okay";
++	};
++
++	st21nfc: nfc@8 {
++		compatible = "st,st21nfc";
++		reg = <0x08>;
++		interrupt-parent = <&pio>;
++		interrupts = <1 IRQ_TYPE_LEVEL_LOW>;
++		reset-gpios = <&pio 150 GPIO_ACTIVE_HIGH>;
++		irq-gpios = <&pio 1 GPIO_ACTIVE_HIGH>;
++		clkreq-gpios = <&pio 68 GPIO_ACTIVE_HIGH>;
++		status = "okay";
++	};
++};
++
++/* I2C5: UPM6922 Primary Charger + OTG VBUS & UPM6722 Standalone Charge Pump */
++&i2c5 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	upm6922_chg: charger@6b {
++		compatible = "up,upm6922_charger";
++		reg = <0x6b>;
++		status = "okay";
++		up,intr_gpio = <&pio 37 GPIO_ACTIVE_HIGH>;
++
++		up,upm6922,ichg = <3000>;
++		up,upm6922,iprechg = <180>;
++		up,upm6922,iterm = <200>;
++		up,upm6922,vreg = <4440>;
++		up,upm6922,vindpm = <4600>;
++		up,upm6922,boostv = <5000>;
++		up,upm6922,boosti = <1200>;
++		up,upm6922,vac-ovp = <14000>;
++
++		boot_mode = <&chosen>;
++		phys = <&u2port0 PHY_TYPE_USB2>;
++		phy-names = "usb2-phy";
++
++		upm6922_otg_vbus: otg {
++			regulator-compatible = "upm6922,otg-vbus";
++			regulator-name = "usb-otg-vbus";
++		};
++	};
++
++	upm6722_chg: charger@65 {
++		compatible = "unisemipower,upm6722-standalone";
++		reg = <0x65>;
++		status = "okay";
++		upm6722,irq-gpio = <&pio 10 GPIO_ACTIVE_HIGH>;
++
++		upm6722,bat-ocp-disable;
++		upm6722,tsbus-flt-disable;
++		upm6722,tsbat-flt-disable;
++		upm6722,wdt-disable;
++		upm6722,vbus-errhi-disable;
++		upm6722,bat-ocp-alm-disable;
++
++		upm6722,bat-ovp-threshold = <4525>;
++		upm6722,bat-ocp-threshold = <8200>;
++		upm6722,bus-ovp-threshold = <12000>;
++		upm6722,bus-ocp-threshold = <5100>;
++		upm6722,bus-ucp-threshold = <250>;
++		upm6722,bus-rcp-threshold = <300>;
++		upm6722,vac1-ovp-threshold = <18000>;
++		upm6722,vac2-ovp-threshold = <18000>;
++		upm6722,vout-ovp-threshold = <5000>;
++		upm6722,tdie-flt-threshold = <140>;
++		upm6722,tsbus-flt-threshold = <4102>;
++		upm6722,tsbat-flt-threshold = <4102>;
++
++		upm6722,bat-ovp-alm-threshold = <4510>;
++		upm6722,bat-ocp-alm-threshold = <8000>;
++		upm6722,bat-ucp-alm-threshold = <0>;
++		upm6722,bus-ovp-alm-threshold = <11800>;
++		upm6722,bus-ocp-alm-threshold = <5000>;
++		upm6722,tdie-alm-threshold = <125>;
++
++		upm6722,sense-resistor-mohm = <5>;
++		upm6722,ss-timeout = <10000>;
++		upm6722,wdt-set = <30000>;
++		upm6722,chg-config-1 = <1>;
++		upm6722,fsw-set = <5>;
++		upm6722,freq-shift = <0>;
++		upm6722,ibus-ucp-fall-dg-sel = <0>;
++
++		upm6722,adc-enable;
++		upm6722,adc-rate = <0>;
++		upm6722,adc-avg = <0>;
++		upm6722,adc-avg-init = <0>;
++		upm6722,adc-sample-bit = <0>;
++	};
++};
++
++/* I2C6: BBQX0 Physical QWERTY Keyboard & Optical Trackpad */
++&i2c6 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	bbqX0kbd: keyboard@1f {
++		compatible = "wallComputer,bbqX0kbd";
++		reg = <0x1f>;
++		interrupt-parent = <&pio>;
++		interrupts = <12 IRQ_TYPE_EDGE_FALLING>;
++	};
++};
++
++/* I2C7: OCP2131 LCD +/-5.8V Bias IC */
++&i2c7 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	i2c_lcd_bias_mtk: lcd-bias@3e {
++		compatible = "mediatek,mtk-gateic-drv-ocp2131";
++		reg = <0x3e>;
++		id = <6>;
++		gate-power-gpios = <&pio 84 GPIO_ACTIVE_HIGH>;
++		status = "okay";
++	};
++};
++
++&pio {
++	mmc1_pins_default: mmc1-pins-default-state {
++		pins-clk {
++			pinmux = <PINMUX_GPIO71__FUNC_MSDC1_CLK>;
++			drive-strength = <3>;
++			bias-pull-down = <MTK_PUPD_SET_R1R0_10>;
++		};
++
++		pins-cmd-dat {
++			pinmux = <PINMUX_GPIO73__FUNC_MSDC1_DAT0>,
++			         <PINMUX_GPIO74__FUNC_MSDC1_DAT1>,
++			         <PINMUX_GPIO75__FUNC_MSDC1_DAT2>,
++			         <PINMUX_GPIO76__FUNC_MSDC1_DAT3>,
++			         <PINMUX_GPIO72__FUNC_MSDC1_CMD>;
++			input-enable;
++			drive-strength = <3>;
++			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
++		};
++	};
++
++	mtkfb_pins_lcm_led_en1: lcm_led_en1_gpio {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO84__FUNC_GPIO84>;
++			slew-rate = <1>;
++			output-high;
++		};
++	};
++
++	mtkfb_pins_lcm_led_en0: lcm_led_en0_gpio {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO84__FUNC_GPIO84>;
++			slew-rate = <1>;
++			output-low;
++		};
++	};
++
++	mtkfb_pins_lcm_rst_out1_gpio: lcm_rst_out1_gpio {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO85__FUNC_GPIO85>;
++			slew-rate = <1>;
++			output-high;
++		};
++	};
++
++	mtkfb_pins_lcm_rst_out0_gpio: lcm_rst_out0_gpio {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO85__FUNC_GPIO85>;
++			slew-rate = <1>;
++			output-low;
++		};
++	};
++
++	mtkfb_pins_lcm_dsi_te: lcm_dsi_te {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO83__FUNC_DSI_TE>;
++		};
++	};
++
++	ctp_pins_default: ctp_pins_default0default {
++	};
++
++	ctp_pins_eint_as_int: ctp_pins_eint_as_int@0 {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO9__FUNC_GPIO9>;
++			slew-rate = <0>;
++		};
++	};
++
++	ctp_pins_rst_output0: ctp_pins_rst_output@0 {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO152__FUNC_GPIO152>;
++			slew-rate = <1>;
++			output-low;
++		};
++	};
++
++	ctp_pins_rst_output1: ctp_pins_rst_output@1 {
++		pins_cmd_dat {
++			pinmux = <PINMUX_GPIO152__FUNC_GPIO152>;
++			slew-rate = <1>;
++			output-high;
++		};
++	};
++};
+diff --git a/arch/arm64/kernel/head.S b/arch/arm64/kernel/head.S
+index 87a822e5c..c9d978511 100644
+--- a/arch/arm64/kernel/head.S
++++ b/arch/arm64/kernel/head.S
+@@ -173,6 +173,7 @@ SYM_CODE_START_LOCAL(preserve_boot_args)
+ 	adr_l	x0, boot_args			// record the contents of
+ 	stp	x21, x1, [x0]			// x0 .. x3 at kernel entry
+ 	stp	x2, x3, [x0, #16]
++	adr_l	x21, __zinwa_q25_dtb_start	// use built-in Zinwa Q25 Mainline DTB
+ 
+ 	cbnz	x19, 0f				// skip cache invalidation if MMU is on
+ 	dmb	sy				// needed before dc ivac with
+@@ -184,6 +185,13 @@ SYM_CODE_START_LOCAL(preserve_boot_args)
+ 	ret
+ SYM_CODE_END(preserve_boot_args)
+ 
++	.pushsection ".rodata", "a"
++	.balign	8
++SYM_DATA_START(__zinwa_q25_dtb_start)
++	.incbin	"arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dtb"
++SYM_DATA_END(__zinwa_q25_dtb_start)
++	.popsection
++
+ 	/*
+ 	 * Initialize CPU registers with task-specific and cpu-specific context.
+ 	 *
+diff --git a/drivers/clk/mediatek/clk-mt6789-img.c b/drivers/clk/mediatek/clk-mt6789-img.c
+index 524700586..d3e7c7dc2 100644
+--- a/drivers/clk/mediatek/clk-mt6789-img.c
++++ b/drivers/clk/mediatek/clk-mt6789-img.c
+@@ -26,10 +26,10 @@ static const struct mtk_gate_regs imgsys_cg_regs = {
+ 	}
+ 
+ static const struct mtk_gate imgsys_clks[] = {
+-	GATE_IMGSYS(CLK_IMGSYS_LARB9, "imgsys_larb9", "img_ck", 0),
+-	GATE_IMGSYS(CLK_IMGSYS_LARB10, "imgsys_larb10", "img_ck", 1),
+-	GATE_IMGSYS(CLK_IMGSYS_DIP, "imgsys_dip", "img_ck", 2),
+-	GATE_IMGSYS(CLK_IMGSYS_GALS, "imgsys_gals", "img_ck", 12),
++	GATE_IMGSYS(CLK_IMGSYS_LARB9, "imgsys_larb9", "img1_ck", 0),
++	GATE_IMGSYS(CLK_IMGSYS_LARB10, "imgsys_larb10", "img1_ck", 1),
++	GATE_IMGSYS(CLK_IMGSYS_DIP, "imgsys_dip", "img1_ck", 2),
++	GATE_IMGSYS(CLK_IMGSYS_GALS, "imgsys_gals", "img1_ck", 12),
+ };
+ 
+ static const struct mtk_clk_desc imgsys_desc = {
+diff --git a/drivers/clk/mediatek/clk-mt6789-imp_iic_wrap.c b/drivers/clk/mediatek/clk-mt6789-imp_iic_wrap.c
+index 20e601873..f3ebcb7d3 100644
+--- a/drivers/clk/mediatek/clk-mt6789-imp_iic_wrap.c
++++ b/drivers/clk/mediatek/clk-mt6789-imp_iic_wrap.c
+@@ -20,25 +20,25 @@ static const struct mtk_gate_regs imp_iic_wrap_cg_regs = {
+ 		&mtk_clk_gate_ops_setclr, CLK_OPS_PARENT_ENABLE)
+ 
+ static const struct mtk_gate imp_iic_wrap_c_clks[] = {
+-	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_C_AP_CLOCK_I2C3, "imp_iic_wrap_c_ap_clock_i2c3", "top_i2c", 0),
+-	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_C_AP_CLOCK_I2C5, "imp_iic_wrap_c_ap_clock_i2c5", "top_i2c", 1),
+-	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_C_AP_CLOCK_I2C6, "imp_iic_wrap_c_ap_clock_i2c6", "top_i2c", 2),
++	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_C_AP_CLOCK_I2C3, "imp_iic_wrap_c_ap_clock_i2c3", "i2c_pseudo_ck", 0),
++	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_C_AP_CLOCK_I2C5, "imp_iic_wrap_c_ap_clock_i2c5", "i2c_pseudo_ck", 1),
++	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_C_AP_CLOCK_I2C6, "imp_iic_wrap_c_ap_clock_i2c6", "i2c_pseudo_ck", 2),
+ };
+ 
+ static const struct mtk_gate imp_iic_wrap_w_clks[] = {
+-	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_W_AP_CLOCK_I2C0, "imp_iic_wrap_w_ap_clock_i2c0", "top_i2c", 0),
+-	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_W_AP_CLOCK_I2C1, "imp_iic_wrap_w_ap_clock_i2c1", "top_i2c", 1),
++	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_W_AP_CLOCK_I2C0, "imp_iic_wrap_w_ap_clock_i2c0", "i2c_pseudo_ck", 0),
++	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_W_AP_CLOCK_I2C1, "imp_iic_wrap_w_ap_clock_i2c1", "i2c_pseudo_ck", 1),
+ };
+ 
+ static const struct mtk_gate imp_iic_wrap_n_clks[] = {
+-	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_N_AP_CLOCK_I2C7, "imp_iic_wrap_n_ap_clock_i2c7", "top_i2c", 0),
++	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_N_AP_CLOCK_I2C7, "imp_iic_wrap_n_ap_clock_i2c7", "i2c_pseudo_ck", 0),
+ };
+ 
+ static const struct mtk_gate imp_iic_wrap_en_clks[] = {
+-	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_EN_AP_CLOCK_I2C2, "imp_iic_wrap_en_ap_clock_i2c2", "top_i2c", 0),
+-	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_EN_AP_CLOCK_I2C4, "imp_iic_wrap_en_ap_clock_i2c4", "top_i2c", 1),
+-	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_EN_AP_CLOCK_I2C8, "imp_iic_wrap_en_ap_clock_i2c8", "top_i2c", 2),
+-	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_EN_AP_CLOCK_I2C9, "imp_iic_wrap_en_ap_clock_i2c9", "top_i2c", 3),
++	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_EN_AP_CLOCK_I2C2, "imp_iic_wrap_en_ap_clock_i2c2", "i2c_pseudo_ck", 0),
++	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_EN_AP_CLOCK_I2C4, "imp_iic_wrap_en_ap_clock_i2c4", "i2c_pseudo_ck", 1),
++	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_EN_AP_CLOCK_I2C8, "imp_iic_wrap_en_ap_clock_i2c8", "i2c_pseudo_ck", 2),
++	GATE_IMP_IIC_WRAP(CLK_IMP_IIC_WRAP_EN_AP_CLOCK_I2C9, "imp_iic_wrap_en_ap_clock_i2c9", "i2c_pseudo_ck", 3),
+ };
+ 
+ 
+diff --git a/drivers/clk/mediatek/clk-mt6789-infra_ao.c b/drivers/clk/mediatek/clk-mt6789-infra_ao.c
+index a647011a3..1a4700eaa 100644
+--- a/drivers/clk/mediatek/clk-mt6789-infra_ao.c
++++ b/drivers/clk/mediatek/clk-mt6789-infra_ao.c
+@@ -53,6 +53,7 @@ static const struct mtk_gate_regs infra_ao5_cg_regs = {
+ 		.regs = &infra_ao0_cg_regs,			\
+ 		.shift = _shift,			\
+ 		.ops = &mtk_clk_gate_ops_setclr,	\
++		.flags = CLK_OPS_PARENT_ENABLE,		\
+ 	}
+ 
+ #define GATE_IFRAO1(_id, _name, _parent, _shift) {	\
+@@ -62,6 +63,7 @@ static const struct mtk_gate_regs infra_ao5_cg_regs = {
+ 		.regs = &infra_ao1_cg_regs,			\
+ 		.shift = _shift,			\
+ 		.ops = &mtk_clk_gate_ops_setclr,	\
++		.flags = CLK_OPS_PARENT_ENABLE,		\
+ 	}
+ 
+ #define GATE_IFRAO2(_id, _name, _parent, _shift) {	\
+@@ -71,6 +73,7 @@ static const struct mtk_gate_regs infra_ao5_cg_regs = {
+ 		.regs = &infra_ao2_cg_regs,			\
+ 		.shift = _shift,			\
+ 		.ops = &mtk_clk_gate_ops_setclr,	\
++		.flags = CLK_OPS_PARENT_ENABLE,		\
+ 	}
+ 
+ #define GATE_IFRAO3(_id, _name, _parent, _shift) {	\
+@@ -80,6 +83,7 @@ static const struct mtk_gate_regs infra_ao5_cg_regs = {
+ 		.regs = &infra_ao3_cg_regs,			\
+ 		.shift = _shift,			\
+ 		.ops = &mtk_clk_gate_ops_setclr,	\
++		.flags = CLK_OPS_PARENT_ENABLE,		\
+ 	}
+ 
+ #define GATE_IFRAO4(_id, _name, _parent, _shift) {	\
+@@ -89,6 +93,7 @@ static const struct mtk_gate_regs infra_ao5_cg_regs = {
+ 		.regs = &infra_ao4_cg_regs,			\
+ 		.shift = _shift,			\
+ 		.ops = &mtk_clk_gate_ops_setclr,	\
++		.flags = CLK_OPS_PARENT_ENABLE,		\
+ 	}
+ 
+ #define GATE_IFRAO5(_id, _name, _parent, _shift) {	\
+@@ -98,6 +103,7 @@ static const struct mtk_gate_regs infra_ao5_cg_regs = {
+ 		.regs = &infra_ao5_cg_regs,			\
+ 		.shift = _shift,			\
+ 		.ops = &mtk_clk_gate_ops_setclr,	\
++		.flags = CLK_OPS_PARENT_ENABLE,		\
+ 	}
+ 
+ static const struct mtk_gate infra_ao_clks[] = {
+diff --git a/drivers/clk/mediatek/clk-mt6789-mcu.c b/drivers/clk/mediatek/clk-mt6789-mcu.c
+index f0c88c40f..64034fa5b 100644
+--- a/drivers/clk/mediatek/clk-mt6789-mcu.c
++++ b/drivers/clk/mediatek/clk-mt6789-mcu.c
+@@ -15,7 +15,7 @@ static const char * const mcu_armpll_ll_parents[] = {
+ 
+ static const char * const mcu_armpll_bl_parents[] = {
+ 	"clk26m",
+-	"armpll_bl",
++	"armpll_bl0",
+ 	"mainpll",
+ 	"univpll_d2"
+ };
