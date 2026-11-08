@@ -169,7 +169,9 @@ key. Today use classic rollback or the explicit rescue/default-selection path.
 ## Reproducible offline checks
 
 ```sh
-bash -n build/*.sh initramfs/init initramfs/boot-root.sh rootfs/usr/lib/q25/q25-{firstboot,boot-ok}
+for script in build/*.sh initramfs/init initramfs/boot-root.sh rootfs/usr/lib/q25/q25-{firstboot,boot-ok}; do
+  bash -n "$script" || exit
+done
 python3 build/test-btrfs-config.py -v
 python3 build/test-sparse-chunks.py
 sudo build/test-btrfs-boot.sh ~/q25-work/rootfs-btrfs

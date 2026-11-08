@@ -29,4 +29,10 @@ The full stock `/etc/security/faillock.conf` changes only `deny = 10` and
 900-second failure interval. It also permits more PIN guesses; choose a strong
 credential for an exposed device. Actual lock-screen usability is a device test.
 
+When installing signed packages in the scratch ARM root under qemu-user,
+pacman's download sandbox can fail because Landlock syscalls are not translated.
+Use the **command-line-only** `--disable-sandbox` for that offline staging step;
+do not weaken the shipped pacman configuration. `paru --version` was exercised
+under qemu against the target libalpm after the signed binary install.
+
 Offline regression check: `python3 build/test-package-config.py -v`.
