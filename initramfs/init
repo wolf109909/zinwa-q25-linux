@@ -2,21 +2,21 @@
 # SPDX-License-Identifier: GPL-2.0-only
 #
 # Zinwa Q25 initramfs: find the Arch Linux root on the "userdata" partition,
-# check it, and hand over to systemd. Nothing else lives here: drivers,
+# mount its default btrfs subvolume, and hand over to systemd. Drivers,
 # firmware, networking and the desktop are all started by systemd units in
 # the real root.
 #
 # If the root cannot be mounted (or "q25.rescue" is on the command line, or
-# three boots in a row never reached multi-user.target) a rescue environment
-# is started instead: USB NCM networking on 10.15.19.82 with a telnet root
-# shell, so the phone can always be repaired without fastboot.
+# three boots in a row never reached multi-user.target and good-snapshot
+# recovery is unavailable/exhausted) a rescue environment is started instead:
+# USB NCM networking on 10.15.19.82 with a telnet root shell.
+# See build/BTRFS.md for recovery policy and the boot.img/modules safeguard.
 #
 # Kernel command line knobs:
 #   root=PARTLABEL=<name>  root partition by GPT name   (default userdata)
 #   root=/dev/sdXN         root partition by node
-#   rootflags=...          extra ext4 mount options
+#   rootflags=...          extra btrfs options (NOT subvol/subvolid)
 #   q25.rescue             always enter the rescue shell
-#   q25.nofsck             skip e2fsck
 #   init=...               alternative init in the real root
 
 /bin/busybox mkdir -p /bin /sbin /usr/bin /usr/sbin /proc /sys /dev /run /tmp /newroot
@@ -36,20 +36,25 @@ ROOTSPEC=PARTLABEL=userdata
 ROOTFLAGS=
 INIT=/usr/lib/systemd/systemd
 RESCUE=
-NOFSCK=
 for arg in $(cat /proc/cmdline); do
     case "$arg" in
         root=*)      ROOTSPEC=${arg#root=} ;;
         rootflags=*) ROOTFLAGS=${arg#rootflags=} ;;
         init=*)      INIT=${arg#init=} ;;
         q25.rescue)  RESCUE="requested on the command line" ;;
-        q25.nofsck)  NOFSCK=1 ;;
     esac
 done
+# Always follow the filesystem default, including after snapper rollback.
+case ",$ROOTFLAGS," in
+    *,subvol=*|*,subvolid=*)
+        RESCUE="rootflags must not override the default btrfs subvolume"
+        ROOTFLAGS= ;;
+esac
 
 # --- rescue environment ----------------------------------------------------
 rescue() {
     msg "RESCUE MODE: $*"
+    rm -f /run/continue
     # USB NCM gadget, same addresses as the running system
     mkdir -p /sys/kernel/config
     mount -t configfs none /sys/kernel/config 2>/dev/null
@@ -124,44 +129,23 @@ while ! find_root; do
     sleep 0.2
 done
 
-mount_root() {
-    [ -n "$ROOTDEV" ] && [ -b "$ROOTDEV" ] || return 1
-    if [ -z "$NOFSCK" ] && [ -x /sbin/e2fsck ]; then
-        /sbin/e2fsck -p "$ROOTDEV" > /run/fsck.log 2>&1
-        rc=$?
-        # 0 clean, 1 fixed, 2 fixed + reboot wanted, >=4 unrecoverable
-        if [ $rc -ge 4 ]; then
-            msg "e2fsck failed (rc=$rc), see /run/fsck.log"
-            return 1
-        fi
-        [ $rc -eq 2 ] && { msg "e2fsck asked for a reboot"; sync; reboot -f; }
-    fi
-    mount -t ext4 -o rw,noatime${ROOTFLAGS:+,$ROOTFLAGS} "$ROOTDEV" /newroot || return 1
-    [ -x "/newroot$INIT" ] || { msg "no $INIT in root"; umount /newroot; return 1; }
-    return 0
-}
-
-[ -n "$RESCUE" ] && rescue "$RESCUE"
-until mount_root; do
-    rescue "cannot mount root ${ROOTDEV:-($ROOTSPEC not found)}"
+BOOT_TOP=/btrfs
+NEWROOT=/newroot
+KERNEL=$(uname -r)
+. /usr/lib/q25/boot-root.sh
+mkdir -p "$BOOT_TOP"
+until [ -n "$ROOTDEV" ] && [ -b "$ROOTDEV" ] &&
+      mount -t btrfs -o rw,noatime,compress=zstd:1,subvolid=5 "$ROOTDEV" "$BOOT_TOP"; do
+    rescue "cannot mount btrfs top level ${ROOTDEV:-($ROOTSPEC not found)}"
     find_root
 done
-
-# --- boot counting: three failed boots in a row => rescue -------------------
-# q25-boot-ok.service removes the counter once multi-user.target is reached.
-BC=/newroot/var/lib/q25/boot-count
-mkdir -p /newroot/var/lib/q25
-n=$(cat $BC 2>/dev/null || echo 0)
-case "$n" in ''|*[!0-9]*) n=0 ;; esac
-if [ "$n" -ge 3 ]; then
-    rm -f $BC
-    umount /newroot
-    rescue "the last 3 boots did not reach multi-user.target"
-    until mount_root; do rescue "cannot mount root"; done
-else
-    echo $((n + 1)) > $BC
-fi
-[ -s /run/fsck.log ] && cp /run/fsck.log /newroot/var/lib/q25/initramfs-fsck.log
+mkdir -p "$BOOT_TOP/q25-boot/good"
+chmod 700 "$BOOT_TOP/q25-boot"
+[ -n "$RESCUE" ] && rescue "$RESCUE"
+until prepare_default_boot; do
+    rescue "default root unavailable/unsafe, or 3 failed boots; see build/BTRFS.md"
+done
+umount "$BOOT_TOP"
 
 msg "switching to $ROOTDEV"
 umount /dev/pts 2>/dev/null

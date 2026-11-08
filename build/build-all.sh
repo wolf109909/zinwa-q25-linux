@@ -4,7 +4,7 @@
 #   1. kernel + Q25 modules     (build-kernel.sh  -> $KSTAGE)
 #   2. Q25 Arch packages        (build-packages.sh -> out/packages, e.g. modemmanager-q25)
 #   3. Arch rootfs + image      (build-rootfs.sh  -> $ROOT, out/q25-rootfs.img, out/userdata/*.simg)
-#   4. boot ramdisk             (build-initramfs.sh, uses busybox/e2fsck from the rootfs)
+#   4. boot ramdisk             (build-initramfs.sh, uses busybox/btrfs from the rootfs)
 #   5. boot.img                 (build-boot.sh)
 # then flash with build/flash.sh. First time: build/prepare-kernel.sh.
 set -euo pipefail

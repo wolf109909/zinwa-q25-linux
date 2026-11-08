@@ -9,7 +9,8 @@
 #   packages   install the Q25 packages built by build-packages.sh ($OUT/packages)
 #   overlay    install rootfs/ overlay, firmware, kernel modules, Q25 tools
 #   configure  users, locale, services, keyring
-#   image      make out/q25-rootfs.img (ext4, label q25-root) + sparse chunks
+#   image      make out/q25-rootfs.img (btrfs, default @) + sparse chunks
+#              requires host btrfs-progs 7.x (--rootdir/--subvol/--compress)
 #
 # Environment:
 #   ROOT      rootfs staging dir           (default ~/q25-work/rootfs)
@@ -35,7 +36,7 @@ stage_bootstrap() {
     log "bootstrap: pacstrap into $ROOT"
     mkdir -p "$ROOT"
     mapfile -t PKGS < <(grep -v '^\s*#' "$REPO/build/packages.txt" | grep -v '^\s*$')
-    pacstrap -C "$REPO/build/pacman-build.conf" -c -G -M "$ROOT" "${PKGS[@]}"
+    SNAP_PAC_SKIP=1 pacstrap -C "$REPO/build/pacman-build.conf" -c -G -M "$ROOT" "${PKGS[@]}"
 }
 
 stage_packages() {
@@ -44,7 +45,7 @@ stage_packages() {
     log "packages: ${pkgs[*]##*/}"
     # host pacman (like pacstrap): the staging dir is not a mountpoint, so
     # pacman inside arch-chroot cannot do its free-space check
-    pacman --config "$REPO/build/pacman-build.conf" --root "$ROOT" \
+    SNAP_PAC_SKIP=1 pacman --config "$REPO/build/pacman-build.conf" --root "$ROOT" \
         --noconfirm --needed -U "${pkgs[@]}"
 }
 
@@ -117,7 +118,7 @@ EOF
         NetworkManager.service bluetooth.service sshd.service systemd-timesyncd.service \
         systemd-resolved.service keyd.service q25-firstboot.service q25-usb-gadget.service \
         q25-android.service ModemManager.service q25-connsys.service q25-bt-vhci.service \
-        sddm.service q25-boot-ok.service >/dev/null
+        sddm.service q25-boot-ok.service snapper-timeline.timer snapper-cleanup.timer >/dev/null
     in_root systemctl set-default graphical.target >/dev/null
     in_root systemctl mask systemd-networkd.service systemd-networkd-wait-online.service >/dev/null 2>&1 || true
     ln -sf /run/systemd/resolve/stub-resolv.conf "$ROOT/etc/resolv.conf"
@@ -129,21 +130,41 @@ EOF
     rm -rf "$ROOT/var/cache/pacman/pkg/"*
 }
 
-stage_image() {
-    log "image: ext4"
+stage_image() (
+    # Subshell owns cleanup; never rearrange the source staging root.
+    set -e
+    log "image: btrfs (host btrfs-progs 7.x required)"
     mkdir -p "$OUT"
-    local used_mb size_mb img="$OUT/q25-rootfs.img"
+    local used_mb size_mb layout path name img="$OUT/q25-rootfs.img"
     used_mb=$(du -sm --apparent-size "$ROOT" | cut -f1)
     size_mb=$(( used_mb * 13 / 10 + 512 ))
+    layout=$(mktemp -d "$OUT/.btrfs-layout.XXXXXX")
+    trap 'rm -rf "$layout"' EXIT
+    cp -a --reflink=auto "$ROOT" "$layout/@"
+    local subvols=(--subvol default:@)
+    for pair in home:@home root:@root srv:@srv var/cache:@cache var/log:@log var/tmp:@tmp .snapshots:@snapshots; do
+        path=${pair%:*}
+        name=${pair#*:}
+        mkdir -p "$layout/@/$path"
+        mv "$layout/@/$path" "$layout/$name"
+        mkdir -p "$layout/@/$path"
+        chmod --reference="$layout/$name" "$layout/@/$path"
+        chown --reference="$layout/$name" "$layout/@/$path"
+        subvols+=(--subvol "rw:$name")
+    done
+    chmod 750 "$layout/@snapshots" "$layout/@/.snapshots"
+    mkdir -p "$layout/q25-boot/good"
+    chmod 700 "$layout/q25-boot"
     rm -f "$img"
     truncate -s "${size_mb}M" "$img"
-    mkfs.ext4 -q -F -L q25-root -O ^metadata_csum_seed -E lazy_itable_init=1,lazy_journal_init=1 \
-        -d "$ROOT" "$img"
-    e2fsck -fy "$img" >/dev/null || true
-    log "image: $img (${size_mb} MiB, grows to fill userdata on first boot)"
+    mkfs.btrfs -q -f -L q25-root --rootdir "$layout" \
+        "${subvols[@]}" --compress zstd:1 "$img"
+    btrfs check --readonly "$img"
+    # --rootdir may enlarge the sparse file to its own allocation estimate.
+    log "image: $img ($(stat -c %s "$img") bytes, grows to fill userdata on first boot)"
     python3 "$REPO/build/mksparse-chunks.py" "$img" "$OUT/userdata" 48   # LK fastboot download buffer is 64 MiB
     chown -R "${SUDO_USER:-root}:" "$OUT" 2>/dev/null || true
-}
+)
 
 STAGES=("$@")
 [ ${#STAGES[@]} -eq 0 ] && STAGES=(bootstrap packages overlay configure image)

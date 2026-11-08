@@ -1,8 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0
-# Grow the root filesystem to fill the userdata partition (online ext4 resize).
+# Grow btrfs to fill userdata. Safe to repeat after rolling back the done marker.
 set -e
-dev=$(findmnt -no SOURCE /)
-echo "growing $dev"
-resize2fs "$dev"
+echo "growing btrfs root to fill userdata"
+btrfs filesystem resize max /
 touch /var/lib/q25/firstboot-done

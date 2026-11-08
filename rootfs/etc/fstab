@@ -1,8 +1,14 @@
-# Zinwa Q25 — the root filesystem is mounted read-write by the initramfs
-# (ext4 on PARTLABEL=userdata, fsck'd before mount). Vendor partitions are
-# needed by the modem/connectivity firmware and are only exposed inside the
-# Android-blob runtime under /var/lib/q25/android.
-PARTLABEL=userdata  /  ext4  rw,noatime,commit=30  0 0
+# Root MUST use the btrfs default subvolume: snapper rollback changes it.
+# No subvol=@ on /, and no fsck. See build/BTRFS.md for boot recovery.
+PARTLABEL=userdata  /           btrfs  noatime,compress=zstd:1  0 0
+PARTLABEL=userdata  /home       btrfs  noatime,compress=zstd:1,subvol=@home  0 0
+PARTLABEL=userdata  /root       btrfs  noatime,compress=zstd:1,subvol=@root  0 0
+PARTLABEL=userdata  /srv        btrfs  noatime,compress=zstd:1,subvol=@srv  0 0
+PARTLABEL=userdata  /var/cache  btrfs  noatime,compress=zstd:1,subvol=@cache  0 0
+PARTLABEL=userdata  /var/log    btrfs  noatime,compress=zstd:1,subvol=@log  0 0
+PARTLABEL=userdata  /var/tmp    btrfs  noatime,compress=zstd:1,subvol=@tmp  0 0
+PARTLABEL=userdata  /.snapshots btrfs  noatime,compress=zstd:1,subvol=@snapshots  0 0
+# Vendor ext4 partitions are only exposed inside the Android-blob runtime.
 PARTLABEL=nvdata    /var/lib/q25/android/mnt/vendor/nvdata     ext4  noatime,nosuid,nodev,nofail,x-mount.mkdir,x-systemd.device-timeout=15s  0 0
 PARTLABEL=nvcfg     /var/lib/q25/android/mnt/vendor/nvcfg      ext4  noatime,nosuid,nodev,nofail,x-mount.mkdir,x-systemd.device-timeout=15s  0 0
 PARTLABEL=protect1  /var/lib/q25/android/mnt/vendor/protect_f  ext4  noatime,nosuid,nodev,nofail,x-mount.mkdir,x-systemd.device-timeout=15s  0 0

@@ -5,6 +5,10 @@ archlinuxarm-keyring
 sudo
 busybox
 e2fsprogs
+btrfs-progs
+snapper
+snap-pac
+btrfs-assistant
 dosfstools
 zram-generator
 polkit

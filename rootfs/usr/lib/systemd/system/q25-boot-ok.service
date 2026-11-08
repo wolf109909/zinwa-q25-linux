@@ -1,10 +1,13 @@
 [Unit]
-Description=Q25 boot reached multi-user (reset the initramfs rescue counter)
-After=multi-user.target
+Description=Q25 boot reached multi-user (reset counter and checkpoint root)
+After=multi-user.target q25-firstboot.service
+RequiresMountsFor=/.snapshots
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/rm -f /var/lib/q25/boot-count
+ExecStart=/usr/lib/q25/q25-boot-ok
+RuntimeDirectory=q25-boot
+PrivateMounts=yes
 
 [Install]
 WantedBy=multi-user.target

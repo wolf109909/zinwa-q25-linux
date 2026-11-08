@@ -1,0 +1,61 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+# A "good" checkpoint means multi-user.target was reached, not desktop/modem health.
+set -eu
+export LC_ALL=C
+umask 077
+top=/run/q25-boot/top
+mkdir -p "$top"
+mount -t btrfs -o subvolid=5,noatime,compress=zstd:1 "UUID=$(findmnt -nro UUID /)" "$top"
+trap 'umount "$top"' EXIT
+state=$top/q25-boot
+mkdir -p "$state/good"
+# Reaching multi-user is success even if checkpoint creation fails (e.g. ENOSPC).
+rm -f "$state/boot-count" "$state/recovery-attempt"
+sync
+
+root_id=$(btrfs inspect-internal rootid /)
+btrfs filesystem sync / >/dev/null
+generation=$(btrfs subvolume show / | awk '$1 == "Generation:" { print $2 }')
+previous_id= previous_generation= previous_number=
+if [ -f "$state/last-checkpoint" ]; then
+    read -r previous_id previous_generation previous_number < "$state/last-checkpoint" || true
+fi
+if [ "$root_id $generation" != "$previous_id $previous_generation" ] ||
+   [ ! -f "$state/good/$previous_number" ] ||
+   [ ! -d "/.snapshots/$previous_number/snapshot" ]; then
+    # No cleanup algorithm: only this helper prunes the three good checkpoints.
+    number=$(snapper --no-dbus -c root create --type single --print-number \
+        --description 'Q25 boot verified (multi-user)' --userdata q25-good=yes)
+    case "$number" in ''|*[!0-9]*) echo 'invalid Snapper checkpoint number' >&2; exit 1 ;; esac
+    printf '%s\n' "$(uname -r)" > "$state/good/$number.tmp"
+    mv "$state/good/$number.tmp" "$state/good/$number"
+    # Snapshot creation itself advances the source generation. Remember AFTER it.
+    btrfs filesystem sync / >/dev/null
+    generation=$(btrfs subvolume show / | awk '$1 == "Generation:" { print $2 }')
+    printf '%s %s %s\n' "$root_id" "$generation" "$number" > "$state/last-checkpoint.tmp"
+    mv "$state/last-checkpoint.tmp" "$state/last-checkpoint"
+fi
+
+keep=0
+for number in $(ls "$state/good" | sort -rn); do
+    case "$number" in ''|*[!0-9]*) continue ;; esac
+    if [ ! -d "/.snapshots/$number/snapshot" ]; then
+        rm -f "$state/good/$number"
+        continue
+    fi
+    keep=$((keep + 1))
+    if [ "$keep" -gt 3 ]; then
+        snapper --no-dbus -c root delete "$number"
+        rm -f "$state/good/$number"
+    fi
+done
+# Previous recovery clones are not Snapper-owned. Never delete the running or
+# selected default root, even if an administrator has scheduled another rollback.
+default_id=$(btrfs subvolume get-default / | awk '{ print $2 }')
+for recovery in "$state"/recovery-*; do
+    [ -d "$recovery" ] || continue
+    id=$(btrfs inspect-internal rootid "$recovery")
+    [ "$id" = "$root_id" ] || [ "$id" = "$default_id" ] || btrfs subvolume delete "$recovery"
+done
+sync

@@ -1,0 +1,2 @@
+# Root config is provisioned by the image; do not run create-config over @snapshots.
+SNAPPER_CONFIGS="root"

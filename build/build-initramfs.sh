@@ -4,7 +4,7 @@
 #
 #   build/build-initramfs.sh <rootfs> <out.cpio.gz>
 #
-# Contents: static busybox (from the rootfs), /init, and e2fsck (+ its shared libraries)
+# Contents: static busybox (from the rootfs), /init, and btrfs (+ its shared libraries)
 # copied from the Arch rootfs. LK places this ramdisk right after the
 # vendor_boot ramdisk; the kernel's DTB hard-codes linux,initrd-end to
 # vendor ramdisk + 8 MiB, so the archive is zero-padded to that size.
@@ -25,6 +25,7 @@ ln -s usr/lib "$W/lib"
 ln -s usr/lib "$W/lib64"
 install -m755 "$BUSYBOX" "$W/bin/busybox"
 install -m755 "$REPO/initramfs/init" "$W/init"
+install -Dm644 "$REPO/initramfs/boot-root.sh" "$W/usr/lib/q25/boot-root.sh"
 
 # copy an ELF and its DT_NEEDED closure out of the rootfs
 declare -A seen
@@ -41,19 +42,19 @@ copy_elf() {
         copy_elf "/usr/lib/$lib"
     done
 }
-copy_elf /usr/bin/e2fsck
+copy_elf /usr/bin/btrfs
 copy_elf /usr/lib/ld-linux-aarch64.so.1
-mv "$W/usr/bin/e2fsck" "$W/sbin/e2fsck"
+mv "$W/usr/bin/btrfs" "$W/sbin/btrfs"
 rmdir "$W/usr/bin" 2>/dev/null || true
-aarch64-linux-gnu-strip --strip-unneeded "$W"/usr/lib/*.so* "$W/sbin/e2fsck" 2>/dev/null || true
+aarch64-linux-gnu-strip --strip-unneeded "$W"/usr/lib/*.so* "$W/sbin/btrfs" 2>/dev/null || true
 
-# smoke test: e2fsck must actually run from inside the ramdisk layout
+# smoke test: btrfs must actually run from inside the ramdisk layout
 if command -v qemu-aarch64-static >/dev/null; then
-    qemu-aarch64-static -L "$W" "$W/sbin/e2fsck" -V >/dev/null 2>&1 \
-        || { echo "e2fsck does not run inside the initramfs (missing libs?)" >&2; exit 1; }
+    qemu-aarch64-static -L "$W" "$W/sbin/btrfs" version >/dev/null 2>&1 \
+        || { echo "btrfs does not run inside the initramfs (missing libs?)" >&2; exit 1; }
 fi
 
-# mke2fs.conf-free e2fsck still wants /etc/mtab
+# Mount table for diagnostic utilities in rescue.
 mkdir -p "$W/etc"
 ln -s /proc/mounts "$W/etc/mtab"
 
