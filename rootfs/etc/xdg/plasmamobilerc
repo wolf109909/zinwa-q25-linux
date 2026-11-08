@@ -1,4 +1,0 @@
-[General]
-# Stock Plasma Mobile gesture navigation, without the three-button bottom panel.
-navigationPanelEnabled=false
-gesturePanelEnabled=true

@@ -2,7 +2,12 @@
 
 *Researched 2026-11-09; documentation/source inspection only. No phone access or runtime changes. Public pages were retrieved over HTTP because dedicated web-search tools were unavailable; search-engine challenges limited broader anecdotal coverage.*
 
-## Recommendation
+## Historical recommendation (superseded by the implementation decision)
+
+**Current image: Phosh only, 1.25×, full apps and upstream phosh.service autologin
+to the password-protected lock screen.** See [../build/PHOSH.md](../build/PHOSH.md).
+The ranked alternatives, 1.5× starting suggestion and greetd trial proposal below
+are research history, not current build instructions or additional desktops.
 
 **Choose Phosh/phoc for the integrated phone; keep Sxmo/sway as the keyboard-first alternative.** Stop treating Plasma scaling as a sufficient fix. The Q25's limiting resource is usable screen geometry, not its 12 GB RAM.
 

@@ -4,6 +4,29 @@ Complete hardware enablement, forward-ported **Mainline Linux 7.3 (`7.3.3`) & 7.
 
 ---
 
+## Current standalone phone image
+
+`build/build-all.sh` builds an Arch Linux ARM image with **stock Phosh as its only
+configured desktop**, phoc at **1.25× (576×576 logical)**, and the complete phone
+app set: Calls, Chatty, Contacts, Clocks, Weather, Calculator, Text Editor, Files
+(Nautilus), Loupe, Maps, Snapshot, GNOME Console, **kitty** and **Firefox**.
+GNOME Settings supplies Wi-Fi/Mobile Network/Bluetooth and normal system panels;
+Mobile Settings supplies Phosh preferences. Stevia suppresses automatic OSK with
+a hardware keyboard. SDDM/Plasma and custom GUI launchers are not in this image.
+
+See **[build/PHOSH.md](build/PHOSH.md)** for package availability, the upstream
+session service, clean-build instructions, tests and remaining device checks.
+`Q25_USER` defaults to `alarm`; optional `Q25_PASSWORD` sets the initial account
+password / lock-screen PIN (otherwise the password equals the user name).
+A numeric password suits Phosh's keypad; alphanumeric hardware-keyboard input
+still works. Change the default before network use. This image has been checked
+offline; installation does not establish hardware-level app/telephony support.
+
+The hardware results and hybrid `userspace/` tools below describe earlier port
+milestones. They are retained as reference, **not installed as the current image's
+session or control center**. See [build/BTRFS.md](build/BTRFS.md) and
+[build/PACKAGES.md](build/PACKAGES.md) for storage and package policy.
+
 ## Repository Structure
 
 ```text

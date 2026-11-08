@@ -1,3 +1,0 @@
-[General]
-# Use Wayland's logical 96 DPI and the output's 1.5x scale, not a second scale.
-forceFontDPI=0

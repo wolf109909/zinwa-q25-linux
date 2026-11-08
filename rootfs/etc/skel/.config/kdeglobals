@@ -1,3 +1,0 @@
-[General]
-# User-level default also takes precedence over Mobile's Angelfish suggestion.
-BrowserApplication=firefox.desktop

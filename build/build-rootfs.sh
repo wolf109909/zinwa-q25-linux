@@ -17,7 +17,8 @@
 #   OUT       output directory              (default <repo>/out)
 #   KSTAGE    kernel staging dir from build-kernel.sh (default ~/q25-work/kstage)
 #   SSH_KEY   public key added to root + user authorized_keys (optional)
-#   Q25_USER  default user name             (default alarm, password = user name)
+#   Q25_USER  default user name             (default alarm)
+#   Q25_PASSWORD initial user password/PIN  (default $Q25_USER; numeric recommended)
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -26,6 +27,7 @@ ROOT=${ROOT:-$HOME_DIR/q25-work/rootfs}
 OUT=${OUT:-$REPO/out}
 KSTAGE=${KSTAGE:-$HOME_DIR/q25-work/kstage}
 Q25_USER=${Q25_USER:-alarm}
+Q25_PASSWORD=${Q25_PASSWORD:-$Q25_USER}
 
 [ "$(id -u)" = 0 ] || { echo "run as root (sudo)"; exit 1; }
 
@@ -120,7 +122,7 @@ stage_configure() {
     if ! in_root id "$Q25_USER" >/dev/null 2>&1; then
         in_root useradd -m -u 1000 -G wheel,audio,video,input,network,rfkill,uucp,lp -s /bin/bash "$Q25_USER"
     fi
-    echo "$Q25_USER:$Q25_USER" | in_root chpasswd
+    printf '%s:%s\n' "$Q25_USER" "$Q25_PASSWORD" | in_root chpasswd
     in_root passwd -l root >/dev/null
     if [ -n "${SSH_KEY:-}" ] && [ -f "$SSH_KEY" ]; then
         for h in "$ROOT/root" "$ROOT/home/$Q25_USER"; do
@@ -129,14 +131,17 @@ stage_configure() {
         done
         in_root chown -R "$Q25_USER:$Q25_USER" "/home/$Q25_USER/.ssh"
     fi
-    sed -i "s/^User=.*/User=$Q25_USER/" "$ROOT/etc/sddm.conf.d/20-q25.conf"
+    sed -i "s/^User=.*/User=$Q25_USER/" "$ROOT/etc/systemd/system/phosh.service.d/q25.conf"
+
+    log "configure: GSettings defaults"
+    in_root glib-compile-schemas --strict /usr/share/glib-2.0/schemas
 
     log "configure: services"
     in_root systemctl enable \
         NetworkManager.service bluetooth.service sshd.service systemd-timesyncd.service \
         systemd-resolved.service keyd.service q25-firstboot.service q25-usb-gadget.service \
         q25-android.service ModemManager.service q25-connsys.service q25-bt-vhci.service \
-        sddm.service q25-boot-ok.service snapper-timeline.timer snapper-cleanup.timer >/dev/null
+        phosh.service q25-boot-ok.service snapper-timeline.timer snapper-cleanup.timer >/dev/null
     in_root systemctl set-default graphical.target >/dev/null
     in_root systemctl mask systemd-networkd.service systemd-networkd-wait-online.service >/dev/null 2>&1 || true
     ln -sf /run/systemd/resolve/stub-resolv.conf "$ROOT/etc/resolv.conf"

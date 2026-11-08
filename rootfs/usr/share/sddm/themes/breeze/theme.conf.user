@@ -1,7 +1,0 @@
-[General]
-# Keep the standard Breeze login/session chooser; avoid decorative clock clutter.
-showClock=false
-showlogo=hidden
-type=color
-color=#20252b
-fontSize=10

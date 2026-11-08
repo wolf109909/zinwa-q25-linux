@@ -205,8 +205,8 @@ with `W=1` also passed; the only warning was the pre-existing unused `ret` in
 
 ### Required device checks (not yet run)
 
-After the new embedded DT and modules are installed, check the KWin session's
-power-button/PowerDevil DPMS path (locking alone need not mean DPMS-off). Record
+After the new embedded DT and modules are installed, check the Phosh session's
+power-button/phoc DPMS path (locking alone need not mean DPMS-off). Record
 `/sys/kernel/debug/dri/*/state`, backlight `bl_power`, `brightness` and
 `actual_brightness` before/after off/on; confirm the physical display is dark
 and resumes correctly. Exercise at least two cycles and a non-default keyboard
@@ -250,7 +250,7 @@ Per supervisor approval, the DTS carries **identity as an explicitly
 UNCALIBRATED fallback**, not as a measured board orientation. Face-up Z sign and
 upright/left/right gravity readings still need measurement. A face-up stationary
 sample should yield approximately +9.81 m/s² on Z after the matrix. Do not claim
-correct auto-rotation until `monitor-sensor` and KWin agree with physical poses.
+correct auto-rotation until `monitor-sensor` and Phosh agree with physical poses.
 This hardware driver exposes an accelerometer, magnetometer and ALS/proximity;
 it does not expose or promise a separate gyroscope.
 
@@ -281,7 +281,7 @@ Failed to claim accelerometer: ... AccessDenied: Not Authorized: Sensor claim no
 Z was positive, approximately +10.15 m/s²; the unattended phone's physical pose
 was not confirmed, so this is **not** a face-up calibration. The raw device and
 proxy exist, but the remote SSH sensor claim was denied by policy. Verify
-`monitor-sensor --accel` from the active local Plasma session, then test actual
+`monitor-sensor --accel` from the active local Phosh session, then test actual
 rotation after the new matrix-capable module/DT are installed. No rotated GUI
 or correct orientation result has been observed.
 
@@ -333,5 +333,5 @@ chroot path. Remaining acceptance is **not passed**: cold-start MD1 READY;
 `mmcli -L` discovery without manual restart; standard NM profile with APN
 `ctnet` and initial-EPS APN `ctnet`; registered/attached LTE with IPv4 /32 on the
 dynamically selected ccmni device; HTTPS bound to that device with Wi-Fi not
-providing the tested route; disconnect/reconnect and reboot autoconnect; Plasma
-cellular page presence. Redact SIM identifiers from subsequent published logs.
+providing the tested route; disconnect/reconnect and reboot autoconnect; GNOME
+Settings Mobile Network panel presence in Phosh. Redact SIM identifiers from subsequent published logs.

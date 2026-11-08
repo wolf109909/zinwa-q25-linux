@@ -31,25 +31,21 @@ inetutils
 curl
 dnsmasq
 wget
-# --- Plasma Mobile (default) and Plasma Desktop, both on Wayland
-sddm
-plasma-desktop
-plasma-workspace
-plasma-mobile
-plasma-settings
-plasma-nm
-plasma-pa
-bluedevil
-kwin
-powerdevil
-kscreen
-plasma-keyboard
-kscreenlocker
-polkit-kde-agent
-kde-gtk-config
-breeze-gtk
-xdg-desktop-portal-kde
+# --- stock Phosh phone session (Wayland) and Settings
+phosh
+phoc
+phosh-mobile-settings
+stevia
+xdg-desktop-portal-phosh
 xdg-desktop-portal-gtk
+gnome-control-center
+gnome-settings-daemon
+gnome-keyring
+feedbackd
+iio-sensor-proxy
+adwaita-icon-theme
+adwaita-cursors
+gnome-backgrounds
 xdg-user-dirs
 upower
 brightnessctl
@@ -72,14 +68,18 @@ libinput
 # --- apps
 kitty
 firefox
-dolphin
-kwrite
-okular
-gwenview
-ark
-spectacle
-plasma-systemmonitor
-kcalc
+gnome-calls
+chatty
+gnome-contacts
+gnome-clocks
+gnome-weather
+gnome-calculator
+gnome-text-editor
+nautilus
+loupe
+gnome-console
+gnome-maps
+snapshot
 # --- tools
 python
 htop
