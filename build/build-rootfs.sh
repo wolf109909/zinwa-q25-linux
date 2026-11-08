@@ -130,7 +130,7 @@ stage_image() {
         -d "$ROOT" "$img"
     e2fsck -fy "$img" >/dev/null || true
     log "image: $img (${size_mb} MiB, grows to fill userdata on first boot)"
-    python3 "$REPO/build/mksparse-chunks.py" "$img" "$OUT/userdata" 120
+    python3 "$REPO/build/mksparse-chunks.py" "$img" "$OUT/userdata" 48   # LK fastboot download buffer is 64 MiB
     chown -R "${SUDO_USER:-root}:" "$OUT" 2>/dev/null || true
 }
 

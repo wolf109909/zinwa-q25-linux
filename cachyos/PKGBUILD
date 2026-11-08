@@ -33,21 +33,16 @@ options=('!strip' '!debug')
 source=(
   "https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-${pkgver}.tar.xz"
   'config-mt6789-mainline-7.3.aarch64'
-  'cachyos-mt6789.config'
 )
-b2sums=('SKIP' 'SKIP' 'SKIP')
+b2sums=('SKIP' 'SKIP')
 
 prepare() {
   cd "linux-${pkgver}"
 
-  echo "Applying 24 rebased MT6789 / Helio G99 Mainline SoC & Q25 patches for Linux 7.3..."
-  for p in "${startdir}"/../patches/mt6789-soc/*.patch; do
-    echo "  -> $(basename "$p")"
-    patch -Np1 -i "$p"
-  done
-
-  echo "Applying CachyOS 7.3 BORE scheduler patch..."
-  for p in "${startdir}"/../patches/cachyos-7.3/*.patch; do
+  echo "Applying MT6789 SoC series, CachyOS BORE, then Q25 7.3 fixes..."
+  for p in "${startdir}"/../patches/mt6789-soc/00{01..23}-*.patch \
+           "${startdir}"/../patches/cachyos-7.3/*.patch \
+           "${startdir}"/../patches/mt6789-soc/0024-*.patch; do
     echo "  -> $(basename "$p")"
     patch -Np1 -i "$p"
   done
@@ -55,19 +50,18 @@ prepare() {
   echo "Installing Zinwa Q25 Mainline 7.3 DeviceTree..."
   cp -f "${startdir}/../devicetree/mt8781-zinwa-q25.dts" arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts
 
-  echo "Merging MT6789 7.3 base config with CachyOS Q25 config fragment..."
+  echo "Installing Q25 kernel config (CONFIG_LOCALVERSION=-cachyos-q25)..."
   cp -f "${srcdir}/config-mt6789-mainline-7.3.aarch64" .config
-  scripts/kconfig/merge_config.sh -m .config "${srcdir}/cachyos-mt6789.config"
-  make ARCH=arm64 LOCALVERSION=-cachyos-q25 olddefconfig
+  make ARCH=arm64 olddefconfig
 }
 
 build() {
   cd "linux-${pkgver}"
 
   # Build Zinwa Q25 DTB first (embedded into arch/arm64/kernel/head.S), then Image.gz and modules
-  make ARCH=arm64 LOCALVERSION=-cachyos-q25 -j"$(nproc)" mediatek/mt8781-zinwa-q25.dtb
+  make ARCH=arm64 -j"$(nproc)" mediatek/mt8781-zinwa-q25.dtb
   rm -f arch/arm64/kernel/head.o
-  make ARCH=arm64 LOCALVERSION=-cachyos-q25 -j"$(nproc)" Image.gz modules
+  make ARCH=arm64 -j"$(nproc)" Image.gz modules
 
   # Build all 11 Zinwa Q25 out-of-tree hardware drivers against the built kernel
   make -C "${PWD}" M="${startdir}/../drivers" ARCH=arm64 modules

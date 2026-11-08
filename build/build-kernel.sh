@@ -18,6 +18,13 @@ DTS=arch/arm64/boot/dts/mediatek/mt8781-zinwa-q25.dts
 
 log() { printf '\033[1;32m==> %s\033[0m\n' "$*"; }
 
+log "sync kernel config"
+CFG="$REPO/cachyos/config-mt6789-mainline-7.3.aarch64"
+if ! cmp -s "$CFG" "$KSRC/.config"; then
+    cp "$CFG" "$KSRC/.config"
+    "${MK[@]}" olddefconfig
+fi
+
 log "sync device tree"
 if ! cmp -s "$REPO/devicetree/mt8781-zinwa-q25.dts" "$KSRC/$DTS"; then
     cp "$REPO/devicetree/mt8781-zinwa-q25.dts" "$KSRC/$DTS"

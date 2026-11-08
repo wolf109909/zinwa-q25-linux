@@ -34,3 +34,6 @@ userspace/sbin/libprop_preload.so
 /.pi/*
 !/.pi/realctx/
 !/.pi/realctx/**
+
+# build outputs
+/out/
