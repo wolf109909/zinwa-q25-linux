@@ -15,6 +15,7 @@
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/iio/iio.h>
 #include <linux/iio/sysfs.h>
@@ -50,6 +51,7 @@ struct q25_sensors_ctx {
 	struct q25_i2c_bb bus_imu; /* GPIO132 (SCL), GPIO133 (SDA) */
 	struct q25_i2c_bb bus_als; /* GPIO148 (SCL), GPIO149 (SDA) */
 	struct platform_device *pdev;
+	struct iio_mount_matrix accel_mount_matrix;
 	u32 last_als0;
 	u32 last_als1;
 	u16 last_ps0;
@@ -325,6 +327,19 @@ static const struct iio_info sc7a20_iio_info = {
 	.read_raw = sc7a20_read_raw,
 };
 
+static const struct iio_mount_matrix *sc7a20_get_mount_matrix(
+	struct iio_dev *indio_dev, const struct iio_chan_spec *chan)
+{
+	struct q25_sensors_ctx *ctx = iio_device_get_drvdata(indio_dev);
+
+	return &ctx->accel_mount_matrix;
+}
+
+static const struct iio_chan_spec_ext_info sc7a20_ext_info[] = {
+	IIO_MOUNT_MATRIX(IIO_SHARED_BY_TYPE, sc7a20_get_mount_matrix),
+	{ }
+};
+
 #define SC7A20_ACCEL_CHANNEL(axis, idx) { \
 	.type = IIO_ACCEL, \
 	.modified = 1, \
@@ -332,6 +347,7 @@ static const struct iio_info sc7a20_iio_info = {
 	.address = (idx), \
 	.info_mask_separate = BIT(IIO_CHAN_INFO_RAW), \
 	.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE), \
+	.ext_info = sc7a20_ext_info, \
 }
 
 static const struct iio_chan_spec sc7a20_channels[] = {
@@ -494,11 +510,17 @@ static int q25_sensors_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct iio_dev *indio_accel, *indio_magn, *indio_als;
+	struct q25_sensors_ctx *ctx = g_q25_sensors;
 	int ret;
+
+	ret = iio_read_mount_matrix(dev, &ctx->accel_mount_matrix);
+	if (ret)
+		return dev_err_probe(dev, ret, "Invalid accelerometer mount-matrix\n");
 
 	indio_accel = devm_iio_device_alloc(dev, 0);
 	if (!indio_accel)
 		return -ENOMEM;
+	iio_device_set_drvdata(indio_accel, ctx);
 	indio_accel->name = "sc7a20";
 	indio_accel->modes = INDIO_DIRECT_MODE;
 	indio_accel->info = &sc7a20_iio_info;
@@ -536,9 +558,16 @@ static int q25_sensors_probe(struct platform_device *pdev)
 	return 0;
 }
 
+static const struct of_device_id q25_sensors_of_match[] = {
+	{ .compatible = "zinwa,q25-sensors" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, q25_sensors_of_match);
+
 static struct platform_driver q25_sensors_pdrv = {
 	.driver = {
 		.name = "q25-sensors",
+		.of_match_table = q25_sensors_of_match,
 	},
 	.probe = q25_sensors_probe,
 };
@@ -546,6 +575,7 @@ static struct platform_driver q25_sensors_pdrv = {
 static int __init q25_sensors_init(void)
 {
 	struct q25_sensors_ctx *ctx;
+	struct device_node *np;
 	int ret;
 
 	ctx = kzalloc(sizeof(*ctx), GFP_KERNEL);
@@ -576,6 +606,13 @@ static int __init q25_sensors_init(void)
 	if (ret)
 		goto err_unmap;
 
+	/* Older boot images predate the sensor node; keep their IIO ABI usable. */
+	np = of_find_compatible_node(NULL, NULL, "zinwa,q25-sensors");
+	if (np) {
+		of_node_put(np);
+		return 0;
+	}
+
 	ctx->pdev = platform_device_register_simple("q25-sensors", -1, NULL, 0);
 	if (IS_ERR(ctx->pdev)) {
 		ret = PTR_ERR(ctx->pdev);
@@ -602,7 +639,8 @@ static void __exit q25_sensors_exit(void)
 
 	if (!ctx)
 		return;
-	platform_device_unregister(ctx->pdev);
+	if (ctx->pdev)
+		platform_device_unregister(ctx->pdev);
 	platform_driver_unregister(&q25_sensors_pdrv);
 	g_q25_sensors = NULL;
 	if (ctx->iocfg_rt_base)

@@ -6,6 +6,7 @@
 #ifndef BBQX0KBD_MAIN_H_
 #define BBQX0KBD_MAIN_H_
 
+#include <drm/drm_panel.h>
 #include <linux/backlight.h>
 #include <linux/leds.h>
 #include <linux/regulator/consumer.h>
@@ -122,6 +123,9 @@ struct bbqX0kbd_data {
 	//keyboard poweroff/poweron
 	uint8_t q20_spec_power_flag;
 	struct led_classdev kbd_led;
+	struct drm_panel_follower panel_follower;
+	struct mutex backlight_lock;
+	bool display_off;
 	struct led_classdev torch_led;
 	struct led_classdev vibr_led;
 	int torch_en_gpio;

@@ -54,12 +54,10 @@ static struct proc_dir_entry *lcm_proc_entry;
 struct hodafone_lcm {
 	struct device *dev;
 	struct drm_panel panel;
-	struct backlight_device *backlight;
 	struct gpio_desc *reset_gpio;
 	struct gpio_desc *avdd;
 
 	bool prepared;
-	bool enabled;
 	
 	char *board_name;
 
@@ -215,22 +213,6 @@ static void lcm_panel_get_data(struct hodafone_lcm *ctx)
 }
 #endif
 
-static int lcm_disable(struct drm_panel *panel)
-{
-	struct hodafone_lcm *ctx = panel_to_hodafone_lcm(panel);
-
-	//pr_err("%s\n", __func__);
-	if (!ctx->enabled)
-		return 0;
-
-	if (ctx->backlight)
-		backlight_disable(ctx->backlight);
-
-	ctx->enabled = false;
-
-	return 0;
-}
-
 static int lcm_unprepare(struct drm_panel *panel)
 {
 	struct hodafone_lcm *ctx = panel_to_hodafone_lcm(panel);
@@ -323,22 +305,6 @@ static int lcm_prepare(struct drm_panel *panel)
 	return ret;
 }
 
-static int lcm_enable(struct drm_panel *panel)
-{
-	struct hodafone_lcm *ctx = panel_to_hodafone_lcm(panel);
-
-	//pr_err("%s\n", __func__);
-	if (ctx->enabled)
-		return 0;
-
-	if (ctx->backlight)
-		backlight_enable(ctx->backlight);
-
-	ctx->enabled = true;
-
-	return 0;
-}
-
 
 #define PCLK_MODE0_IN_KHZ \
     ((FRAME_WIDTH + MODE_0_HFP + HSA + HBP)*(FRAME_HEIGHT + MODE_0_VFP + VSA + VBP)*(60)/1000)
@@ -421,10 +387,8 @@ static int lcm_get_modes(struct drm_panel *panel, struct drm_connector *connecto
 }
 
 static const struct drm_panel_funcs lcm_drm_funcs = {
-	.disable = lcm_disable,
 	.unprepare = lcm_unprepare,
 	.prepare = lcm_prepare,
-	.enable = lcm_enable,
 	.get_modes = lcm_get_modes,
 };
 
@@ -452,7 +416,6 @@ static int lcm_probe(struct mipi_dsi_device *dsi)
 {
 	struct device *dev = &dsi->dev;
 	struct hodafone_lcm *ctx;
-	struct device_node *backlight;
 	int ret;
 	struct device_node *dsi_node, *remote_node = NULL, *endpoint = NULL;
 
@@ -498,16 +461,6 @@ static int lcm_probe(struct mipi_dsi_device *dsi)
 			MIPI_DSI_MODE_LPM | MIPI_DSI_MODE_EOT_PACKET |
 			MIPI_DSI_CLOCK_NON_CONTINUOUS;	
 #endif
-	backlight = of_parse_phandle(dev->of_node, "backlight", 0);
-
-	if (backlight) {
-		ctx->backlight = of_find_backlight_by_node(backlight);
-		of_node_put(backlight);
-
-		if (!ctx->backlight)
-			return -EPROBE_DEFER;
-	}
-
 	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
 
 	if (IS_ERR(ctx->reset_gpio)) {
@@ -526,15 +479,17 @@ static int lcm_probe(struct mipi_dsi_device *dsi)
 	ctx->board_name = (char *)of_get_property(dev->of_node, "board_name", NULL);
 	
 	ctx->prepared = true;
-	ctx->enabled = true;
-	if (ctx->backlight)
-		backlight_enable(ctx->backlight);
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(6, 15, 0)
 	drm_panel_init(&ctx->panel, dev, &lcm_drm_funcs, DRM_MODE_CONNECTOR_DSI);
 	ctx->panel.dev = dev;
 	ctx->panel.funcs = &lcm_drm_funcs;
 #endif
+
+	/* Let DRM blank the linked backlight before disabling the DSI panel. */
+	ret = drm_panel_of_backlight(&ctx->panel);
+	if (ret)
+		return ret;
 
 	drm_panel_add(&ctx->panel);
 

@@ -130,6 +130,7 @@ static ssize_t q20_kbd_brightness_debug_write(struct file *filp, const char *buf
 {
 	char writebuf[32];
 	unsigned int val = 0;
+	int ret;
 	size_t n = len < sizeof(writebuf) - 1 ? len : sizeof(writebuf) - 1;
 
 	if (copy_from_user(writebuf, buff, n))
@@ -140,9 +141,10 @@ static ssize_t q20_kbd_brightness_debug_write(struct file *filp, const char *buf
 	if (kstrtouint(strim(writebuf), 0, &val) == 0) {
 		if (val > 255)
 			val = 255;
-		g_bbqX0kbd_data->keyboardBrightness = (uint8_t)val;
-		bbqX0kbd_write(g_bbqX0kbd_data->i2c_client, BBQX0KBD_I2C_ADDRESS,
-			       REG_BKL, &g_bbqX0kbd_data->keyboardBrightness, sizeof(uint8_t));
+		ret = led_set_brightness_sync(&g_bbqX0kbd_data->kbd_led, val);
+
+		if (ret)
+			return ret;
 	}
 	return len;
 }
@@ -157,20 +159,49 @@ static const struct proc_ops q20_kbd_brightness_proc_ops = {
 static int bbqX0kbd_led_set_blocking(struct led_classdev *cdev, enum led_brightness value)
 {
 	struct bbqX0kbd_data *kbd = container_of(cdev, struct bbqX0kbd_data, kbd_led);
+	u8 brightness;
+	int ret;
 
-	if (!kbd || !kbd->i2c_client)
-		return -ENODEV;
-	kbd->keyboardBrightness = (uint8_t)(value > 255 ? 255 : value);
-	return bbqX0kbd_write(kbd->i2c_client, BBQX0KBD_I2C_ADDRESS,
-			      REG_BKL, &kbd->keyboardBrightness, sizeof(uint8_t));
+	mutex_lock(&kbd->backlight_lock);
+	brightness = kbd->display_off || kbd->suspended ? 0 : value;
+	ret = bbqX0kbd_write(kbd->i2c_client, BBQX0KBD_I2C_ADDRESS,
+			    REG_BKL, &brightness, sizeof(brightness));
+	if (!ret)
+		kbd->keyboardBrightness = value;
+	mutex_unlock(&kbd->backlight_lock);
+	return ret;
 }
 
-static enum led_brightness bbqX0kbd_led_get(struct led_classdev *cdev)
+static int bbqX0kbd_panel_backlight(struct drm_panel_follower *follower, bool off)
 {
-	struct bbqX0kbd_data *kbd = container_of(cdev, struct bbqX0kbd_data, kbd_led);
+	struct bbqX0kbd_data *kbd = container_of(follower, struct bbqX0kbd_data, panel_follower);
+	u8 brightness;
+	int ret;
 
-	return kbd ? kbd->keyboardBrightness : 0;
+	/* Only blank the LED: the keyboard and trackpad must still wake KWin. */
+	mutex_lock(&kbd->backlight_lock);
+	kbd->display_off = off;
+	brightness = off || kbd->suspended ? 0 : kbd->keyboardBrightness;
+	ret = bbqX0kbd_write(kbd->i2c_client, BBQX0KBD_I2C_ADDRESS,
+			    REG_BKL, &brightness, sizeof(brightness));
+	mutex_unlock(&kbd->backlight_lock);
+	return ret;
 }
+
+static int bbqX0kbd_panel_enabled(struct drm_panel_follower *follower)
+{
+	return bbqX0kbd_panel_backlight(follower, false);
+}
+
+static int bbqX0kbd_panel_disabling(struct drm_panel_follower *follower)
+{
+	return bbqX0kbd_panel_backlight(follower, true);
+}
+
+static const struct drm_panel_follower_funcs bbqX0kbd_panel_follower_funcs = {
+	.panel_enabled = bbqX0kbd_panel_enabled,
+	.panel_disabling = bbqX0kbd_panel_disabling,
+};
 
 static int q25_resolve_soc_gpio(unsigned int hwnum)
 {
@@ -474,6 +505,7 @@ static unsigned short bbqX0kbd_get_altgr_keycode(unsigned short keycode)
 static void bbqX0kbd_set_brightness(struct bbqX0kbd_data *bbqX0kbd_data, unsigned short keycode, uint8_t *reportKey)
 {
 	uint8_t swapVar;
+	u8 keyboard_brightness = READ_ONCE(bbqX0kbd_data->keyboardBrightness);
 
 	switch (keycode) {
 #if (BBQX0KBD_TYPE == BBQ10KBD_FEATHERWING)
@@ -500,22 +532,18 @@ static void bbqX0kbd_set_brightness(struct bbqX0kbd_data *bbqX0kbd_data, unsigne
 #endif
 	case KEY_Z:
 		*reportKey = 0;
-		if (bbqX0kbd_data->keyboardBrightness > 0xFF - BBQ10_BRIGHTNESS_DELTA)
-			bbqX0kbd_data->keyboardBrightness = 0xFF;
-		else
-			bbqX0kbd_data->keyboardBrightness = bbqX0kbd_data->keyboardBrightness + BBQ10_BRIGHTNESS_DELTA;
+		keyboard_brightness = min_t(unsigned int, 255,
+			keyboard_brightness + BBQ10_BRIGHTNESS_DELTA);
 		break;
 	case KEY_X:
 		*reportKey = 0;
-		if (bbqX0kbd_data->keyboardBrightness < BBQ10_BRIGHTNESS_DELTA)
-			bbqX0kbd_data->keyboardBrightness = 0;
-		else
-			bbqX0kbd_data->keyboardBrightness = bbqX0kbd_data->keyboardBrightness - BBQ10_BRIGHTNESS_DELTA;
+		keyboard_brightness = keyboard_brightness < BBQ10_BRIGHTNESS_DELTA ?
+			0 : keyboard_brightness - BBQ10_BRIGHTNESS_DELTA;
 		break;
 	case KEY_0:
 		*reportKey = 0;
-		swapVar = bbqX0kbd_data->keyboardBrightness;
-		bbqX0kbd_data->keyboardBrightness = (bbqX0kbd_data->keyboardBrightness == 0) ? bbqX0kbd_data->lastKeyboardBrightness : 0;
+		swapVar = keyboard_brightness;
+		keyboard_brightness = keyboard_brightness == 0 ? bbqX0kbd_data->lastKeyboardBrightness : 0;
 		bbqX0kbd_data->lastKeyboardBrightness = swapVar;
 		break;
 	default:
@@ -523,7 +551,7 @@ static void bbqX0kbd_set_brightness(struct bbqX0kbd_data *bbqX0kbd_data, unsigne
 		break;
 	}
 	if (*reportKey == 0)
-		bbqX0kbd_write(bbqX0kbd_data->i2c_client, BBQX0KBD_I2C_ADDRESS, REG_BKL, &bbqX0kbd_data->keyboardBrightness, sizeof(uint8_t));
+		led_set_brightness_sync(&bbqX0kbd_data->kbd_led, keyboard_brightness);
 
 #if (BBQX0KBD_TYPE == BBQ10KBD_FEATHERWING)
 	if (*reportKey == 1)
@@ -1346,9 +1374,26 @@ static int bbqX0kbd_probe(struct i2c_client *client, const struct i2c_device_id 
 	bbqX0kbd_data->lastScreenBrightness = bbqX0kbd_data->screenBrightness;
 	bbqX0kbd_write(client, BBQX0KBD_I2C_ADDRESS, REG_BK2, &bbqX0kbd_data->screenBrightness, sizeof(uint8_t));
 #endif
+	mutex_init(&bbqX0kbd_data->backlight_lock);
 	bbqX0kbd_data->keyboardBrightness = 0xFF;
 	bbqX0kbd_data->lastKeyboardBrightness = bbqX0kbd_data->keyboardBrightness;
-	bbqX0kbd_write(client, BBQX0KBD_I2C_ADDRESS, REG_BKL, &bbqX0kbd_data->keyboardBrightness, sizeof(uint8_t));
+	bbqX0kbd_data->display_off = drm_is_panel_follower(dev);
+	registerValue = bbqX0kbd_data->display_off ? 0 : bbqX0kbd_data->keyboardBrightness;
+	bbqX0kbd_write(client, BBQX0KBD_I2C_ADDRESS, REG_BKL, &registerValue, sizeof(registerValue));
+	if (bbqX0kbd_data->display_off) {
+		bbqX0kbd_data->panel_follower.funcs = &bbqX0kbd_panel_follower_funcs;
+		returnValue = devm_drm_panel_add_follower(dev, &bbqX0kbd_data->panel_follower);
+		if (returnValue)
+			return dev_err_probe(dev, returnValue, "Cannot follow display panel\n");
+	}
+
+	bbqX0kbd_data->kbd_led.name = "q25:white:kbd_backlight";
+	bbqX0kbd_data->kbd_led.max_brightness = 255;
+	bbqX0kbd_data->kbd_led.brightness = bbqX0kbd_data->keyboardBrightness;
+	bbqX0kbd_data->kbd_led.brightness_set_blocking = bbqX0kbd_led_set_blocking;
+	returnValue = devm_led_classdev_register(dev, &bbqX0kbd_data->kbd_led);
+	if (returnValue)
+		return returnValue;
 
 #if (BBQX0KBD_INT == BBQX0KBD_USE_INT)
 	returnValue = devm_request_threaded_irq(dev, client->irq,
@@ -1390,16 +1435,8 @@ static int bbqX0kbd_probe(struct i2c_client *client, const struct i2c_device_id 
 	if (!q20_spec_power_flag_proc_entry) {
 		q20_spec_power_flag_proc_entry = proc_create(Q20_SPEC_POWER_FLAG_PROC_NAME, 0666, NULL, &q20_spec_power_flag_proc_ops);
 	}
-	if (!q20_kbd_brightness_proc_entry) {
+	if (!q20_kbd_brightness_proc_entry)
 		q20_kbd_brightness_proc_entry = proc_create(Q20_KBD_BRIGHTNESS_PROC_NAME, 0666, NULL, &q20_kbd_brightness_proc_ops);
-	}
-
-	bbqX0kbd_data->kbd_led.name = "q25:white:kbd_backlight";
-	bbqX0kbd_data->kbd_led.max_brightness = 255;
-	bbqX0kbd_data->kbd_led.brightness = bbqX0kbd_data->keyboardBrightness;
-	bbqX0kbd_data->kbd_led.brightness_set_blocking = bbqX0kbd_led_set_blocking;
-	bbqX0kbd_data->kbd_led.brightness_get = bbqX0kbd_led_get;
-	devm_led_classdev_register(dev, &bbqX0kbd_data->kbd_led);
 
 	/* Torch / Flashlight (GPIO 155 = enable, GPIO 154 = mode) */
 	bbqX0kbd_data->torch_en_gpio = q25_resolve_soc_gpio(155);
@@ -1484,10 +1521,11 @@ static int bbqX0kbd_suspend(struct device *dev)
     struct i2c_client *client = to_i2c_client(dev);
     struct bbqX0kbd_data *bbqX0kbd_data = i2c_get_clientdata(client);
     
-    bbqX0kbd_data->suspended = true;
-    
-    /* Turn off backlight to save power */
+	mutex_lock(&bbqX0kbd_data->backlight_lock);
+	bbqX0kbd_data->suspended = true;
+	/* Preserve the LED class brightness across system suspend as well. */
 	returnValue = bbqX0kbd_write(client, BBQX0KBD_I2C_ADDRESS, REG_BKL, &registerValue, sizeof(uint8_t));
+	mutex_unlock(&bbqX0kbd_data->backlight_lock);
 	if (returnValue != 0) {
 		BBQX0KBD_KEYBOARD_ERR("%s Could not write to BBQX0KBD Backlight. Error: %d\n", __func__, returnValue);
 		return 0;
@@ -1527,14 +1565,14 @@ static int bbqX0kbd_resume(struct device *dev)
         enable_irq(client->irq);
 	}
 
-	/* Restore backlight level */
-	bbqX0kbd_data->keyboardBrightness = 0xFF;
-	returnValue = bbqX0kbd_write(client, BBQX0KBD_I2C_ADDRESS, REG_BKL, &(bbqX0kbd_data->keyboardBrightness), sizeof(uint8_t));
+	mutex_lock(&bbqX0kbd_data->backlight_lock);
+	bbqX0kbd_data->suspended = false;
+	registerValue = bbqX0kbd_data->display_off ? 0 : bbqX0kbd_data->keyboardBrightness;
+	returnValue = bbqX0kbd_write(client, BBQX0KBD_I2C_ADDRESS, REG_BKL, &registerValue, sizeof(registerValue));
+	mutex_unlock(&bbqX0kbd_data->backlight_lock);
 	if (returnValue != 0) {
 		BBQX0KBD_KEYBOARD_ERR("%s Could not write to BBQX0KBD Backlight. Error: %d\n", __func__, returnValue);
 	}
-    
-    bbqX0kbd_data->suspended = false;
     
     registerValue = 0x00;
 	returnValue = bbqX0kbd_write(client, BBQX0KBD_I2C_ADDRESS, REG_INT, &registerValue, sizeof(uint8_t));
