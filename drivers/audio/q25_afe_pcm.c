@@ -85,7 +85,7 @@ void q25_unregister_audio_card(void);
 #define AFE_MEMIF_CON0			0x08cc
 #define AFE_ADDA_DL_SDM_DCCOMP_CON	0x0c50
 #define AFE_ADDA_DL_SDM_DITHER_CON	0x0c70
-#define AFE_ADDA_DL_SDM_AUTO_RESET_CON	0x0c78
+#define AFE_ADDA_DL_SDM_AUTO_RESET_CON	0x0c74
 #define AFE_ADDA_MTKAIF_CFG0		0x0e00
 #define AFE_ADDA_MTKAIF_RX_CFG0		0x0e20
 #define AFE_ADDA_MTKAIF_RX_CFG2		0x0e28
@@ -310,22 +310,26 @@ static void q25_afe_configure_adda_dl(struct q25_afe_priv *afe, unsigned int rat
 
 	dl_src2_con0 = (q25_rate_to_adda_dl(rate) << 28) |
 		       (0x3 << 24) | /* UP_SAMPLING_RATE_X8 */
-		       BIT(4) | BIT(3) | /* unmute CH1/CH2 */
+		       BIT(12) | BIT(11) | /* DL_2_MUTE_CH1/CH2_OFF_CTL_PRE = 1 */
 		       BIT(1); /* gain on */
 	if (rate == 8000 || rate == 16000)
 		dl_src2_con0 |= BIT(5);
+
+	/* Ensure ADDA CKDIV_RST (bit 30) and FIFO_AUTO_RST_EN (bit 29) are cleared */
+	writel(readl(afe->base + AFE_ADDA_UL_DL_CON0) & ~(BIT(30) | BIT(29) | BIT(14) | BIT(13)),
+	       afe->base + AFE_ADDA_UL_DL_CON0);
 
 	writel(0, afe->base + AFE_ADDA_PREDIS_CON0);
 	writel(0, afe->base + AFE_ADDA_PREDIS_CON1);
 	writel(dl_src2_con0, afe->base + AFE_ADDA_DL_SRC2_CON0);
 	writel(dl_src2_con1, afe->base + AFE_ADDA_DL_SRC2_CON1);
 
-	/* SDM & MTKAIF protocol 2 setup */
-	writel((0x7 << 0), afe->base + AFE_ADDA_DL_SDM_DCCOMP_CON);
+	/* SDM & MTKAIF protocol 2 setup: AUDIO_SDM_LEVEL_NORMAL = 0x1d, USE_NEW_2ND_SDM = BIT(28) */
+	writel(0x1dU, afe->base + AFE_ADDA_DL_SDM_DCCOMP_CON);
 	writel(BIT(20), afe->base + AFE_ADDA_DL_SDM_DITHER_CON);
-	writel(0x190000U | BIT(25) | BIT(31), afe->base + AFE_ADDA_DL_SDM_AUTO_RESET_CON);
-	writel(0x00010000U, afe->base + AFE_ADDA_MTKAIF_CFG0);
-	writel(0x38, afe->base + AFE_AUD_PAD_TOP);
+	writel(0x190000U | BIT(28) | BIT(31), afe->base + AFE_ADDA_DL_SDM_AUTO_RESET_CON);
+	writel(0x80010000U, afe->base + AFE_ADDA_MTKAIF_CFG0);
+	writel(0x39, afe->base + AFE_AUD_PAD_TOP);
 }
 
 static void q25_afe_configure_adda_ul(struct q25_afe_priv *afe, unsigned int rate, bool is_24bit)
@@ -377,38 +381,112 @@ static const struct snd_pcm_hardware q25_afe_pcm_hardware = {
 static void q25_mt6358_lineout_amp_set(struct q25_afe_priv *afe, bool enable)
 {
 	struct snd_soc_component *c = afe->mt6358_cmpnt;
+	unsigned int zcd_con1 = 0x0408; /* Default 0dB if unset */
+	unsigned int zcd_con2 = 0x0408;
+	unsigned int zcd_con3 = 0x0008;
 
 	if (!c)
 		return;
 
 	if (enable) {
-		/* Power on MT6358 NCP, cap-less LDOs, NV reg, IBIST, DAC R, and LOL buffer */
-		snd_soc_component_write(c, 0x2084, 0x4000); /* AUDDEC_ANA_CON2 */
+		/*
+		 * Mainline Linux 7.3 mt6358.h uses 0x2408 base for AUDDEC_ANA_CON0..15
+		 * (not 5.10's 0x2080!), and LOL Mux in 7.3 has no DAPM supply routes to
+		 * DL Power Supply or mt_lo_event. Program the full digital + analog
+		 * power sequence at the true 7.3 MT6358 offsets, and configure MT6358
+		 * playback GPIO_MODE2 (0x00d8) for MTKAIF MOSI pins.
+		 */
+		/* 0. Configure MT6358 playback GPIO_MODE2 (MOSI pins) */
+		snd_soc_component_update_bits(c, 0x00dc, 0x01f8, 0x01f8); /* GPIO_MODE2_CLR */
+		snd_soc_component_update_bits(c, 0x00da, 0xffff, 0x0249); /* GPIO_MODE2_SET */
+		snd_soc_component_update_bits(c, 0x00d8, 0xffff, 0x0249); /* GPIO_MODE2 */
+
+		/* 1. Enable XO_AUDIO_EN_M (DCXO_CW14 0x07ac), AUDGLB (0x2422), CLKSQ 26MHz (0x2394), and TOPCK (0x220c) */
+		snd_soc_component_update_bits(c, 0x2410, 0x1 << 6, 0x1 << 6); /* AUDDEC_ANA_CON4 HP CMFB rstb */
+		snd_soc_component_update_bits(c, 0x07ac, 0x1 << 13, 0x1 << 13); /* DCXO_CW14 XO_AUDIO_EN_M */
+		snd_soc_component_update_bits(c, 0x2422, 0x1 << 4, 0x0); /* AUDDEC_ANA_CON13 AUDGLB_PWRDN=0 */
+		snd_soc_component_update_bits(c, 0x2394, 0x0003, 0x0001); /* AUDENC_ANA_CON6 RG_CLKSQ_EN=1 */
+		snd_soc_component_update_bits(c, 0x220c, 0x0066, 0x0000); /* AUD_TOP_CKPDN_CON0 enable ZCD13M/AUD/AUDIF/AUDNCP */
+		usleep_range(250, 270);
+
+		/* 2. Release digital audio clock power-down and enable SDM/FIFO/AFE/DL_SRC2 */
+		snd_soc_component_update_bits(c, 0x2292, 0x00c5, 0x0000); /* AUDIO_TOP_CON0 release PDN_AFE/DAC/PWR_CLK */
+		usleep_range(250, 270);
+		snd_soc_component_write(c, 0x229a, 0x0006); /* AFUNC_AUD_CON2 SDM audio FIFO clock power on */
+		snd_soc_component_write(c, 0x2296, 0xcba1); /* AFUNC_AUD_CON0 scrambler clock on */
+		snd_soc_component_write(c, 0x229a, 0x0003); /* AFUNC_AUD_CON2 SDM power on */
+		snd_soc_component_write(c, 0x229a, 0x000b); /* AFUNC_AUD_CON2 SDM FIFO enable */
+		snd_soc_component_update_bits(c, 0x2288, 0x4001, 0x0001); /* AFE_UL_DL_CON0 AFE_ON=1 */
+		snd_soc_component_write(c, 0x228a, 0x0001); /* AFE_DL_SRC2_CON0_L DL_2_SRC_ON=1 */
+
+		/* 3. Power on MT6358 NCP, cap-less LDOs, NV reg, IBIST, DAC L/R, and output buffers */
+		snd_soc_component_write(c, 0x240c, 0x4033); /* AUDDEC_ANA_CON2 AU_REFN + HPP/N STB */
 		snd_soc_component_write(c, 0x223c, 0x0001); /* AUDNCP_CLKDIV_CON1 */
-		snd_soc_component_write(c, 0x223e, 0x002c); /* AUDNCP_CLKDIV_CON2 */
+		snd_soc_component_write(c, 0x223e, 0x002c); /* AUDNCP_CLKDIV_CON2 604kHz */
 		snd_soc_component_write(c, 0x223a, 0x0001); /* AUDNCP_CLKDIV_CON0 */
 		snd_soc_component_write(c, 0x2242, 0x0003); /* AUDNCP_CLKDIV_CON4 */
-		snd_soc_component_write(c, 0x2240, 0x0000); /* AUDNCP_CLKDIV_CON3 */
+		snd_soc_component_write(c, 0x2240, 0x0000); /* AUDNCP_CLKDIV_CON3 enable NCP */
 		usleep_range(250, 270);
-		snd_soc_component_update_bits(c, 0x209c, 0x1055, 0x1055); /* AUDDEC_ANA_CON14 */
-		snd_soc_component_write(c, 0x209e, 0x0001); /* AUDDEC_ANA_CON15 */
+		snd_soc_component_update_bits(c, 0x2424, 0x1055, 0x1055); /* AUDDEC_ANA_CON14 cap-less LDOs 1.5V */
+		snd_soc_component_write(c, 0x2426, 0x0001); /* AUDDEC_ANA_CON15 NV regulator -1.2V */
 		usleep_range(100, 120);
-		snd_soc_component_update_bits(c, 0x208e, 0x1 << 4, 0x1 << 4); /* AUDDEC_ANA_CON7 */
-		snd_soc_component_write(c, 0x2098, 0x0055); /* AUDDEC_ANA_CON12 */
-		snd_soc_component_update_bits(c, 0x2096, 0xff80, 0x4900); /* AUDDEC_ANA_CON11 */
-		snd_soc_component_update_bits(c, 0x208e, 0x1 << 8, 0x1 << 8); /* LO STB enh */
-		snd_soc_component_write(c, 0x2092, 0x0000); /* AUDDEC_ANA_CON9 */
-		snd_soc_component_write(c, 0x2094, 0x0000); /* AUDDEC_ANA_CON10 */
-		snd_soc_component_update_bits(c, 0x208e, 0x3, 0x3); /* LO bias + core */
-		snd_soc_component_update_bits(c, 0x209a, 0x1, 0x1); /* AUD_CLK */
-		/* Enable both Audio DAC L and DAC R + VA28 so LOL works regardless of mux bit */
-		snd_soc_component_update_bits(c, 0x2080, 0x000f, 0x000f); /* AUDDEC_ANA_CON0 */
-		snd_soc_component_write(c, 0x2092, 0x0001); /* AUDDEC_ANA_CON9 low-noise */
-		/* Switch LOL MUX to audio DAC (0x1 << 2 on MT6358/MT6366) */
-		snd_soc_component_update_bits(c, 0x208e, 0x3 << 2, 0x1 << 2);
+		snd_soc_component_update_bits(c, 0x2488, 0x1 << 0, 0x0); /* ZCD_CON0 disable AUD_ZCD */
+		snd_soc_component_update_bits(c, 0x2416, 0x1 << 4, 0x1 << 4); /* AUDDEC_ANA_CON7 disable LO short-ckt prot */
+		snd_soc_component_write(c, 0x2420, 0x0055); /* AUDDEC_ANA_CON12 enable IBIST */
+		snd_soc_component_update_bits(c, 0x241e, 0xff80, 0x4900); /* AUDDEC_ANA_CON11 DR bias current */
+		snd_soc_component_update_bits(c, 0x2416, 0x1 << 8, 0x1 << 8); /* AUDDEC_ANA_CON7 LO STB enh */
+		snd_soc_component_write(c, 0x241a, 0x0000); /* AUDDEC_ANA_CON9 */
+		snd_soc_component_write(c, 0x241c, 0x0000); /* AUDDEC_ANA_CON10 */
+		snd_soc_component_update_bits(c, 0x2416, 0x3, 0x3); /* AUDDEC_ANA_CON7 LO bias + core */
+		snd_soc_component_write(c, 0x2414, 0x0093); /* AUDDEC_ANA_CON6 HS STB + bias + core */
+		snd_soc_component_write(c, 0x240a, 0x3f03); /* AUDDEC_ANA_CON1 HP main output stage */
+		snd_soc_component_update_bits(c, 0x2422, 0x1, 0x1); /* AUDDEC_ANA_CON13 AUD_CLK */
+		/* Enable Audio DAC L + DAC R + VA28_REFGEN + VCM_BUF + HP driver */
+		snd_soc_component_write(c, 0x2408, 0x30ff); /* AUDDEC_ANA_CON0 */
+		snd_soc_component_write(c, 0x241a, 0xf201); /* AUDDEC_ANA_CON9 low-noise + HP CMFB */
+		if (afe->output_route == 2) {
+			/* Headphone only: disable LOL/HS, enable HPL/HPR MUX -> DAC */
+			snd_soc_component_update_bits(c, 0x2416, 0x3 << 2, 0x0);
+			snd_soc_component_write(c, 0x2414, 0x0000);
+			snd_soc_component_write(c, 0x2408, 0x3aff);
+		} else if (afe->output_route == 3) {
+			/* Speaker + Headphone: enable LOL + HPL/HPR MUX -> DAC */
+			snd_soc_component_update_bits(c, 0x2416, 0x3 << 2, 0x2 << 2);
+			snd_soc_component_write(c, 0x2414, 0x009b);
+			snd_soc_component_write(c, 0x2408, 0x3aff);
+		} else {
+			/* Speaker (0) or Receiver (1): enable LOL + HS MUX -> DAC + HPL/HPR LoudSPK */
+			snd_soc_component_update_bits(c, 0x2416, 0x3 << 2, 0x2 << 2);
+			snd_soc_component_write(c, 0x2414, 0x009b);
+			snd_soc_component_write(c, 0x2408, 0x35ff);
+		}
+		snd_soc_component_update_bits(c, 0x240c, 0x00c0, 0x0000); /* AUDDEC_ANA_CON2 hp_pull_down=false */
+		/* Ensure ZCD_CON1 (0x248a), ZCD_CON2 (0x248c), ZCD_CON3 (0x248e) gains are unmuted */
+		zcd_con1 = snd_soc_component_read(c, 0x248a);
+		if ((zcd_con1 & 0x1f) >= 0x12)
+			snd_soc_component_update_bits(c, 0x248a, 0x0f9f, (4 << 7) | 4); /* +4dB */
+		zcd_con2 = snd_soc_component_read(c, 0x248c);
+		if ((zcd_con2 & 0x1f) >= 0x12)
+			snd_soc_component_update_bits(c, 0x248c, 0x0f9f, (4 << 7) | 4); /* +4dB */
+		zcd_con3 = snd_soc_component_read(c, 0x248e);
+		if ((zcd_con3 & 0x1f) >= 0x12)
+			snd_soc_component_update_bits(c, 0x248e, 0x001f, 4); /* +4dB */
+		pr_info("q25-afe: mt6358 route=%u CON0=0x%x CON6=0x%x CON7=0x%x ZCD1=0x%x ZCD2=0x%x ZCD3=0x%x DL_SRC2=0x%x PAD_MON=0x%x\n",
+			afe->output_route,
+			snd_soc_component_read(c, 0x2408),
+			snd_soc_component_read(c, 0x2414),
+			snd_soc_component_read(c, 0x2416),
+			snd_soc_component_read(c, 0x248a),
+			snd_soc_component_read(c, 0x248c),
+			snd_soc_component_read(c, 0x248e),
+			snd_soc_component_read(c, 0x228a),
+			snd_soc_component_read(c, 0x22ce));
 	} else {
-		snd_soc_component_update_bits(c, 0x208e, 0x3 << 2, 0x0);
-		snd_soc_component_update_bits(c, 0x208e, 0x3, 0x0);
+		snd_soc_component_update_bits(c, 0x2416, 0x3 << 2, 0x0);
+		snd_soc_component_update_bits(c, 0x2416, 0x3, 0x0);
+		snd_soc_component_write(c, 0x2414, 0x0000);
+		snd_soc_component_update_bits(c, 0x2408, 0x0fff, 0x0000);
+		snd_soc_component_write(c, 0x228a, 0x0000); /* AFE_DL_SRC2_CON0_L */
 	}
 }
 
@@ -573,17 +651,18 @@ static int q25_afe_pcm_prepare(struct snd_soc_component *component,
 {
 	struct q25_afe_priv *afe = g_q25_afe;
 
+	if (!afe)
+		return -ENODEV;
+
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+		q25_mt6358_lineout_amp_set(afe, true);
 		if (afe->output_route == 0 || afe->output_route == 3) {
-			q25_mt6358_lineout_amp_set(afe, true);
 			oca72xxx_set_profile(0, "Music");
 			afe->spk_pa_enabled = true;
 		} else if (afe->output_route == 1) {
-			q25_mt6358_lineout_amp_set(afe, true);
 			oca72xxx_set_profile(0, "Receiver");
 			afe->spk_pa_enabled = true;
 		} else {
-			q25_mt6358_lineout_amp_set(afe, false);
 			oca72xxx_set_profile(0, "Off");
 			afe->spk_pa_enabled = false;
 		}
@@ -746,16 +825,14 @@ static int q25_output_route_set(struct snd_kcontrol *kcontrol,
 
 	g_q25_afe->output_route = val;
 	if (g_q25_afe->substream[SNDRV_PCM_STREAM_PLAYBACK]) {
+		q25_mt6358_lineout_amp_set(g_q25_afe, true);
 		if (val == 0 || val == 3) {
-			q25_mt6358_lineout_amp_set(g_q25_afe, true);
 			oca72xxx_set_profile(0, "Music");
 			g_q25_afe->spk_pa_enabled = true;
 		} else if (val == 1) {
-			q25_mt6358_lineout_amp_set(g_q25_afe, true);
 			oca72xxx_set_profile(0, "Receiver");
 			g_q25_afe->spk_pa_enabled = true;
 		} else {
-			q25_mt6358_lineout_amp_set(g_q25_afe, false);
 			oca72xxx_set_profile(0, "Off");
 			g_q25_afe->spk_pa_enabled = false;
 		}
@@ -783,10 +860,24 @@ static const struct snd_soc_component_driver q25_afe_component = {
 	.legacy_dai_naming = 0,
 };
 
+static int q25_afe_dai_mute_stream(struct snd_soc_dai *dai, int mute, int stream)
+{
+	if (stream == SNDRV_PCM_STREAM_PLAYBACK && !mute && g_q25_afe) {
+		/* Re-apply after snd_soc_dapm_stream_event(SND_SOC_DAPM_STREAM_START) */
+		q25_mt6358_lineout_amp_set(g_q25_afe, true);
+	}
+	return 0;
+}
+
+static const struct snd_soc_dai_ops q25_afe_dai_ops = {
+	.mute_stream = q25_afe_dai_mute_stream,
+};
+
 static struct snd_soc_dai_driver q25_afe_dai_driver[] = {
 	{
 		.name = "mt6789-afe-pcm-dai",
 		.id = 0,
+		.ops = &q25_afe_dai_ops,
 		.playback = {
 			.stream_name = "PCM Playback",
 			.channels_min = 1,
@@ -855,6 +946,10 @@ static int q25_mt6358_oca72xxx_init(struct snd_soc_pcm_runtime *rtd)
 			g_q25_afe->mt6358_cmpnt = cmpnt;
 		/* Set MTKAIF_PROTOCOL_2_CLK_P2 (2) to match AFE 0x00010000 / 0x38 */
 		mt6358_set_mtkaif_protocol(cmpnt, 2);
+		/* Initialize Lineout, Headphone, and Handset analog PGA gains to +4dB (valid ALSA 14/18) */
+		snd_soc_component_write(cmpnt, 0x248a, (4 << 7) | 4);
+		snd_soc_component_write(cmpnt, 0x248c, (4 << 7) | 4);
+		snd_soc_component_write(cmpnt, 0x248e, 4);
 		oca72xxx_add_codec_controls(cmpnt);
 	}
 	return 0;

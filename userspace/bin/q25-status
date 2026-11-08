@@ -1,14 +1,16 @@
-#!/bin/bash
+#!/bin/sh
 CAP=$(cat /sys/class/power_supply/battery/capacity 2>/dev/null || echo "?")
 STAT=$(cat /sys/class/power_supply/battery/status 2>/dev/null || echo "?")
 TEMP_RAW=$(cat /sys/class/power_supply/battery/temp 2>/dev/null || echo 0)
 TEMP=$(( TEMP_RAW / 10 )).$(( TEMP_RAW % 10 ))
 CUR_UA=$(cat /sys/class/power_supply/battery/current_now 2>/dev/null || echo 0)
 CUR_MA=$(( CUR_UA / 1000 ))
-BL=$(cat /sys/class/leds/lcd-backlight/brightness 2>/dev/null || echo 0)
-BL_PCT=$(( (BL * 100 + 127) / 255 ))
+BL=$(cat /sys/class/backlight/backlight/brightness 2>/dev/null || echo 0)
+BL_MAX=$(cat /sys/class/backlight/backlight/max_brightness 2>/dev/null || echo 1023)
+BL_PCT=$(( (BL * 100 + BL_MAX / 2) / BL_MAX ))
 MOUSE=$(cat /proc/q20_switch_key_mouse 2>/dev/null || echo 0)
-[ "$MOUSE" = "1" ] && TP_MODE="Mouse" || TP_MODE="Keys"
-WLAN_IP=$(ip -4 -br addr show wlan0 2>/dev/null | awk '{print $3}' | cut -d/ -f1)
-USB_IP=$(ip -4 -br addr show usb0 2>/dev/null | awk '{print $3}' | cut -d/ -f1)
-echo "Bat: ${CAP}% (${STAT}, ${CUR_MA}mA, ${TEMP}°C) | Screen: ${BL_PCT}% | Trackpad: ${TP_MODE} | WLAN: ${WLAN_IP:-off} | USB: ${USB_IP:-off}"
+[ "$MOUSE" = "0" ] && TP_MODE="Mouse" || TP_MODE="Keys"
+WLAN_IP=$(ip -4 addr show wlan0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n 1)
+LTE_IP=$(ip -4 addr show 2>/dev/null | awk '/ccmni/ {f=1} f && /inet / {sub(/\/.*/, "", $2); print $2; exit}')
+USB_IP=$(ip -4 addr show usb0 2>/dev/null | sed -n 's/.*inet \([0-9.]*\).*/\1/p' | head -n 1)
+echo "Bat: ${CAP}% (${STAT}, ${CUR_MA}mA, ${TEMP}°C) | Screen: ${BL_PCT}% | Trackpad: ${TP_MODE} | LTE: ${LTE_IP:-off} | WLAN: ${WLAN_IP:-off} | USB: ${USB_IP:-off}"

@@ -447,15 +447,6 @@
 		};
 	};
 
-	/* Display PWM Backlight */
-	backlight: backlight {
-		compatible = "pwm-backlight";
-		pwms = <&disp_pwm0 0 500000>;
-		brightness-levels = <0 1023>;
-		num-interpolated-steps = <1023>;
-		default-brightness-level = <400>;
-	};
-
 	/* Zinwa Q25 Keyboard & Optical Trackpad Power Sequencing / Firmware Control */
 	pdrv_bbqX0kbd: pdrv_bbqX0kbd {
 		compatible = "wallComputer,pdrv_bbqX0kbd";
@@ -1011,7 +1002,6 @@
 		reg = <0>;
 		reset-gpios = <&pio 85 GPIO_ACTIVE_HIGH>;
 		avdd-gpios = <&pio 156 GPIO_ACTIVE_HIGH>;
-		backlight = <&backlight>;
 		board_name = "q20_v12";
 
 		port {
@@ -1169,6 +1159,7 @@
 		reg = <0x1f>;
 		interrupt-parent = <&pio>;
 		interrupts = <12 IRQ_TYPE_EDGE_FALLING>;
+		vibr-supply = <&mt6366_vibr_reg>;
 	};
 };
 

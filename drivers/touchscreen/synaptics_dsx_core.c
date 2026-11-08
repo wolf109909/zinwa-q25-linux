@@ -105,10 +105,10 @@ ctp {
  * Tunable filter parameters with defaults for typical touch panels.
  * Adjust via sysfs if touch feels too jittery or too laggy.
  */
-static int one_euro_min_cutoff = 1000;	/* 1.0 Hz - base cutoff frequency */
-static int one_euro_beta = 7000;	/* 7.0 - speed coefficient */
-static int one_euro_d_cutoff = 1000;	/* 1.0 Hz - derivative filter cutoff */
-static int one_euro_deadzone = 1000;	/* 1.0 pixel - deadzone threshold */
+static int one_euro_min_cutoff = 5000;	/* 5.0 Hz - base cutoff frequency */
+static int one_euro_beta = 20000;	/* 20.0 - speed coefficient */
+static int one_euro_d_cutoff = 5000;	/* 5.0 Hz - derivative filter cutoff */
+static int one_euro_deadzone = 0;	/* 0 = disabled for responsive scrolling */
 
 module_param(one_euro_min_cutoff, int, 0644);
 MODULE_PARM_DESC(one_euro_min_cutoff,
@@ -905,15 +905,10 @@ static int synaptics_rmi4_f11_abs_report(struct synaptics_rmi4_data *rmi4_data,
 	}
 
 	/*
-	 * Sync once after processing all fingers to group events into single frame
+	 * Sync MT frame (emits single-touch ABS_X/ABS_Y and BTN_TOUCH/BTN_TOOL_FINGER)
+	 * and sync once after processing all fingers to group events into single frame
 	 */
-	if (touch_count > 0) {
-		input_report_key(rmi4_data->input_dev, BTN_TOUCH, 1);
-	} else {
-		input_report_key(rmi4_data->input_dev, BTN_TOUCH, 0);
-		dev_dbg(rmi4_data->pdev->dev.parent, "%s: Touch UP\n", __func__);
-	}
-
+	input_mt_sync_frame(rmi4_data->input_dev);
 	input_sync(rmi4_data->input_dev);
 
 
@@ -1143,16 +1138,10 @@ static int synaptics_rmi4_f12_abs_report(struct synaptics_rmi4_data *rmi4_data,
 	}
 
 	/*
-	 * Report BTN_TOUCH state and sync once for the whole batch to group events into single frame
+	 * Sync MT frame (emits single-touch ABS_X/ABS_Y and BTN_TOUCH/BTN_TOOL_FINGER)
+	 * and sync once for the whole batch to group events into single frame
 	 */
-	if (touch_count > 0) {
-		input_report_key(rmi4_data->input_dev, BTN_TOUCH, 1);
-	} else {
-		input_report_key(rmi4_data->input_dev, BTN_TOUCH, 0);
-		input_report_key(rmi4_data->input_dev, BTN_TOOL_FINGER, 0);
-		dev_dbg(rmi4_data->pdev->dev.parent, "%s: Touch UP\n", __func__);
-	}
-
+	input_mt_sync_frame(rmi4_data->input_dev);
 	input_sync(rmi4_data->input_dev);
 
 
@@ -2403,6 +2392,12 @@ static void synaptics_rmi4_set_params(struct synaptics_rmi4_data *rmi4_data)
 	input_set_abs_params(rmi4_data->input_dev,
 			ABS_MT_POSITION_Y, 0,
 			rmi4_data->sensor_max_y, 0, 0);
+	input_set_abs_params(rmi4_data->input_dev,
+			ABS_X, 0,
+			rmi4_data->sensor_max_x, 0, 0);
+	input_set_abs_params(rmi4_data->input_dev,
+			ABS_Y, 0,
+			rmi4_data->sensor_max_y, 0, 0);
 
 	/* Initialize filter state for all fingers */
 	memset(rmi4_data->finger_filter, 0, sizeof(rmi4_data->finger_filter));
@@ -2421,7 +2416,8 @@ static void synaptics_rmi4_set_params(struct synaptics_rmi4_data *rmi4_data)
 #endif
 
 	input_mt_init_slots(rmi4_data->input_dev,
-			rmi4_data->num_of_fingers,0);//aaron
+			rmi4_data->num_of_fingers,
+			INPUT_MT_DIRECT | INPUT_MT_DROP_UNUSED);
 
 	return;
 }
@@ -2672,10 +2668,7 @@ static int synaptics_rmi4_free_fingers(struct synaptics_rmi4_data *rmi4_data)
 		reset_finger_filter(&rmi4_data->finger_filter[ii]);
 	}
 
-	input_report_key(rmi4_data->input_dev,
-			BTN_TOUCH, 0);
-	input_report_key(rmi4_data->input_dev,
-			BTN_TOOL_FINGER, 0);
+	input_mt_sync_frame(rmi4_data->input_dev);
 	input_sync(rmi4_data->input_dev);
 
 	mutex_unlock(&(rmi4_data->rmi4_report_mutex));

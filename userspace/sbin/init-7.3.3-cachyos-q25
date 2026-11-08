@@ -77,7 +77,7 @@ DHCP_EOF
     echo "=== USB NCM (10.15.19.82) telnetd + dropbear started ==="
 fi
 
-# 3. Load all 11 Zinwa Q25 out-of-tree hardware drivers
+# 3. Load all 12 Zinwa Q25 out-of-tree hardware drivers
 KREL="$(uname -r)"
 echo "=== Loading Zinwa Q25 hardware modules for $KREL ==="
 for mod in \
@@ -91,26 +91,14 @@ for mod in \
     snd-soc-oca72xxx \
     st21nfc \
     aw36518 \
-    flashlight-gpio-v4l2; do
+    flashlight-gpio-v4l2 \
+    q25_sensors; do
     modprobe "$mod" 2>&1 || insmod /lib/modules/$KREL/updates/*/${mod}.ko 2>&1 || true
 done
 
-# 4. Start keyd physical QWERTY keyboard & optical trackpad daemon
-droidian_minienv() {
-    executable="$(which ${1})"
-    shift
-    /minienv/lib/droidian-minienv-linker.so \
-        --inhibit-cache \
-        --library-path '/minienv/usr/${LIB}:/minienv/${LIB}:/usr/${LIB}:/${LIB}' \
-        ${executable} ${@}
-}
-mkdir -p /var/run /run/keyd
-droidian_minienv keyd.rvaiya >/var/log/keyd.log 2>&1 &
-echo "=== Started keyd.rvaiya QWERTY keyboard daemon ==="
-
-# 5. Activate UFS LVM & mount Droidian rootfs (/rootfs) + Arch Linux ARM (/opt/arch) + microSD
+# 4. Activate UFS LVM & mount Q25 rootfs (/rootfs) + Arch Linux ARM (/opt/arch) + microSD
 sleep 2
-mkdir -p /rootfs /opt/arch /mnt/sdcard /dev/shm
+mkdir -p /rootfs /opt/arch /mnt/sdcard /dev/shm /var/run /run/keyd
 /bin/busybox mount -t tmpfs tmpfs /dev/shm 2>/dev/null || mount -t tmpfs tmpfs /dev/shm 2>/dev/null || true
 chmod 1777 /dev/shm 2>/dev/null || true
 if [ "$(date +%Y 2>/dev/null || echo 0)" -gt 2035 ] || [ "$(date +%Y 2>/dev/null || echo 0)" -lt 2025 ]; then
@@ -119,17 +107,27 @@ fi
 /sbin/lvm vgscan --mknodes --ignorelockingfailure 2>/dev/null || true
 /sbin/lvm vgchange -ay --ignorelockingfailure 2>/dev/null || true
 /sbin/lvm vgmknodes 2>/dev/null || true
-if [ -b /dev/mapper/droidian-droidian--rootfs ] || [ -b /dev/droidian/droidian-rootfs ]; then
-    ROOT_LV="/dev/mapper/droidian-droidian--rootfs"
-    [ -b "$ROOT_LV" ] || ROOT_LV="/dev/droidian/droidian-rootfs"
+ROOT_LV=""
+for cand in /dev/mapper/q25-q25--rootfs /dev/q25/q25-rootfs; do
+    if [ -b "$cand" ]; then
+        ROOT_LV="$cand"
+        break
+    fi
+done
+if [ -n "$ROOT_LV" ]; then
     mount -t ext4 "$ROOT_LV" /rootfs 2>/dev/null || /bin/busybox mount -t ext4 "$ROOT_LV" /rootfs 2>/dev/null || true
     if [ -d /rootfs/opt/arch ]; then
         mount --bind /rootfs/opt/arch /opt/arch 2>/dev/null || /bin/busybox mount --bind /rootfs/opt/arch /opt/arch 2>/dev/null || true
         for pfs in proc sys dev dev/pts dev/shm run tmp; do
-            mkdir -p "/rootfs/$pfs" "/opt/arch/$pfs" 2>/dev/null || true
-            mount --bind "/$pfs" "/rootfs/$pfs" 2>/dev/null || true
+            mkdir -p "/opt/arch/$pfs" 2>/dev/null || true
             mount --bind "/$pfs" "/opt/arch/$pfs" 2>/dev/null || true
         done
+        mkdir -p /opt/arch/etc/keyd /opt/arch/var/log /opt/arch/run/keyd
+        cp -af /etc/keyd/* /opt/arch/etc/keyd/ 2>/dev/null || true
+        if [ -x /opt/arch/usr/bin/keyd ]; then
+            chroot /opt/arch /usr/bin/keyd >/var/log/keyd.log 2>&1 &
+            echo "=== Started native Arch Linux ARM keyd QWERTY keyboard daemon ==="
+        fi
         cp -af /opt/arch/usr/lib/firmware/* /lib/firmware/ 2>/dev/null || true
         mkdir -p "/lib/modules/$KREL/updates/q25" "/opt/arch/usr/lib/modules/$KREL/updates/q25"
         if [ -d /opt/arch/usr/lib/modules/updates/q25 ]; then
@@ -137,7 +135,7 @@ if [ -b /dev/mapper/droidian-droidian--rootfs ] || [ -b /dev/droidian/droidian-r
             cp -af /opt/arch/usr/lib/modules/updates/q25/*.ko "/opt/arch/usr/lib/modules/$KREL/updates/q25/" 2>/dev/null || true
         fi
         MDIR="/lib/modules/$KREL/updates/q25"
-        for m in btif_drv connadp connfem wmt_drv wmt_chrdev_wifi wlan_drv_gen4m_6789 bt_drv_connac1x ccci_util_lib ccmni conn_md_drv ccci_auxadc ccci_rtc ccci_md_all ccci_ccif ccci_dpmaif ccci_cldma ccci_BTP; do
+        for m in btif_drv connadp connfem wmt_drv wmt_chrdev_wifi wlan_drv_gen4m_6789 bt_drv_connac1x ccci_util_lib ccmni conn_md_drv ccci_auxadc ccci_rtc ccci_md_all ccci_ccif ccci_dpmaif ccci_cldma ccci_BTP q25_sensors; do
             insmod "$MDIR/${m}.ko" 2>/dev/null || modprobe "$m" 2>/dev/null || true
         done
         echo "=== Mounted /rootfs (228GB LVM) and /opt/arch (Arch Linux ARM) ==="
@@ -148,7 +146,7 @@ if [ -b /dev/mmcblk0p1 ]; then
     echo "=== Mounted microSD /dev/mmcblk0p1 at /mnt/sdcard ==="
 fi
 
-# 6. Save full diagnostic report to /dev/sdc14 (persist)
+# 5. Save full diagnostic report to /dev/sdc14 (persist)
 if [ -b /dev/sdc14 ]; then
     /bin/busybox mount -t ext4 /dev/sdc14 /mnt/persist 2>/dev/null || mount -t ext4 /dev/sdc14 /mnt/persist 2>/dev/null || true
     {
@@ -187,7 +185,7 @@ fi
 
 touch /tmp/keep_alive
 
-# 7. Start Arch Linux ARM Phosh / Wayland graphical desktop session if installed
+# 6. Start Arch Linux ARM Phosh / Wayland graphical desktop session if installed
 if [ -x /opt/arch/usr/local/sbin/q25-phosh-start ]; then
     echo "=== Starting Arch Linux ARM Phosh Wayland Graphical Session ==="
     chroot /opt/arch /usr/local/sbin/q25-phosh-start &

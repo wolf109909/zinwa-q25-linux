@@ -7,3 +7,5 @@ Terminal=false
 Type=Application
 Categories=System;Settings;HardwareSettings;
 StartupNotify=true
+StartupWMClass=org.zinwa.Q25ControlCenter
+

@@ -9,7 +9,7 @@ Complete hardware enablement, forward-ported **Mainline Linux 7.3 (`7.3.3`) & 7.
 ```text
 zinwa-q25-linux/
 ├── drivers/                  # Forward-ported out-of-tree Q25 drivers for Mainline Linux 7.0 – 7.3+ (Kbuild & DKMS)
-│   ├── Makefile              # Top-level Kbuild Makefile (builds all 11 .ko modules)
+│   ├── Makefile              # Top-level Kbuild Makefile (builds all 12 .ko modules)
 │   ├── dkms.conf             # DKMS configuration for automatic module rebuilds on kernel upgrades
 │   ├── include/linux/        # Linux 7.3+ compatibility shims (e.g. of_gpio.h after upstream removal)
 │   ├── keyboard/             # BBQX0 I2C QWERTY keyboard + optical trackpad + MCU power/FW control
@@ -30,6 +30,8 @@ zinwa-q25-linux/
 │   └── leds/                 # V4L2 camera flash / torch subdev drivers
 │       ├── aw36518.c         # -> aw36518.ko (mediatek,aw36518)
 │       └── flashlight-gpio-v4l2.c # -> flashlight-gpio-v4l2.ko (mediatek,flashlightgpio)
+│   └── sensors/              # Onboard IIO sensors (SC7A20 accel, MMC5603NJ mag, HX32062SE ALS/PS)
+│       └── q25_sensors.c     # -> q25_sensors.ko (3 IIO devices: sc7a20, mmc5603nj, hx32062se)
 ├── firmware/
 │   └── ocs72xxx_cf.bin       # Extracted Orient-Chip OCA7255 Smart PA ACF firmware (Music/Receiver/Off profiles)
 ├── patches/
@@ -76,9 +78,9 @@ BORE CPU Scheduler modification 7.0.0 by Masahito Suzuki (kernel.sched_bore = 1)
 | **PMIC AuxADC & 7 Thermal Zones** | `mt6359-auxadc` + `generic-adc-thermal` | `iio:device0`, `/sys/class/thermal/thermal_zone0..6` | 14 IIO ADC channels & 7 live thermal zones: `soc-thermal` (39.5°C), `cpu-thermal` (46.8°C), `gpu-thermal` (46.5°C), `vcore-thermal` (47.3°C), `battery-thermal` (31.6°C), `upm6922-charger` (31.3°C), `battery` (31.3°C). |
 | **ALSA Audio Card & Smart PA** | `mt6358-sound` + `snd_soc_oca72xxx` (`ZinwaQ25Audio`) | Card 0 (`ZinwaQ25Audio`), `3-0058` (`oca72xxx_pa`) | Registered ALSA Card 0 (`ZinwaQ25Audio`: MT6358 PMIC codec + OCA7255 Smart PA) with `firmware/ocs72xxx_cf.bin` ACF firmware loaded (`Music`, `Receiver`, `Off` profiles). |
 | **MMSYS, PWM, APDMA, Systimer** | `clk-mt6789-mm`, `pwm-mediatek`, `mediatek-disp-pwm`, `mtk_uart_apdma`, `timer-mediatek` | `14000000.syscon`, `10048000.pwm`, `1100e000.pwm`, `10217800.dma-controller`, `10017000.timer` | MMSYS clocks, SoC PWM, Display PWM, UART APDMA, and GICv3 IRQ 297 `systimer@10017000` probed cleanly. |
-| **UFS 256 GB Storage & LVM** | `ufshcd-mtk` + `dm-mod` | `11270000.ufs` (`/dev/mapper/droidian-droidian--rootfs`) | `SKhynix H9QT1GGCN6X147` 256 GB UFS with all 61 GPT partitions and 224.2 GB LVM rootfs mounted at `/rootfs` + `/opt/arch` Arch Linux ARM environment. |
+| **UFS 256 GB Storage & LVM** | `ufshcd-mtk` + `dm-mod` | `11270000.ufs` (`/dev/mapper/q25-q25--rootfs`) | `SKhynix H9QT1GGCN6X147` 256 GB UFS with all 61 GPT partitions and 227.8 GB LVM rootfs mounted at `/rootfs` + `/opt/arch` Arch Linux ARM environment. |
 | **microSD Slot** | `mtk-msdc` | `11240000.mmc` | Probed cleanly (`returned 0`). |
-| **QWERTY Keyboard, Trackpad & `keyd`** | `bbqX0kbd` + `q20_keyboard` + `keyd.rvaiya` | `6-001f` (`Q25_keyboard`, `event2`, `event4`, `event5`) | Firmware `0x11` verified, keyboard backlight enabled (`0xFF` -> reg `0x05`), `/proc/q20_switch_key_mouse` & `keyd` virtual keyboard/pointer daemon running. |
+| **QWERTY Keyboard, Trackpad & `keyd`** | `bbqX0kbd` + `q20_keyboard` + `keyd` | `6-001f` (`Q25_keyboard`, `event2`, `event4`, `event5`) | Firmware `0x11` verified, keyboard backlight enabled (`0xFF` -> reg `0x05`), `/proc/q20_switch_key_mouse` & `keyd` virtual keyboard/pointer daemon running. |
 | **Touchscreen (720x720)** | `synaptics_dsx_q25` | `0-0067` (`s2716b_ts`, `event3`) | Synaptics S2716B RMI4 touchscreen bound on I2C0 and registered as `input3`. |
 | **Battery Fuel Gauge & Chargers** | `upm6922_charger` + `upm6722` | `5-006b` (`upm6922-charger`, `battery`), `5-0065` (`upm6722-standalone`) | Live `/sys/class/power_supply/battery` fuel gauge (`CAPACITY=100%`, `VOLTAGE_NOW=4352000` uV, `CURRENT_NOW=-250000` uA, `TEMP=315` [31.5°C]) + `upm6922-charger` & `usb-otg-vbus` regulator. |
 | **Fast Charge Pump** | `upm6722` | `5-0065` (`upm6722-standalone`) | Standalone charge pump probed on I2C5; `/sys/class/power_supply/upm6722-standalone` registered. |
@@ -124,6 +126,7 @@ All 11 hardware kernel modules from the vendor `5.10` kernel (`LineageOS/android
 | `flashlight-gpio-v4l2.ko` | I2C / GPIO | `mediatek,flashlightgpio` | Pinctrl/GPIO V4L2 camera flash / torch subdev driver; plus direct GPIO 154 (`q25:white:torch` / `/proc/q20_torch`) & MT6358 `vibr` haptics (`/proc/q20_vibrator`) integrated in `bbqX0kbd.ko`. |
 | `wmt_drv.ko`, `wlan_drv_gen4m_6789.ko`, `bt_drv_connac1x.ko`, `btif_drv.ko`, `connadp.ko`, `connfem.ko`, `wmt_chrdev_wifi.ko` | `0x18000000` (`CONNSYS`) | `mediatek,mt6789-consys` | Forward-ported MediaTek CONNSYS Combo (`MT6631` A-die), Dual-Band 802.11a/b/g/n/ac Wi-Fi (`wlan0`, `wlan1`, `p2p0`, `ap0`), and Bluetooth 5.4 (`hci0` via `q25-bt-vhci` + `q25-wmt-init`). |
 | `ccci_md_all.ko`, `ccci_dpmaif.ko`, `ccci_ccif.ko`, `ccci_cldma.ko`, `ccci_util_lib.ko`, `ccmni.ko`, `conn_md_drv.ko`, `ccci_auxadc.ko`, `ccci_rtc.ko` | `0x10209000` (`DPMAIF`/`CCIF`) | `mediatek,mddriver` | Forward-ported MediaTek ECCCI / DPMAIF / CCMNI 4G LTE Cellular Modem stack (`ccmni0`..`ccmni20`, `/dev/ttyC0`, non-linear SKB SMEM UL DMA fix, DL BAT ring fix, and standalone Bionic property/wakelock shim `libprop_preload.so` + `q25-modem-init`). |
+| `q25_sensors.ko` | SCP I2C0 (`GPIO132/133`) & I2C5 (`GPIO148/149`) | `q25_sensors` | Native Linux IIO driver for the 3 onboard sensors: **Silan SC7A20** 3-axis accelerometer (`0x18`), **MEMSIC MMC5603NJ** 3-axis magnetometer (`0x30`), and **TYHX HX32062SE** ambient light (ALS lux) & proximity (PS) sensor (`0x2b`). |
 
 ### Building the Kernel Modules (`drivers/`)
 
@@ -156,9 +159,9 @@ makepkg -si
 
 1. **Mainline Linux 7.0 + CachyOS (`cachyos/`, `devicetree/`, `drivers/`):**
    - Based on the MT6789 / Helio G99 Mainline Linux `7.0` tree (`ellyq/mtk_g99-mainline`) with open-source **Panfrost Mali-G57 MC2 GPU**, CPUFreq, UFS, MMC, PMIC `MT6358`/`MT6366`, USB2, Display PWM, and I2C, combined with CachyOS's **BORE scheduler**, `CONFIG_SECURITY_LANDLOCK=y`, full cgroups, and the 11 forward-ported Q25 hardware modules in `drivers/`.
-2. **Halium 14 + Arch Linux ARM Chroot (`userspace/`):**
-   - Zero-overhead `/opt/arch` bind-mount (`arch-env.service` + `/usr/local/sbin/arch-mount`) sharing `/proc`, `/sys`, `/dev`, `/run` (Wayland `wayland-0`, PipeWire/PulseAudio, DBus), `/tmp` (X11/Xwayland), and `/home/droidian`.
-   - Launching the terminal (`Ptyxis`) or connecting via `ssh q25` enters the Arch Linux ARM `fish` shell (`starship` + `tmux` + `fastfetch`).
+2. **Arch Linux ARM Wayland / Phosh Environment (`userspace/`):**
+   - Zero-overhead `/opt/arch` bind-mount (`arch-env.service` + `/usr/local/sbin/arch-mount`) sharing `/proc`, `/sys`, `/dev`, `/run` (Wayland `wayland-0`, PipeWire/PulseAudio, DBus), and `/tmp` (X11/Xwayland).
+   - Launching the terminal (`Foot`) or connecting via `ssh q25` enters the Arch Linux ARM `fish` shell (`starship` + `tmux` + `fastfetch`).
    - GUI apps installed via `pacman`/`yay` inside Arch (`rustdesk`, `firefox`, etc.) are automatically exported to the Phosh desktop drawer by `/etc/pacman.d/hooks/99-export-desktop-apps.hook` (`/usr/local/bin/arch-sync-desktop`) and launch natively on the Q25 screenwhether started from the desktop drawer, terminal, or SSH.
 
 ---

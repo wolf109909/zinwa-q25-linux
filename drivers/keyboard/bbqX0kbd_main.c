@@ -55,23 +55,26 @@ static int q20_switch_key_mouse_debug_read(struct seq_file *m, void *v)
 
 static ssize_t q20_switch_key_mouse_debug_write(struct file *filp, const char  *buff, size_t len, loff_t *data)
 {
-	unsigned char writebuf[50];	
-	if (copy_from_user(&writebuf, buff, len)) {
+	unsigned char writebuf[50];
+	size_t copy_len = min(len, sizeof(writebuf) - 1);
+
+	if (copy_from_user(writebuf, buff, copy_len)) {
 		return -EFAULT;
 	}
-	
+	writebuf[copy_len] = '\0';
+
 	if (g_bbqX0kbd_data == NULL) {
 		return -EFAULT;
 	}
 
-    BBQX0KBD_KEYBOARD_LOG("HodafoneLog q20_switch_key_mouse_debug_write writebuf=%s",writebuf);
-   	if(writebuf[0] == '0'){
+	BBQX0KBD_KEYBOARD_LOG("HodafoneLog q20_switch_key_mouse_debug_write writebuf=%s\n", writebuf);
+	if (writebuf[0] == '0') {
 		g_bbqX0kbd_data->q20_spec_switch_key_mouse = 0;
 		g_bbqX0kbd_data->keycode[0x05] = BTN_LEFT;
-	}else if(writebuf[0] == '1'){
+	} else if (writebuf[0] == '1') {
 		g_bbqX0kbd_data->q20_spec_switch_key_mouse = 1;
 		g_bbqX0kbd_data->keycode[0x05] = KEY_ENTER;
-	} 
+	}
 	return len;
 }
 
@@ -90,21 +93,24 @@ static int q20_spec_power_flag_debug_read(struct seq_file *m, void *v)
 
 static ssize_t q20_spec_power_flag_debug_write(struct file *filp, const char  *buff, size_t len, loff_t *data)
 {
-	unsigned char writebuf[50];	
-	if (copy_from_user(&writebuf, buff, len)) {
+	unsigned char writebuf[50];
+	size_t copy_len = min(len, sizeof(writebuf) - 1);
+
+	if (copy_from_user(writebuf, buff, copy_len)) {
 		return -EFAULT;
 	}
-	
+	writebuf[copy_len] = '\0';
+
 	if (g_bbqX0kbd_data == NULL) {
 		return -EFAULT;
 	}
 
-    BBQX0KBD_KEYBOARD_LOG("HodafoneLog q20_spec_power_flag_debug_write writebuf=%s",writebuf);
-   	if(writebuf[0] == '0'){
+	BBQX0KBD_KEYBOARD_LOG("HodafoneLog q20_spec_power_flag_debug_write writebuf=%s\n", writebuf);
+	if (writebuf[0] == '0') {
 		g_bbqX0kbd_data->q20_spec_power_flag = 0;
-	}else if(writebuf[0] == '1'){
+	} else if (writebuf[0] == '1') {
 		g_bbqX0kbd_data->q20_spec_power_flag = 1;
-	} 
+	}
 	return len;
 }
 
@@ -348,7 +354,7 @@ static const struct proc_ops q20_vibrator_proc_ops = {
 
 static uint8_t bbqX0kbd_modkeys_to_bits(unsigned short mod_keycode)
 {
-	uint8_t returnValue;
+	uint8_t returnValue = 0;
 
 	switch (mod_keycode) {
 	case (KEY_LEFTCTRL):
@@ -374,6 +380,7 @@ static uint8_t bbqX0kbd_modkeys_to_bits(unsigned short mod_keycode)
 	return returnValue;
 }
 
+#if (BBQX0KBD_INT == BBQX0KBD_NO_INT)
 static unsigned short bbqX0kbd_get_num_lock_keycode(unsigned short keycode)
 {
 	unsigned short returnValue;
@@ -524,7 +531,6 @@ static void bbqX0kbd_set_brightness(struct bbqX0kbd_data *bbqX0kbd_data, unsigne
 #endif
 }
 
-#if (BBQX0KBD_INT == BBQX0KBD_NO_INT)
 static void bbqX0kbd_work_handler(struct work_struct *work_struct)
 {
 	struct bbqX0kbd_data *bbqX0kbd_data;
@@ -695,6 +701,8 @@ static void bbqX0kbd_read_fifo(struct bbqX0kbd_data *bbqX0kbd_data)
 		return;
 	}
 	count = count & REG_KEY_KEYCOUNT_MASK;
+	if (count > BBQX0KBD_FIFO_SIZE)
+		count = BBQX0KBD_FIFO_SIZE;
 	bbqX0kbd_data->fifoCount = count;
 	pos = 0;
 	while (count) {
@@ -736,6 +744,7 @@ static void bbqX0kbd_work_fnc(struct work_struct *work_struct_ptr)
 	i2c_client = bbqX0kbd_data->i2c_client;
 
 	while (bbqX0kbd_data->fifoCount > 0) {
+		reportKey = 2;
 		if (bbqX0kbd_data->fifoData[pos][0] == KEY_PRESSED_STATE || bbqX0kbd_data->fifoData[pos][0] == KEY_RELEASED_STATE) {
 			input_event(input_dev, EV_MSC, MSC_SCAN, bbqX0kbd_data->fifoData[pos][1]);
 
@@ -748,9 +757,6 @@ static void bbqX0kbd_work_fnc(struct work_struct *work_struct_ptr)
 				BBQX0KBD_KEYBOARD_LOG("%s Could not get Keycode for Scancode: [0x%02X]\n", __func__, bbqX0kbd_data->fifoData[pos][1]);
 				break;
 			case KEY_RIGHTSHIFT:
-				if (bbqX0kbd_data->modifier_keys_status & LEFT_ALT_BIT && bbqX0kbd_data->fifoData[pos][0] == KEY_PRESSED_STATE)
-					bbqX0kbd_data->lockStatus ^= NUMS_LOCK_BIT;
-				fallthrough;
 			case KEY_LEFTSHIFT:
 			case KEY_RIGHTALT:
 			case KEY_LEFTALT:
@@ -762,16 +768,19 @@ static void bbqX0kbd_work_fnc(struct work_struct *work_struct_ptr)
 					bbqX0kbd_data->modifier_keys_status &= ~bbqX0kbd_modkeys_to_bits(keycode);
 				fallthrough;
 			default:
-				if (bbqX0kbd_data->lockStatus & NUMS_LOCK_BIT)
-					keycode = bbqX0kbd_get_num_lock_keycode(keycode);
-				else if (bbqX0kbd_data->modifier_keys_status & RIGHT_ALT_BIT)
-					keycode = bbqX0kbd_get_altgr_keycode(keycode);
+				if ((bbqX0kbd_data->modifier_keys_status & RIGHT_SHIFT_BIT) && keycode == KEY_T) {
+					if (bbqX0kbd_data->fifoData[pos][0] == KEY_PRESSED_STATE) {
+						bbqX0kbd_data->q20_spec_switch_key_mouse = !bbqX0kbd_data->q20_spec_switch_key_mouse;
+						bbqX0kbd_data->keycode[0x05] = bbqX0kbd_data->q20_spec_switch_key_mouse ? KEY_ENTER : BTN_LEFT;
+						BBQX0KBD_KEYBOARD_LOG("Q25 trackpad mode toggled via RightShift+T: %d\n",
+								      bbqX0kbd_data->q20_spec_switch_key_mouse);
+					}
+					reportKey = 0;
+				}
 #if (BBQX0KBD_TYPE == BBQ20KBD_PMOD)
 				else if (bbqX0kbd_data->modifier_keys_status & LEFT_ALT_BIT && bbqX0kbd_data->fifoData[pos][1] == 0x05 && (bbqX0kbd_data->q20_spec_switch_key_mouse == 0))
 					keycode = BTN_RIGHT;
 #endif
-				if (bbqX0kbd_data->modifier_keys_status & RIGHT_ALT_BIT && bbqX0kbd_data->fifoData[pos][0] == KEY_PRESSED_STATE)
-					bbqX0kbd_set_brightness(bbqX0kbd_data, keycode, &reportKey);
 #if (DEBUG_LEVEL & DEBUG_LEVEL_LD)
 				BBQX0KBD_KEYBOARD_LOG("%s BEFORE: MODKEYS: 0x%02X LOCKKEYS: 0x%02X scancode: %d(%c) keycode: %d State: %d reportKey: %d\n", __func__, bbqX0kbd_data->modifier_keys_status, bbqX0kbd_data->lockStatus, bbqX0kbd_data->fifoData[pos][1], bbqX0kbd_data->fifoData[pos][1], keycode, bbqX0kbd_data->fifoData[pos][0], reportKey);
 #endif
@@ -839,7 +848,6 @@ static void bbqX0kbd_work_fnc(struct work_struct *work_struct_ptr)
 	returnValue = bbqX0kbd_write(i2c_client, BBQX0KBD_I2C_ADDRESS, REG_INT, &registerValue, sizeof(uint8_t));
 	if (returnValue < 0)
 		BBQX0KBD_KEYBOARD_ERR("%s Could not clear REG_INT. Error: %d\n", __func__, returnValue);
-	enable_irq(i2c_client->irq);
 }
 
 static irqreturn_t bbqX0kbd_irq_handler(int irq, void *dev_id)
@@ -847,16 +855,17 @@ static irqreturn_t bbqX0kbd_irq_handler(int irq, void *dev_id)
 	struct bbqX0kbd_data *bbqX0kbd_data = dev_id;
 	struct i2c_client *client = bbqX0kbd_data->i2c_client;
 	int returnValue;
-	uint8_t registerValue;
+	uint8_t registerValue = 0;
+#if (BBQX0KBD_TYPE == BBQ20KBD_PMOD)
+	uint8_t tox = 0, toy = 0;
+#endif
 
 #if (DEBUG_LEVEL & DEBUG_LEVEL_LD)
 	BBQX0KBD_KEYBOARD_LOG("%s Interrupt Fired. IRQ: %d\n", __func__, irq);
 #endif
-	disable_irq_nosync(client->irq);
 	returnValue = bbqX0kbd_read(client, BBQX0KBD_I2C_ADDRESS, REG_INT, &registerValue, sizeof(uint8_t));
 	if (returnValue < 0) {
 		BBQX0KBD_KEYBOARD_ERR("%s: Could not read REG_INT. Error: %d\n", __func__, returnValue);
-		enable_irq(client->irq);
 		return IRQ_NONE;
 	}
 
@@ -864,45 +873,36 @@ static irqreturn_t bbqX0kbd_irq_handler(int irq, void *dev_id)
 	BBQX0KBD_KEYBOARD_LOG("%s Interrupt: 0x%02x\n", __func__, registerValue);
 #endif
 
-	if (registerValue == 0x00) {
-		enable_irq(client->irq);
+	if (registerValue == 0x00)
 		return IRQ_NONE;
-	}
 
 	if (registerValue & REG_INT_OVERFLOW)
 		dev_warn(&client->dev, "%s overflow occurred.\n", __func__);
 
-	if (registerValue & REG_INT_KEY) {
+	if (registerValue & REG_INT_KEY)
 		bbqX0kbd_read_fifo(bbqX0kbd_data);
-		schedule_work(&bbqX0kbd_data->work_struct);
-#if (BBQX0KBD_TYPE == BBQ20KBD_PMOD)
-		if(bbqX0kbd_data->q20_spec_switch_key_mouse == 1) {
-			return IRQ_HANDLED;
-		}
-#endif
-	}
+
 #if (BBQX0KBD_TYPE == BBQ20KBD_PMOD)
 	if (registerValue & REG_INT_TOUCH) {
-		returnValue = bbqX0kbd_read(client, BBQX0KBD_I2C_ADDRESS, REG_TOX, &registerValue, sizeof(uint8_t));
+		returnValue = bbqX0kbd_read(client, BBQX0KBD_I2C_ADDRESS, REG_TOX, &tox, sizeof(uint8_t));
 		if (returnValue < 0) {
 			BBQX0KBD_KEYBOARD_ERR("%s : Could not read REG_TOX. Error: %d\n", __func__, returnValue);
-			enable_irq(client->irq);
-			return IRQ_NONE;
+			tox = 0;
 		}
-		bbqX0kbd_data->rel_x = (int8_t)registerValue;
-		returnValue = bbqX0kbd_read(client, BBQX0KBD_I2C_ADDRESS, REG_TOY, &registerValue, sizeof(uint8_t));
+		bbqX0kbd_data->rel_x = (int8_t)tox;
+		returnValue = bbqX0kbd_read(client, BBQX0KBD_I2C_ADDRESS, REG_TOY, &toy, sizeof(uint8_t));
 		if (returnValue < 0) {
 			BBQX0KBD_KEYBOARD_ERR("%s : Could not read REG_TOY. Error: %d\n", __func__, returnValue);
-			enable_irq(client->irq);
-			return IRQ_NONE;
+			toy = 0;
 		}
-		bbqX0kbd_data->rel_y = (int8_t)registerValue;
+		bbqX0kbd_data->rel_y = (int8_t)toy;
 		bbqX0kbd_data->touchInt = 1;
-		schedule_work(&bbqX0kbd_data->work_struct);
-	} else
+	} else {
 		bbqX0kbd_data->touchInt = 0;
+	}
 #endif
 
+	bbqX0kbd_work_fnc(&bbqX0kbd_data->work_struct);
 	return IRQ_HANDLED;
 }
 #endif
@@ -913,6 +913,7 @@ static int bbqX0kbd_keyboard_probe_dt(struct device_node * np, struct bbqX0kbd_d
 
     if (!np) {
         BBQX0KBD_KEYBOARD_ERR("ERROR! get keyboard failed, func:%s, line:%d\n", __func__, __LINE__);
+        return -EINVAL;
     }
 
 	prop = of_find_property(np, "irq-gpio", NULL);
@@ -1058,7 +1059,9 @@ static int bbqX0kbd_power_enable(struct bbqX0kbd_data *bbqX0kbd_data, u32 enable
 	if (bbqX0kbd_data->firmware_download_gpio >= 0) {
 		gpio_set_value(bbqX0kbd_data->firmware_download_gpio, 0);
 	}
-    mdelay(10);
+	mdelay(10);
+	return 0;
+
 err_set_gpio_2v8_power:
 	if (bbqX0kbd_data->power_2v8_gpio >= 0)
 		bbqX0kbd_keypoard_set_gpio(bbqX0kbd_data->power_2v8_gpio, false, 0, 0);
@@ -1070,13 +1073,14 @@ err_set_gpio_1v8_power:
 err_set_gpio_vdd_power:
 	if (bbqX0kbd_data->power_vdd_gpio >= 0)
 		bbqX0kbd_keypoard_set_gpio(bbqX0kbd_data->power_vdd_gpio, false, 0, 0);
-    return 0;
+	return retval;
 }
 
 /*add by hodafone begin*/
 static int firmware_upgrade_debug_read(struct seq_file *m, void *v)
 {
-	seq_printf(m, "%d\n", gpio_get_value(g_bbqX0kbd_data->firmware_download_gpio));
+	if (g_bbqX0kbd_data && g_bbqX0kbd_data->firmware_download_gpio >= 0)
+		seq_printf(m, "%d\n", gpio_get_value(g_bbqX0kbd_data->firmware_download_gpio));
 	return 0;
 }
 
@@ -1088,12 +1092,17 @@ static int firmware_upgrade_open(struct inode *inode, struct file *file)
 static ssize_t firmware_upgrade_debug_write(struct file *filp, const char  *buff, size_t len, loff_t *data)
 {
 	struct bbqX0kbd_data *bbqX0kbd_data = g_bbqX0kbd_data;
-	unsigned char writebuf[50];	
-	if (copy_from_user(&writebuf, buff, len)) {
+	unsigned char writebuf[50];
+	size_t copy_len = min(len, sizeof(writebuf) - 1);
+
+	if (copy_from_user(writebuf, buff, copy_len)) {
 		return -EFAULT;
 	}
+	writebuf[copy_len] = '\0';
+	if (!bbqX0kbd_data)
+		return -EFAULT;
 
-    BBQX0KBD_KEYBOARD_ERR("HodafoneLog firmware_upgrade_debug_write writebuf=%s",writebuf);
+	BBQX0KBD_KEYBOARD_ERR("HodafoneLog firmware_upgrade_debug_write writebuf=%s\n", writebuf);
    	if(writebuf[0] == '0'){
 		//trun off 
 		if (bbqX0kbd_data->power_vdd_gpio >= 0) {
@@ -1308,6 +1317,21 @@ static int bbqX0kbd_probe(struct i2c_client *client, const struct i2c_device_id 
 
 	__set_bit(EV_REP, input->evbit);
 	__set_bit(EV_KEY, input->evbit);
+	__set_bit(BTN_LEFT, input->keybit);
+	__set_bit(BTN_RIGHT, input->keybit);
+	__set_bit(KEY_ENTER, input->keybit);
+	__set_bit(KEY_UP, input->keybit);
+	__set_bit(KEY_DOWN, input->keybit);
+	__set_bit(KEY_LEFT, input->keybit);
+	__set_bit(KEY_RIGHT, input->keybit);
+	__set_bit(KEY_VOLUMEUP, input->keybit);
+	__set_bit(KEY_VOLUMEDOWN, input->keybit);
+	__set_bit(KEY_MUTE, input->keybit);
+	__set_bit(KEY_PAGEUP, input->keybit);
+	__set_bit(KEY_PAGEDOWN, input->keybit);
+	__set_bit(KEY_HOME, input->keybit);
+	__set_bit(KEY_MENU, input->keybit);
+	__set_bit(KEY_DELETE, input->keybit);
 
 	input_set_capability(input, EV_MSC, MSC_SCAN);
 #if (BBQX0KBD_TYPE == BBQ20KBD_PMOD)
@@ -1360,27 +1384,15 @@ static int bbqX0kbd_probe(struct i2c_client *client, const struct i2c_device_id 
 		BBQX0KBD_KEYBOARD_LOG("Failed to register disp notifier client\n");
 #endif
 
-	q20_switch_key_mouse_proc_entry = proc_create(Q20_SWITCH_KEY_MOUSE_PROC_NAME, 0777, NULL, &q20_switch_key_mouse_proc_ops);
-    if (NULL == q20_switch_key_mouse_proc_entry) 
-    {
-        BBQX0KBD_KEYBOARD_LOG("proc_create q20_switch_key_mouse_proc_entry error:\n");
-    }
-    else
-    {
-        BBQX0KBD_KEYBOARD_LOG("proc_create q20_switch_key_mouse_proc_entry    Succesfull*****\n");
-    }
-    
-    q20_spec_power_flag_proc_entry = proc_create(Q20_SPEC_POWER_FLAG_PROC_NAME, 0777, NULL, &q20_spec_power_flag_proc_ops);
-    if (NULL == q20_spec_power_flag_proc_entry) 
-    {
-        BBQX0KBD_KEYBOARD_LOG("proc_create q20_spec_power_flag_proc_entry error:\n");
-    }
-    else
-    {
-        BBQX0KBD_KEYBOARD_LOG("proc_create q20_spec_power_flag_proc_entry    Succesfull*****\n");
-    }
-
-	q20_kbd_brightness_proc_entry = proc_create(Q20_KBD_BRIGHTNESS_PROC_NAME, 0666, NULL, &q20_kbd_brightness_proc_ops);
+	if (!q20_switch_key_mouse_proc_entry) {
+		q20_switch_key_mouse_proc_entry = proc_create(Q20_SWITCH_KEY_MOUSE_PROC_NAME, 0666, NULL, &q20_switch_key_mouse_proc_ops);
+	}
+	if (!q20_spec_power_flag_proc_entry) {
+		q20_spec_power_flag_proc_entry = proc_create(Q20_SPEC_POWER_FLAG_PROC_NAME, 0666, NULL, &q20_spec_power_flag_proc_ops);
+	}
+	if (!q20_kbd_brightness_proc_entry) {
+		q20_kbd_brightness_proc_entry = proc_create(Q20_KBD_BRIGHTNESS_PROC_NAME, 0666, NULL, &q20_kbd_brightness_proc_ops);
+	}
 
 	bbqX0kbd_data->kbd_led.name = "q25:white:kbd_backlight";
 	bbqX0kbd_data->kbd_led.max_brightness = 255;
@@ -1389,9 +1401,9 @@ static int bbqX0kbd_probe(struct i2c_client *client, const struct i2c_device_id 
 	bbqX0kbd_data->kbd_led.brightness_get = bbqX0kbd_led_get;
 	devm_led_classdev_register(dev, &bbqX0kbd_data->kbd_led);
 
-	/* Torch / Flashlight (GPIO 154 = enable, GPIO 155 = mode) */
-	bbqX0kbd_data->torch_en_gpio = q25_resolve_soc_gpio(154);
-	bbqX0kbd_data->torch_mode_gpio = q25_resolve_soc_gpio(155);
+	/* Torch / Flashlight (GPIO 155 = enable, GPIO 154 = mode) */
+	bbqX0kbd_data->torch_en_gpio = q25_resolve_soc_gpio(155);
+	bbqX0kbd_data->torch_mode_gpio = q25_resolve_soc_gpio(154);
 	if (bbqX0kbd_data->torch_en_gpio >= 0 && bbqX0kbd_data->torch_mode_gpio >= 0) {
 		if (gpio_request(bbqX0kbd_data->torch_en_gpio, "q25_torch_en") == 0 &&
 		    gpio_request(bbqX0kbd_data->torch_mode_gpio, "q25_torch_mode") == 0) {
@@ -1403,7 +1415,8 @@ static int bbqX0kbd_probe(struct i2c_client *client, const struct i2c_device_id 
 			bbqX0kbd_data->torch_led.brightness_set_blocking = q25_torch_led_set_blocking;
 			bbqX0kbd_data->torch_led.brightness_get = q25_torch_led_get;
 			devm_led_classdev_register(dev, &bbqX0kbd_data->torch_led);
-			q20_torch_proc_entry = proc_create(Q20_TORCH_PROC_NAME, 0666, NULL, &q20_torch_proc_ops);
+			if (!q20_torch_proc_entry)
+				q20_torch_proc_entry = proc_create(Q20_TORCH_PROC_NAME, 0666, NULL, &q20_torch_proc_ops);
 		} else {
 			if (bbqX0kbd_data->torch_en_gpio >= 0)
 				gpio_free(bbqX0kbd_data->torch_en_gpio);
@@ -1412,18 +1425,22 @@ static int bbqX0kbd_probe(struct i2c_client *client, const struct i2c_device_id 
 		}
 	}
 
-	/* Vibrator (MT6358 "vibr" regulator at 2.8V) */
+	/* Vibrator (MT6358 "vibr" regulator at 3.0V) */
 	mutex_init(&bbqX0kbd_data->vibr_lock);
 	INIT_DELAYED_WORK(&bbqX0kbd_data->vibr_off_work, q25_vibr_off_work_fn);
-	bbqX0kbd_data->vibr_reg = regulator_get_optional(NULL, "vibr");
+	bbqX0kbd_data->vibr_reg = regulator_get_optional(dev, "vibr");
+	if (IS_ERR_OR_NULL(bbqX0kbd_data->vibr_reg))
+		bbqX0kbd_data->vibr_reg = regulator_get_optional(NULL, "vibr");
 	if (!IS_ERR_OR_NULL(bbqX0kbd_data->vibr_reg)) {
+		regulator_set_voltage(bbqX0kbd_data->vibr_reg, 3000000, 3300000);
 		bbqX0kbd_data->vibr_led.name = "q25:vibrator";
 		bbqX0kbd_data->vibr_led.max_brightness = 1;
 		bbqX0kbd_data->vibr_led.brightness = 0;
 		bbqX0kbd_data->vibr_led.brightness_set_blocking = q25_vibr_led_set_blocking;
 		bbqX0kbd_data->vibr_led.brightness_get = q25_vibr_led_get;
 		devm_led_classdev_register(dev, &bbqX0kbd_data->vibr_led);
-		q20_vibrator_proc_entry = proc_create(Q20_VIBRATOR_PROC_NAME, 0666, NULL, &q20_vibrator_proc_ops);
+		if (!q20_vibrator_proc_entry)
+			q20_vibrator_proc_entry = proc_create(Q20_VIBRATOR_PROC_NAME, 0666, NULL, &q20_vibrator_proc_ops);
 	}
     
 	device_init_wakeup(&client->dev, false);
@@ -1590,8 +1607,9 @@ static int bbqX0kdb_pdrv_probe(struct platform_device *pdev)
 	
 	bbqX0kbd_keyboard_probe_dt(pdev->dev.of_node, bbqX0kbd_data);
 	/*add by hodafone begin*/
-	if (!fwu_proc_entry)
-		fwu_proc_entry = proc_create(PROC_NAME, 0777, NULL,&firmware_upgrade_proc_ops);
+	if (!fwu_proc_entry) {
+		fwu_proc_entry = proc_create(PROC_NAME, 0666, NULL, &firmware_upgrade_proc_ops);
+	}
 	/*add by hodafone end*/
 
 	bbqX0kbd_power_enable(bbqX0kbd_data, 1);
@@ -1640,18 +1658,34 @@ static void __exit bbqX0kbd_exit(void)
 	msleep(500);
 	destroy_workqueue(workqueue_struct);
 #endif
-	if (q20_vibrator_proc_entry)
+	if (q20_vibrator_proc_entry) {
 		proc_remove(q20_vibrator_proc_entry);
-	if (q20_torch_proc_entry)
+		q20_vibrator_proc_entry = NULL;
+	}
+	if (q20_torch_proc_entry) {
 		proc_remove(q20_torch_proc_entry);
-	if (q20_kbd_brightness_proc_entry)
+		q20_torch_proc_entry = NULL;
+	}
+	if (q20_kbd_brightness_proc_entry) {
 		proc_remove(q20_kbd_brightness_proc_entry);
-	if (q20_spec_power_flag_proc_entry)
+		q20_kbd_brightness_proc_entry = NULL;
+	}
+	if (q20_spec_power_flag_proc_entry) {
 		proc_remove(q20_spec_power_flag_proc_entry);
-	if (q20_switch_key_mouse_proc_entry)
+		q20_spec_power_flag_proc_entry = NULL;
+	}
+	if (q20_switch_key_mouse_proc_entry) {
 		proc_remove(q20_switch_key_mouse_proc_entry);
-	if (fwu_proc_entry)
+		q20_switch_key_mouse_proc_entry = NULL;
+	}
+	if (fwu_proc_entry) {
 		proc_remove(fwu_proc_entry);
+		fwu_proc_entry = NULL;
+	}
+#if IS_ENABLED(CONFIG_DRM_MEDIATEK_V2)
+	mtk_disp_notifier_unregister(&bbqX0kpd_disp_notifier);
+#endif
+	i2c_del_driver(&bbqX0kbd_driver);
 	if (g_bbqX0kbd_data) {
 		cancel_delayed_work_sync(&g_bbqX0kbd_data->vibr_off_work);
 		q25_set_vibrator(g_bbqX0kbd_data, false);
@@ -1664,8 +1698,16 @@ static void __exit bbqX0kbd_exit(void)
 			gpio_free(g_bbqX0kbd_data->torch_en_gpio);
 		if (g_bbqX0kbd_data->torch_mode_gpio >= 0)
 			gpio_free(g_bbqX0kbd_data->torch_mode_gpio);
+		if (g_bbqX0kbd_data->firmware_download_gpio >= 0)
+			gpio_free(g_bbqX0kbd_data->firmware_download_gpio);
+		if (g_bbqX0kbd_data->power_2v8_gpio >= 0)
+			gpio_free(g_bbqX0kbd_data->power_2v8_gpio);
+		if (g_bbqX0kbd_data->power_1v8_gpio >= 0)
+			gpio_free(g_bbqX0kbd_data->power_1v8_gpio);
+		if (g_bbqX0kbd_data->power_vdd_gpio >= 0)
+			gpio_free(g_bbqX0kbd_data->power_vdd_gpio);
+		g_bbqX0kbd_data = NULL;
 	}
-	i2c_del_driver(&bbqX0kbd_driver);
 #if BBQX0KBD_REGISTE_PLATFORM_DRIVER
 	platform_driver_unregister(&bbqX0kdb_pdrv_driver);
 #endif

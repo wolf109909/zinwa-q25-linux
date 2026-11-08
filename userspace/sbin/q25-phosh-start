@@ -2,6 +2,7 @@
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export LANG=C.UTF-8
 export LC_ALL=C.UTF-8
+export SYSTEMD_IGNORE_CHROOT=1
 export XDG_RUNTIME_DIR=/run/user/0
 export SEATD_SOCK=/run/seatd.sock
 export LIBSEAT_BACKEND=seatd
@@ -32,10 +33,10 @@ fi
 # Start systemd-udevd so libinput, PipeWire, and NetworkManager see device tags
 if ! pgrep -x systemd-udevd >/dev/null 2>&1; then
     /usr/lib/systemd/systemd-udevd --daemon 2>/dev/null || true
-    udevadm trigger --type=subsystems --action=add 2>/dev/null || true
-    udevadm trigger --type=devices --action=add 2>/dev/null || true
-    udevadm settle --timeout=3 2>/dev/null || true
 fi
+udevadm trigger --type=subsystems --action=add 2>/dev/null || true
+udevadm trigger --type=devices --action=add 2>/dev/null || true
+udevadm settle --timeout=3 2>/dev/null || true
 chmod 0666 /dev/snd/* /dev/dri/* /dev/input/event* 2>/dev/null || true
 
 # Start system D-Bus if not running
@@ -75,19 +76,23 @@ fi
     fi
     if [ -x /usr/local/sbin/q25-modem-init ]; then
         /usr/local/sbin/q25-modem-init start >/var/log/q25-modem-init.log 2>&1 || true
+        if [ -s /etc/q25-apn.conf ]; then
+            /usr/local/sbin/q25-modem-init data-up >>/var/log/q25-modem-init.log 2>&1 || true
+        fi
     fi
 ) &
 
 # Set initial ALSA mixer routing and Start PipeWire + WirePlumber audio server
 amixer -c 0 cset name='LOL Mux' 'Playback' >/dev/null 2>&1 || true
-amixer -c 0 cset name='Lineout Volume' 16 >/dev/null 2>&1 || true
-amixer -c 0 cset name='Headphone Volume' 16 >/dev/null 2>&1 || true
+amixer -c 0 cset name='Lineout Volume' 18,18 >/dev/null 2>&1 || true
+amixer -c 0 cset name='Headphone Volume' 18,18 >/dev/null 2>&1 || true
+amixer -c 0 cset name='PGA Volume' 3,3 >/dev/null 2>&1 || true
 amixer -c 0 cset name='Q25 Output Route' 'Speaker' >/dev/null 2>&1 || true
 amixer -c 0 cset name='Mic Type Mux' 'ACC' >/dev/null 2>&1 || true
 amixer -c 0 cset name='ADC L Mux' 'Left Preamplifier' >/dev/null 2>&1 || true
 amixer -c 0 cset name='ADC R Mux' 'Right Preamplifier' >/dev/null 2>&1 || true
 amixer -c 0 cset name='PGA L Mux' 'AIN0' >/dev/null 2>&1 || true
-amixer -c 0 cset name='PGA R Mux' 'AIN0' >/dev/null 2>&1 || true
+amixer -c 0 cset name='PGA R Mux' 'AIN2' >/dev/null 2>&1 || true
 
 if ! pgrep -x pipewire >/dev/null 2>&1; then
     PIPEWIRE_REMOTE= nohup /usr/bin/pipewire </dev/null >/var/log/pipewire.log 2>&1 &

@@ -1,8 +1,9 @@
-#!/bin/bash
-NODE="/sys/class/leds/lcd-backlight/brightness"
-MAX=255
-CUR=$(cat "$NODE" 2>/dev/null || echo 128)
-PCT=$(( (CUR * 100 + 127) / MAX ))
+#!/bin/sh
+NODE="/sys/class/backlight/backlight/brightness"
+MAX=$(cat /sys/class/backlight/backlight/max_brightness 2>/dev/null || echo 1023)
+CUR=$(cat "$NODE" 2>/dev/null || echo 512)
+STEP=$(( MAX / 10 ))
+PCT=$(( (CUR * 100 + MAX / 2) / MAX ))
 
 case "${1:-}" in
   "")
@@ -10,16 +11,16 @@ case "${1:-}" in
     exit 0
     ;;
   up|\+)
-    NEW=$(( CUR + 25 ))
+    NEW=$(( CUR + STEP ))
     ;;
   down|\-)
-    NEW=$(( CUR - 25 ))
+    NEW=$(( CUR - STEP ))
     ;;
   min|night)
-    NEW=8
+    NEW=$(( MAX / 25 ))
     ;;
   max)
-    NEW=255
+    NEW=$MAX
     ;;
   *)
     VAL="${1%%%}"
@@ -27,8 +28,8 @@ case "${1:-}" in
     ;;
 esac
 
-[ "$NEW" -lt 5 ] && NEW=5
-[ "$NEW" -gt 255 ] && NEW=255
-echo "$NEW" > "$NODE" 2>/dev/null || echo "$NEW" | sudo tee "$NODE" >/dev/null
-NEW_PCT=$(( (NEW * 100 + 127) / MAX ))
+[ "$NEW" -lt 40 ] && NEW=40
+[ "$NEW" -gt "$MAX" ] && NEW=$MAX
+echo "$NEW" > "$NODE" 2>/dev/null || true
+NEW_PCT=$(( (NEW * 100 + MAX / 2) / MAX ))
 echo "Brightness: ${NEW_PCT}% (${NEW}/${MAX})"

@@ -67,7 +67,7 @@ static unsigned short keycodes[NUM_KEYCODES] = {
 #endif
 
 	[0x06] = KEY_SEND,
-	[0x11] = 580,
+	[0x11] = KEY_LEFTMETA,
 	[0x07] = KEY_BACK,
 	[0x12] = KEY_HOMEPAGE,
 

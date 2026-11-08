@@ -3,6 +3,7 @@
  * Copyright (c) 2021 MediaTek Inc.
  */
 
+#include <linux/backlight.h>
 #include <linux/gpio/consumer.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -49,6 +50,7 @@ struct gate_ic_client {
 	struct i2c_client *i2c_client;
 	struct gpio_desc *pinctrl;
 	struct device *dev;
+	struct backlight_device *bl;
 	atomic_t gate_ic_power_status;
 	int last_brightness;
 };
@@ -214,6 +216,23 @@ EXPORT_SYMBOL_GPL(_gate_ic_i2c_panel_bias_enable);
  * Function
  *****************************************************************************/
 
+static int ocp2131_bl_update_status(struct backlight_device *bl)
+{
+	int brightness = backlight_get_brightness(bl);
+	unsigned int hw_level = 0;
+
+	if (brightness > 0) {
+		hw_level = (brightness * OCP2131_VOL_MAX_BRIGHT_LEVEL + 511) / 1023;
+		if (hw_level == 0)
+			hw_level = 1;
+	}
+	return _gate_ic_backlight_set(hw_level);
+}
+
+static const struct backlight_ops ocp2131_bl_ops = {
+	.update_status = ocp2131_bl_update_status,
+};
+
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
 static int _gate_ic_i2c_probe(struct i2c_client *client)
 #else
@@ -222,6 +241,7 @@ static int _gate_ic_i2c_probe(struct i2c_client *client,
 #endif
 {
 	struct gate_ic_client *gate_client;
+	struct backlight_properties props;
 	int status;
 
 	pr_info("%s+: client name=%s addr=0x%x\n",
@@ -245,6 +265,16 @@ static int _gate_ic_i2c_probe(struct i2c_client *client,
 	i2c_set_clientdata(client, gate_client);
 	_gate_ic_i2c_client = client;
 	atomic_set(&gate_client->gate_ic_power_status, 1);
+	gate_client->last_brightness = 15;
+
+	memset(&props, 0, sizeof(props));
+	props.type = BACKLIGHT_RAW;
+	props.max_brightness = 1023;
+	props.brightness = 600;
+	gate_client->bl = devm_backlight_device_register(&client->dev,
+		"backlight", &client->dev, gate_client, &ocp2131_bl_ops, &props);
+	if (!IS_ERR(gate_client->bl))
+		backlight_update_status(gate_client->bl);
 
 	return 0;
 }

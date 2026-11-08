@@ -9,6 +9,7 @@ obj-m += power/
 obj-m += audio/
 obj-m += nfc/
 obj-m += leds/
+obj-m += sensors/
 else
 KDIR ?= /lib/modules/$(shell uname -r)/build
 KBUILD_MODPOST_WARN ?= $(if $(wildcard $(KDIR)/Module.symvers),0,1)

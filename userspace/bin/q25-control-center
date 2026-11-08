@@ -374,6 +374,11 @@ class Q25ControlCenter(Adw.Application):
         self.therm_row = Adw.ActionRow(title="SoC and Peripheral Temperatures", subtitle="...")
         pwr_grp.add(self.therm_row)
 
+        self.sens_row = Adw.ActionRow(
+            title="Onboard Sensors (SC7A20 + MMC5603NJ + HX32062SE)", subtitle="..."
+        )
+        pwr_grp.add(self.sens_row)
+
         self.net_ip_row = Adw.ActionRow(title="IPv4 Interfaces", subtitle="...")
         pwr_grp.add(self.net_ip_row)
 
@@ -495,7 +500,7 @@ class Q25ControlCenter(Adw.Application):
     def _on_tp_toggled(self, switch, state):
         if self._updating_ui:
             return False
-        write_sysfs("/proc/q20_switch_key_mouse", "1" if state else "0")
+        write_sysfs("/proc/q20_switch_key_mouse", "0" if state else "1")
         self.toast("Trackpad: Mouse Mode" if state else "Trackpad: Arrow Keys Mode")
         return False
 
@@ -703,7 +708,7 @@ class Q25ControlCenter(Adw.Application):
         state = {}
         state["bl"] = read_sysfs_int("/sys/class/backlight/backlight/brightness", 512)
         state["kbd"] = read_sysfs_int("/sys/class/leds/q25:white:kbd_backlight/brightness", 255)
-        state["tp"] = read_sysfs_int("/proc/q20_switch_key_mouse", 1) == 1
+        state["tp"] = read_sysfs_int("/proc/q20_switch_key_mouse", 0) == 0
         state["torch"] = read_sysfs_int("/sys/class/leds/q25:white:torch/brightness", 0)
         state["led_r"] = read_sysfs_int("/sys/class/leds/red/brightness", 0) > 0
         state["led_g"] = read_sysfs_int("/sys/class/leds/green/brightness", 0) > 0
@@ -728,13 +733,38 @@ class Q25ControlCenter(Adw.Application):
                 tz_parts.append(f"{ttype}: {tval/1000.0:.1f}°C")
         state["therm_text"] = " · ".join(tz_parts[:4]) if tz_parts else "Normal"
 
+        # Onboard IIO sensors (SC7A20 accel, MMC5603NJ mag, HX32062SE ALS/PS)
+        sens_parts = []
+        for idx in range(12):
+            idev = f"/sys/bus/iio/devices/iio:device{idx}"
+            iname = read_sysfs_str(f"{idev}/name", "")
+            if iname == "sc7a20":
+                ax = read_sysfs_int(f"{idev}/in_accel_x_raw", 0) * 0.0095768
+                ay = read_sysfs_int(f"{idev}/in_accel_y_raw", 0) * 0.0095768
+                az = read_sysfs_int(f"{idev}/in_accel_z_raw", 0) * 0.0095768
+                sens_parts.append(f"Accel: ({ax:.1f}, {ay:.1f}, {az:.1f}) m/s²")
+            elif iname == "mmc5603nj":
+                mx = read_sysfs_int(f"{idev}/in_magn_x_raw", 0) * 0.097656
+                my = read_sysfs_int(f"{idev}/in_magn_y_raw", 0) * 0.097656
+                mz = read_sysfs_int(f"{idev}/in_magn_z_raw", 0) * 0.097656
+                sens_parts.append(f"Mag: ({mx:.0f}, {my:.0f}, {mz:.0f}) µT")
+            elif iname == "hx32062se":
+                lux = read_sysfs_int(f"{idev}/in_illuminance_input", 0)
+                ps = read_sysfs_int(f"{idev}/in_proximity_raw", 0)
+                sens_parts.append(f"ALS: {lux} lux · PS: {ps}")
+        state["sens_text"] = " | ".join(sens_parts) if sens_parts else "Sensors offline"
+
         # Fast Network IPs
         _, ip_out, _ = run_cmd(["ip", "-4", "-br", "addr"], timeout=2)
         ips = {}
         for line in ip_out.splitlines():
             cols = line.split()
             if len(cols) >= 3:
-                ips[cols[0]] = cols[2].split("/")[0]
+                ifname = cols[0]
+                addr = cols[2].split("/")[0]
+                ips[ifname] = addr
+                if ifname.startswith("ccmni") and "ccmni0" not in ips:
+                    ips["ccmni0"] = addr
         state["ips"] = ips
 
         # Fast Wi-Fi & Bluetooth check
@@ -865,6 +895,7 @@ class Q25ControlCenter(Adw.Application):
 
             self.bat_row.set_subtitle(s.get("bat_text", ""))
             self.therm_row.set_subtitle(s.get("therm_text", ""))
+            self.sens_row.set_subtitle(s.get("sens_text", ""))
             ips = s.get("ips", {})
             self.net_ip_row.set_subtitle(
                 f"ccmni0: {ips.get('ccmni0', '-')} · wlan0: {ips.get('wlan0', '-')} · usb0: {ips.get('usb0', '-')}"

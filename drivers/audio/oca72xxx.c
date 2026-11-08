@@ -1652,6 +1652,11 @@ static void oca72xxx_i2c_remove(struct i2c_client *client)
 {
 	struct oca72xxx *oca72xxx = i2c_get_clientdata(client);
 
+	if (oca72xxx && oca72xxx->dev_index == 0) {
+		extern void q25_unregister_audio_card(void);
+		q25_unregister_audio_card();
+	}
+
 	if (gpio_is_valid(oca72xxx->oca_dev.rst_gpio))
 		gpio_free(oca72xxx->oca_dev.rst_gpio);
 
