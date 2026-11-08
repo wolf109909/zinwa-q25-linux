@@ -95,8 +95,8 @@ existing mediatek-drm udev symlink and `WLR_NO_HARDWARE_CURSORS=1`. Do not repla
 this with a numbered card or force the Panfrost render GPU as the display device.
 No KWin variables or global Qt/GTK scale overrides remain.
 
-Stock `phosh-session` reads `/etc/phosh/phoc.ini`. Its `DSI-1` default is **1.25×**:
-720×720 physical, **576×576 logical** pixels. Use **Settings > Displays** to change
+Stock `phosh-session` reads `/etc/phosh/phoc.ini`. Its `DSI-1` default is **1×**
+(720×720 logical; 1.25× looked oversized under Phosh). Use **Settings > Displays** to change
 scale; saved per-user display settings can supersede the seed. Phosh's usual
 maximizing compositor behavior is retained. The physical keyd layout is unchanged.
 
@@ -106,8 +106,8 @@ not scripts. **nmtui** is supplied by NetworkManager. **Mobile Settings** provid
 Phosh-specific preferences, OSK controls and per-app Scale-to-Fit.
 
 Libadwaita apps generally adapt, but no app has been visually validated on this
-image's 576×576 viewport. GNOME Settings' sidebar breakpoint is 550sp and Mobile
-Settings' is 500sp: 576-wide can keep sidebars visible, leaving narrow content.
+image's 720×720 viewport. GNOME Settings (550sp) and Mobile Settings (500sp)
+keep their sidebars visible at this width.
 Firefox is stock desktop Firefox (no custom mobile CSS) and its dialogs, advanced
 Calculator modes, Nautilus dialogs and Btrfs Assistant may need more space.
 Try per-app Scale-to-Fit in Mobile Settings, or choose 1.5× for narrow layouts /
@@ -201,7 +201,7 @@ real non-root lock/unlock, logind and keyring behavior on the phone.
 1. Cold boot to the PIN screen, verify no unlocked first frame; wrong/correct PIN,
    password changes, restart, keyring and sudo. `loginctl show-session` must show
    an active local seat0 user session on tty7, `Class=user`, `Type=wayland`.
-2. Check 1.25× output, Panfrost rendering, software cursor, touch alignment,
+2. Check 1× output, Panfrost rendering, software cursor, touch alignment,
    scale changes in Displays, all favorite/apps and every requested Settings panel.
 3. Type with physical/keyd keyboard without an unwanted OSK; explicitly show/hide
    Stevia, including after switching apps and waking. Check CJK/emoji/kitty fonts.

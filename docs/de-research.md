@@ -4,7 +4,7 @@
 
 ## Historical recommendation (superseded by the implementation decision)
 
-**Current image: Phosh only, 1.25×, full apps and upstream phosh.service autologin
+**Current image: Phosh only, 1×, full apps and upstream phosh.service autologin
 to the password-protected lock screen.** See [../build/PHOSH.md](../build/PHOSH.md).
 The ranked alternatives, 1.5× starting suggestion and greetd trial proposal below
 are research history, not current build instructions or additional desktops.

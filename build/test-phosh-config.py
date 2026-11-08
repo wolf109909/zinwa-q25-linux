@@ -96,7 +96,7 @@ class PhoshDefaults(unittest.TestCase):
         for value in ("WLR_DRM_DEVICES=/dev/dri/q25-display", "WLR_NO_HARDWARE_CURSORS=1",
                       "XDG_SESSION_CLASS=user"):
             self.assertIn("Environment=" + value + "\n", text)
-        self.assertEqual(config("etc/phosh/phoc.ini")["output:DSI-1"].getfloat("scale"), 1.25)
+        self.assertEqual(config("etc/phosh/phoc.ini")["output:DSI-1"].getfloat("scale"), 1.0)
         self.assertIn('DRIVERS=="mediatek-drm", SYMLINK+="dri/q25-display"',
                       (ROOT / "etc/udev/rules.d/60-q25.rules").read_text())
 
