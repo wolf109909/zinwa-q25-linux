@@ -18,8 +18,11 @@ MAX=$((8 * 1024 * 1024))
 
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
-mkdir -p "$W"/{bin,sbin,dev,proc,sys,run,tmp,newroot,lib,usr/lib}
-ln -s lib "$W/lib64"
+# Arch merged layout: glibc's ld.so only searches /usr/lib (no ld.so.cache here),
+# so libraries live in /usr/lib and /lib, /lib64 are symlinks to it.
+mkdir -p "$W"/{bin,sbin,dev,proc,sys,run,tmp,newroot,usr/lib}
+ln -s usr/lib "$W/lib"
+ln -s usr/lib "$W/lib64"
 install -m755 "$BUSYBOX" "$W/bin/busybox"
 install -m755 "$REPO/initramfs/init" "$W/init"
 
@@ -41,9 +44,14 @@ copy_elf() {
 copy_elf /usr/bin/e2fsck
 copy_elf /usr/lib/ld-linux-aarch64.so.1
 mv "$W/usr/bin/e2fsck" "$W/sbin/e2fsck"
-mv "$W"/usr/lib/* "$W/lib/"
 rmdir "$W/usr/bin" 2>/dev/null || true
-aarch64-linux-gnu-strip --strip-unneeded "$W"/lib/*.so* "$W/sbin/e2fsck" 2>/dev/null || true
+aarch64-linux-gnu-strip --strip-unneeded "$W"/usr/lib/*.so* "$W/sbin/e2fsck" 2>/dev/null || true
+
+# smoke test: e2fsck must actually run from inside the ramdisk layout
+if command -v qemu-aarch64-static >/dev/null; then
+    qemu-aarch64-static -L "$W" "$W/sbin/e2fsck" -V >/dev/null 2>&1 \
+        || { echo "e2fsck does not run inside the initramfs (missing libs?)" >&2; exit 1; }
+fi
 
 # mke2fs.conf-free e2fsck still wants /etc/mtab
 mkdir -p "$W/etc"
