@@ -125,9 +125,12 @@ def sync_dir(src, dst):
     for n in os.listdir(src):
         s, d = os.path.join(src, n), os.path.join(dst, n)
         if os.path.islink(s) or os.path.isfile(s):
-            if os.path.lexists(d):
-                os.remove(d)
-            shutil.copy2(s, d, follow_symlinks=False)
+            # A setup retry must not truncate a library mapped by a live daemon.
+            tmp = os.path.join(dst, f".q25-{n}")
+            if os.path.lexists(tmp):
+                os.remove(tmp)
+            shutil.copy2(s, tmp, follow_symlinks=False)
+            os.replace(tmp, d)
 
 
 def symlink(target, path):

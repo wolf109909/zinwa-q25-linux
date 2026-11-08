@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+ACTION!="add|change|move|bind", GOTO="mm_mtk_ccci_end"
+
+# Only the Q25 MD1 UART2 AT stream; never probe vendor RPC/FS/log char ports.
+SUBSYSTEM=="tty", KERNEL=="ttyC0", KERNELS=="d0cf000.mddriver", GOTO="mm_mtk_ccci_process"
+# Vendor ccmni devices have no sysfs parent. Group them explicitly with UART2.
+SUBSYSTEM=="net", KERNEL=="ccmni[0-9]*", TEST=="/sys/devices/platform/soc/d0cf000.mddriver", GOTO="mm_mtk_ccci_process"
+GOTO="mm_mtk_ccci_end"
+
+LABEL="mm_mtk_ccci_process"
+ENV{ID_MM_CANDIDATE}="1"
+ENV{ID_MM_DEVICE_PROCESS}="1"
+ENV{ID_MM_MTK_CCCI}="1"
+ENV{ID_MM_PHYSDEV_UID}="q25-md1"
+SUBSYSTEM=="tty", ENV{ID_MM_PORT_TYPE_AT_PRIMARY}="1"
+LABEL="mm_mtk_ccci_end"

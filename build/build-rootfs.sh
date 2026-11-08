@@ -6,6 +6,7 @@
 #
 # Stages (default: all, in order):
 #   bootstrap  pacstrap the packages from build/packages.txt into $ROOT
+#   packages   install the Q25 packages built by build-packages.sh ($OUT/packages)
 #   overlay    install rootfs/ overlay, firmware, kernel modules, Q25 tools
 #   configure  users, locale, services, keyring
 #   image      make out/q25-rootfs.img (ext4, label q25-root) + sparse chunks
@@ -34,7 +35,17 @@ stage_bootstrap() {
     log "bootstrap: pacstrap into $ROOT"
     mkdir -p "$ROOT"
     mapfile -t PKGS < <(grep -v '^\s*#' "$REPO/build/packages.txt" | grep -v '^\s*$')
-    pacstrap -C "$REPO/build/pacman-build.conf" -G -M "$ROOT" "${PKGS[@]}"
+    pacstrap -C "$REPO/build/pacman-build.conf" -c -G -M "$ROOT" "${PKGS[@]}"
+}
+
+stage_packages() {
+    local pkgs=("$OUT"/packages/*.pkg.tar.*)
+    [ -e "${pkgs[0]}" ] || { echo "no packages in $OUT/packages: run 'sudo build/build-packages.sh' first"; exit 1; }
+    log "packages: ${pkgs[*]##*/}"
+    # host pacman (like pacstrap): the staging dir is not a mountpoint, so
+    # pacman inside arch-chroot cannot do its free-space check
+    pacman --config "$REPO/build/pacman-build.conf" --root "$ROOT" \
+        --noconfirm --needed -U "${pkgs[@]}"
 }
 
 stage_overlay() {
@@ -105,7 +116,7 @@ EOF
     in_root systemctl enable \
         NetworkManager.service bluetooth.service sshd.service systemd-timesyncd.service \
         systemd-resolved.service keyd.service q25-firstboot.service q25-usb-gadget.service \
-        q25-android.service q25-modemd.service q25-connsys.service q25-bt-vhci.service \
+        q25-android.service ModemManager.service q25-connsys.service q25-bt-vhci.service \
         sddm.service q25-boot-ok.service >/dev/null
     in_root systemctl set-default graphical.target >/dev/null
     in_root systemctl mask systemd-networkd.service systemd-networkd-wait-online.service >/dev/null 2>&1 || true
@@ -135,6 +146,6 @@ stage_image() {
 }
 
 STAGES=("$@")
-[ ${#STAGES[@]} -eq 0 ] && STAGES=(bootstrap overlay configure image)
+[ ${#STAGES[@]} -eq 0 ] && STAGES=(bootstrap packages overlay configure image)
 for s in "${STAGES[@]}"; do "stage_$s"; done
 log "done"

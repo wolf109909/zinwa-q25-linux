@@ -1,0 +1,13 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Boot plumbing only: never open ccci_monitor (closing it can stop MD1).
+set -eu
+for attempt in $(seq 1 90); do
+    if [ -c /dev/ttyC0 ] && [ -e /sys/class/tty/ttyC0 ] &&
+       grep -q '^md1:4[[:space:]]*|' /sys/kernel/ccci/boot 2>/dev/null; then
+        exit 0
+    fi
+    sleep 1
+done
+echo 'MD1 did not reach READY with a real CCCI AT TTY within 90 seconds' >&2
+exit 1

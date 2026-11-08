@@ -8,6 +8,7 @@
 
 /* external: port ops  mapping */
 extern struct port_ops char_port_ops;
+extern struct port_ops tty_port_ops;
 extern struct port_ops net_port_ops;
 extern struct port_ops rpc_port_ops;
 extern struct port_ops sys_port_ops;

@@ -11,7 +11,7 @@ SUBSYSTEM=="leds", KERNEL=="q25:*", RUN+="/bin/chgrp video /sys%p/brightness", R
 SUBSYSTEM=="input", ATTRS{name}=="s2716b_ts", ENV{ID_INPUT_TOUCHSCREEN}="1", ENV{WL_OUTPUT}="DSI-1"
 # Q25 hardware keyboard: built-in, never an "external" keyboard for the OSK
 SUBSYSTEM=="input", ATTRS{name}=="Q25_keyboard", ENV{ID_INPUT_KEYBOARD}="1", ENV{ID_INTEGRATION}="internal"
-# Modem AT/status ports: only root (q25-modemd) talks to the modem
+# Modem AT/status ports: only root (ModemManager) talks to the modem
 KERNEL=="ttyC[0-9]*", MODE="0600"
 KERNEL=="ccci_*", MODE="0660"
 # Stable names for the display controller and the GPU (card numbers vary)

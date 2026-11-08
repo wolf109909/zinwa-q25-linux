@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+pkgname=modemmanager-q25
+pkgver=1.24.2
+pkgrel=1
+pkgdesc='MediaTek CCCI AT/ccmni plugin for the Zinwa Q25 (ModemManager 1.24.2 ABI)'
+arch=('aarch64')
+url='https://gitlab.freedesktop.org/mobile-broadband/ModemManager'
+license=('GPL-2.0-or-later')
+depends=('modemmanager=1.24.2' 'libmm-glib=1.24.2')
+makedepends=('meson' 'ninja' 'gcc' 'pkgconf' 'libgudev' 'libmbim' 'libqmi'
+             'libqrtr-glib' 'systemd' 'patchelf' 'glib2-devel' 'libxslt')
+source=("https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/archive/$pkgver/ModemManager-$pkgver.tar.gz"
+        'mtk-ccci-meson.patch'
+        'mm-plugin-mtk-ccci.c'
+        'mm-modem-helpers-mtk-ccci.c'
+        'mm-modem-helpers-mtk-ccci.h'
+        'test-modem-helpers-mtk-ccci.c'
+        '77-mm-mtk-ccci.rules')
+
+prepare() {
+    cd "ModemManager-$pkgver"
+    patch -Np1 -i "$srcdir/mtk-ccci-meson.patch"
+    mkdir -p src/plugins/mtk-ccci
+    cp "$srcdir"/mm-*-mtk-ccci.[ch] src/plugins/mtk-ccci/
+}
+
+build() {
+    meson setup build "ModemManager-$pkgver" --prefix=/usr --libdir=lib \
+        --buildtype=release -Dbuiltin_plugins=false -Dintrospection=false \
+        -Dgtk_doc=false -Dman=false -Dvapi=false -Dtests=false -Dbash_completion=false
+    ninja -C build src/plugins/libmm-plugin-mtk-ccci.so
+}
+
+check() {
+    cc $CFLAGS $CPPFLAGS -Wall -Wextra -Werror \
+        mm-modem-helpers-mtk-ccci.c test-modem-helpers-mtk-ccci.c \
+        $(pkg-config --cflags --libs gio-2.0) $LDFLAGS -o test-modem-helpers-mtk-ccci
+    ./test-modem-helpers-mtk-ccci
+}
+
+package() {
+    install -Dm755 build/src/plugins/libmm-plugin-mtk-ccci.so \
+        "$pkgdir/usr/lib/ModemManager/libmm-plugin-mtk-ccci.so"
+    # Only the plugin is shipped. Do not retain Meson's in-tree libmm-glib RPATH.
+    patchelf --remove-rpath "$pkgdir/usr/lib/ModemManager/libmm-plugin-mtk-ccci.so"
+    install -Dm644 77-mm-mtk-ccci.rules "$pkgdir/usr/lib/udev/rules.d/77-mm-mtk-ccci.rules"
+}
+
+sha256sums=(
+    'fbc75adcc0d7b0565f256e7ff4e8872b0a37c4413ff576665f7470932d9c1b68'
+    '6a4afc0d8736ba8ac63034e70a21be5a2cb779ce0d33188ac4e099e26e699580'
+    '98c3a7fd092ceaede6132a5f057002a5841e7f0e603803c9869774bc97ebe263'
+    'e32ff93a4ad19f83e21df8bbb8d5b94dbb48c4ee6fb787be47deda5ee638123b'
+    '5da4b02e5197aba8ed33cadf1b378222a8f32f9d4e50d1672de198ab3d5a62ef'
+    '27a2441a41ac44eb10a1cbf7e21cd1eb87d506baf5e86a8b3348f3ca54956e05'
+    '6ad0f6cb02ed611ec809f0386d2ff878e342cf79fbb12e1af71ff63c35e686f1'
+)

@@ -24,9 +24,6 @@ modules.order
 Module.symvers
 .tmp_versions/
 .cache.mk
-userspace/sbin/q25-wmt-init
-userspace/sbin/q25-bt-vhci
-userspace/sbin/libprop_preload.so
 
 
 # realctx: share project memories (.pi/realctx) through git
@@ -37,3 +34,4 @@ userspace/sbin/libprop_preload.so
 
 # build outputs
 /out/
+__pycache__/

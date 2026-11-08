@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: GPL-2.0-only
 # Build everything needed to flash a Q25, in dependency order:
 #   1. kernel + Q25 modules     (build-kernel.sh  -> $KSTAGE)
-#   2. Arch rootfs + image      (build-rootfs.sh  -> $ROOT, out/q25-rootfs.img, out/userdata/*.simg)
-#   3. boot ramdisk             (build-initramfs.sh, uses busybox/e2fsck from the rootfs)
-#   4. boot.img                 (build-boot.sh)
+#   2. Q25 Arch packages        (build-packages.sh -> out/packages, e.g. modemmanager-q25)
+#   3. Arch rootfs + image      (build-rootfs.sh  -> $ROOT, out/q25-rootfs.img, out/userdata/*.simg)
+#   4. boot ramdisk             (build-initramfs.sh, uses busybox/e2fsck from the rootfs)
+#   5. boot.img                 (build-boot.sh)
 # then flash with build/flash.sh. First time: build/prepare-kernel.sh.
 set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -16,6 +17,7 @@ B="$REPO/build"
 
 [ -d "$KSRC" ] || "$B/prepare-kernel.sh"
 "$B/build-kernel.sh"
+sudo --preserve-env=OUT,BUILDROOT "$B/build-packages.sh"
 sudo --preserve-env=KSTAGE,ROOT,OUT,SSH_KEY,Q25_USER "$B/build-rootfs.sh"
 "$B/build-initramfs.sh" "$ROOT" "$OUT/initramfs.cpio.gz"
 "$B/build-boot.sh" "$KSTAGE/boot/Image.gz" "$OUT/initramfs.cpio.gz" "$OUT/boot.img"
