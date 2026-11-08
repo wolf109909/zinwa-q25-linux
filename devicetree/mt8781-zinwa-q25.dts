@@ -434,13 +434,13 @@
 		};
 	};
 
-	/* Volume Down GPIO key (KPD_KCOL0 on GPIO 43) */
+	/* Volume Down GPIO key (KPD_KCOL0 on GPIO 66) */
 	gpio-keys {
 		compatible = "gpio-keys";
 
 		key-volumedown {
 			label = "Volume Down";
-			gpios = <&pio 43 GPIO_ACTIVE_LOW>;
+			gpios = <&pio 66 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
 			linux,code = <KEY_VOLUMEDOWN>;
 			debounce-interval = <15>;
 			wakeup-source;

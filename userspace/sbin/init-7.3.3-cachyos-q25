@@ -116,29 +116,35 @@ for cand in /dev/mapper/q25-q25--rootfs /dev/q25/q25-rootfs; do
 done
 if [ -n "$ROOT_LV" ]; then
     mount -t ext4 "$ROOT_LV" /rootfs 2>/dev/null || /bin/busybox mount -t ext4 "$ROOT_LV" /rootfs 2>/dev/null || true
-    if [ -d /rootfs/opt/arch ]; then
-        mount --bind /rootfs/opt/arch /opt/arch 2>/dev/null || /bin/busybox mount --bind /rootfs/opt/arch /opt/arch 2>/dev/null || true
+    if [ -d /rootfs/usr ]; then
+        if [ -d /rootfs/opt/arch ] && [ ! -L /rootfs/opt/arch ]; then
+            rm -rf /rootfs/opt/arch 2>/dev/null || true
+        fi
+        rm -f /rootfs/opt/arch 2>/dev/null || true
+        rmdir /opt/arch 2>/dev/null || true
+        ln -sfn /rootfs /opt/arch 2>/dev/null || true
         for pfs in proc sys dev dev/pts dev/shm run tmp; do
-            mkdir -p "/opt/arch/$pfs" 2>/dev/null || true
-            mount --bind "/$pfs" "/opt/arch/$pfs" 2>/dev/null || true
+            mkdir -p "/rootfs/$pfs" 2>/dev/null || true
+            mount --bind "/$pfs" "/rootfs/$pfs" 2>/dev/null || true
         done
-        mkdir -p /opt/arch/etc/keyd /opt/arch/var/log /opt/arch/run/keyd
-        cp -af /etc/keyd/* /opt/arch/etc/keyd/ 2>/dev/null || true
-        if [ -x /opt/arch/usr/bin/keyd ]; then
-            chroot /opt/arch /usr/bin/keyd >/var/log/keyd.log 2>&1 &
+        mkdir -p /rootfs/etc/keyd /rootfs/var/log /rootfs/run/keyd /run /var/run
+        rm -f /run/keyd.socket /run/keyd.socket.lock /var/run/keyd.socket 2>/dev/null || true
+        cp -af /etc/keyd/* /rootfs/etc/keyd/ 2>/dev/null || true
+        if [ -x /rootfs/usr/bin/keyd ]; then
+            chroot /rootfs /usr/bin/keyd >/var/log/keyd.log 2>&1 &
             echo "=== Started native Arch Linux ARM keyd QWERTY keyboard daemon ==="
         fi
-        cp -af /opt/arch/usr/lib/firmware/* /lib/firmware/ 2>/dev/null || true
-        mkdir -p "/lib/modules/$KREL/updates/q25" "/opt/arch/usr/lib/modules/$KREL/updates/q25"
-        if [ -d /opt/arch/usr/lib/modules/updates/q25 ]; then
-            cp -af /opt/arch/usr/lib/modules/updates/q25/*.ko "/lib/modules/$KREL/updates/q25/" 2>/dev/null || true
-            cp -af /opt/arch/usr/lib/modules/updates/q25/*.ko "/opt/arch/usr/lib/modules/$KREL/updates/q25/" 2>/dev/null || true
+        cp -af /rootfs/usr/lib/firmware/* /lib/firmware/ 2>/dev/null || true
+        mkdir -p "/lib/modules/$KREL/updates/q25" "/rootfs/usr/lib/modules/$KREL/updates/q25"
+        if [ -d /rootfs/usr/lib/modules/updates/q25 ]; then
+            cp -af /rootfs/usr/lib/modules/updates/q25/*.ko "/lib/modules/$KREL/updates/q25/" 2>/dev/null || true
+            cp -af /rootfs/usr/lib/modules/updates/q25/*.ko "/rootfs/usr/lib/modules/$KREL/updates/q25/" 2>/dev/null || true
         fi
         MDIR="/lib/modules/$KREL/updates/q25"
         for m in btif_drv connadp connfem wmt_drv wmt_chrdev_wifi wlan_drv_gen4m_6789 bt_drv_connac1x ccci_util_lib ccmni conn_md_drv ccci_auxadc ccci_rtc ccci_md_all ccci_ccif ccci_dpmaif ccci_cldma ccci_BTP q25_sensors; do
             insmod "$MDIR/${m}.ko" 2>/dev/null || modprobe "$m" 2>/dev/null || true
         done
-        echo "=== Mounted /rootfs (228GB LVM) and /opt/arch (Arch Linux ARM) ==="
+        echo "=== Mounted pure Arch Linux ARM rootfs at /rootfs (228GB LVM) ==="
     fi
 fi
 if [ -b /dev/mmcblk0p1 ]; then
@@ -186,9 +192,9 @@ fi
 touch /tmp/keep_alive
 
 # 6. Start Arch Linux ARM Phosh / Wayland graphical desktop session if installed
-if [ -x /opt/arch/usr/local/sbin/q25-phosh-start ]; then
+if [ -x /rootfs/usr/local/sbin/q25-phosh-start ]; then
     echo "=== Starting Arch Linux ARM Phosh Wayland Graphical Session ==="
-    chroot /opt/arch /usr/local/sbin/q25-phosh-start &
+    chroot /rootfs /usr/local/sbin/q25-phosh-start &
 fi
 
 # Print banner and launch interactive shell on framebuffer console (/dev/tty1)
@@ -198,7 +204,7 @@ if [ -c /dev/tty1 ]; then
         echo "======================================================"
         echo "  Zinwa Q25 - Mainline Linux $(uname -r)"
         echo "  CachyOS BORE Scheduler v7.0.0 | Mali-G57 Panfrost"
-        echo "  Rootfs: /rootfs (228GB UFS) | Arch ARM: /opt/arch"
+        echo "  Rootfs: Pure Arch Linux ARM (228GB UFS LVM)"
         echo "  Physical QWERTY Keyboard (keyd) + Trackpad Active"
         echo "  USB NCM SSH: root@10.15.19.82"
         echo "======================================================"

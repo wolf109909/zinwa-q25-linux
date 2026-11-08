@@ -136,8 +136,8 @@ class Q25ControlCenter(Adw.Application):
         GLib.idle_add(lambda: self.toast_overlay.add_toast(Adw.Toast.new(msg)))
 
     def _on_key_pressed(self, controller, keyval, keycode, state):
-        ctrl = bool(state & Gtk.accelerator_get_default_mod_mask() & GLib.ModifierType.CONTROL_MASK)
-        alt = bool(state & Gtk.accelerator_get_default_mod_mask() & GLib.ModifierType.ALT_MASK)
+        ctrl = bool(state & Gtk.accelerator_get_default_mod_mask() & Gdk.ModifierType.CONTROL_MASK)
+        alt = bool(state & Gtk.accelerator_get_default_mod_mask() & Gdk.ModifierType.ALT_MASK)
         if ctrl and keyval in (ord("q"), ord("Q")):
             self.quit()
             return True
@@ -407,11 +407,14 @@ class Q25ControlCenter(Adw.Application):
             title="Kernel Release",
             subtitle=f"{uname.sysname} {uname.release} ({uname.machine})",
         )
-        term_btn = Gtk.Button(label="Open Foot Terminal")
+        term_btn = Gtk.Button(label="Open Terminal")
         term_btn.set_valign(Gtk.Align.CENTER)
         term_btn.connect(
             "clicked",
-            lambda *_: subprocess.Popen(["foot"], env={**os.environ, "WAYLAND_DISPLAY": "wayland-0"}),
+            lambda *_: subprocess.Popen(
+                ["/usr/local/bin/q25-terminal"],
+                env={**os.environ, "WAYLAND_DISPLAY": "wayland-0"},
+            ),
         )
         kern_row.add_suffix(term_btn)
         sys_grp.add(kern_row)
@@ -742,7 +745,7 @@ class Q25ControlCenter(Adw.Application):
                 ax = read_sysfs_int(f"{idev}/in_accel_x_raw", 0) * 0.0095768
                 ay = read_sysfs_int(f"{idev}/in_accel_y_raw", 0) * 0.0095768
                 az = read_sysfs_int(f"{idev}/in_accel_z_raw", 0) * 0.0095768
-                sens_parts.append(f"Accel: ({ax:.1f}, {ay:.1f}, {az:.1f}) m/s²")
+                sens_parts.append(f"Accel: ({ax:.2f}, {ay:.2f}, {az:.2f}) m/s²")
             elif iname == "mmc5603nj":
                 mx = read_sysfs_int(f"{idev}/in_magn_x_raw", 0) * 0.097656
                 my = read_sysfs_int(f"{idev}/in_magn_y_raw", 0) * 0.097656
@@ -755,16 +758,23 @@ class Q25ControlCenter(Adw.Application):
         state["sens_text"] = " | ".join(sens_parts) if sens_parts else "Sensors offline"
 
         # Fast Network IPs
-        _, ip_out, _ = run_cmd(["ip", "-4", "-br", "addr"], timeout=2)
         ips = {}
-        for line in ip_out.splitlines():
-            cols = line.split()
-            if len(cols) >= 3:
-                ifname = cols[0]
-                addr = cols[2].split("/")[0]
-                ips[ifname] = addr
-                if ifname.startswith("ccmni") and "ccmni0" not in ips:
-                    ips["ccmni0"] = addr
+        try:
+            for ifname in sorted(os.listdir("/sys/class/net")):
+                if ifname == "lo":
+                    continue
+                ok, out, _ = run_cmd(["ip", "-4", "addr", "show", "dev", ifname], timeout=1)
+                if ok and "inet " in out:
+                    for line in out.splitlines():
+                        s = line.strip()
+                        if s.startswith("inet "):
+                            addr = s.split()[1].split("/")[0]
+                            ips[ifname] = addr
+                            if ifname.startswith("ccmni") and "ccmni0" not in ips:
+                                ips["ccmni0"] = addr
+                            break
+        except Exception:
+            pass
         state["ips"] = ips
 
         # Fast Wi-Fi & Bluetooth check
@@ -800,13 +810,14 @@ class Q25ControlCenter(Adw.Application):
         boot_str = read_sysfs_str("/sys/kernel/ccci/boot", "")
         md_ready = "md1:4" in boot_str
         ccmni_ip = ips.get("ccmni0", "")
+        data_flag = read_sysfs_str("/tmp/mtk_props/q25.cellular.data_enabled", "0") == "1"
         apn_val = read_sysfs_str("/tmp/mtk_props/q25.cellular.apn", "ctnet") or "ctnet"
         roam_val = read_sysfs_str("/tmp/mtk_props/q25.cellular.roaming", "0") == "1"
         if self._cached_modem:
             m = dict(self._cached_modem)
             m["md_state"] = "ready" if md_ready else "off"
-            m["ipv4"] = ccmni_ip
-            m["data_enabled"] = bool(ccmni_ip)
+            m["ipv4"] = ccmni_ip or m.get("ipv4", "")
+            m["data_enabled"] = bool(ccmni_ip) or data_flag
             m["apn"] = apn_val
             m["roaming"] = roam_val
             state["modem"] = m
@@ -814,11 +825,11 @@ class Q25ControlCenter(Adw.Application):
             state["modem"] = {
                 "md_state": "ready" if md_ready else "off",
                 "sim": "READY" if md_ready else "ABSENT",
-                "operator": "46011" if ccmni_ip else "",
-                "reg": "Home LTE" if ccmni_ip else ("Searching" if md_ready else "Unregistered"),
+                "operator": "46011" if (ccmni_ip or data_flag) else "",
+                "reg": "Home LTE" if (ccmni_ip or data_flag) else ("Searching" if md_ready else "Unregistered"),
                 "csq": 14 if md_ready else 0,
                 "ipv4": ccmni_ip,
-                "data_enabled": bool(ccmni_ip),
+                "data_enabled": bool(ccmni_ip) or data_flag,
                 "roaming": roam_val,
                 "apn": apn_val,
             }

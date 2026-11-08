@@ -372,10 +372,10 @@ static const struct snd_pcm_hardware q25_afe_pcm_hardware = {
 	.channels_min = 1,
 	.channels_max = 2,
 	.buffer_bytes_max = MT6789_DL1_SRAM_SIZE,
-	.period_bytes_min = 256,
+	.period_bytes_min = 1024,
 	.period_bytes_max = MT6789_DL1_SRAM_SIZE / 2,
 	.periods_min = 2,
-	.periods_max = 64,
+	.periods_max = 16,
 };
 
 static void q25_mt6358_lineout_amp_set(struct q25_afe_priv *afe, bool enable)
@@ -501,18 +501,24 @@ static irqreturn_t q25_afe_irq_handler(int irq, void *dev_id)
 
 	status &= en;
 	if ((status & BIT(0)) && afe->substream[SNDRV_PCM_STREAM_PLAYBACK]) {
+		struct snd_pcm_runtime *rt = afe->substream[SNDRV_PCM_STREAM_PLAYBACK]->runtime;
+		size_t copy_bytes = (rt && rt->dma_bytes && rt->dma_bytes <= MT6789_DL1_SRAM_SIZE) ?
+				    rt->dma_bytes : MT6789_DL1_SRAM_SIZE;
 		if (afe->shadow_buf[SNDRV_PCM_STREAM_PLAYBACK])
 			memcpy_toio(afe->sram_base,
 				    afe->shadow_buf[SNDRV_PCM_STREAM_PLAYBACK],
-				    MT6789_DL1_SRAM_SIZE);
+				    copy_bytes);
 		snd_pcm_period_elapsed(afe->substream[SNDRV_PCM_STREAM_PLAYBACK]);
 	}
 
 	if ((status & BIT(13)) && afe->substream[SNDRV_PCM_STREAM_CAPTURE]) {
+		struct snd_pcm_runtime *rt = afe->substream[SNDRV_PCM_STREAM_CAPTURE]->runtime;
+		size_t copy_bytes = (rt && rt->dma_bytes && rt->dma_bytes <= MT6789_VUL_SRAM_SIZE) ?
+				    rt->dma_bytes : MT6789_VUL_SRAM_SIZE;
 		if (afe->shadow_buf[SNDRV_PCM_STREAM_CAPTURE])
 			memcpy_fromio(afe->shadow_buf[SNDRV_PCM_STREAM_CAPTURE],
 				      afe->sram_base + MT6789_VUL_SRAM_OFFSET,
-				      MT6789_VUL_SRAM_SIZE);
+				      copy_bytes);
 		snd_pcm_period_elapsed(afe->substream[SNDRV_PCM_STREAM_CAPTURE]);
 	}
 

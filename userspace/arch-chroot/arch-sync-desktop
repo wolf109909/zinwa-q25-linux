@@ -1,21 +1,4 @@
 #!/bin/bash
-set -euo pipefail
-SRC_DIR="/usr/share/applications"
-DST_DIR="/root/.local/share/applications"
-mkdir -p "$DST_DIR"
-
-# Skip internal/CLI/helper desktop files
-SKIP_REGEX="^(avahi|bvnc|bssh|fluid|gcm|gcr|geoclue|gnome-|htop|lstopo|nvim|org\.freedesktop|org\.gnupg|qv4l2|qvidcap|uuctl|vim|xdvi|foot-server|footclient)\.desktop$"
-
-for f in "$SRC_DIR"/*.desktop; do
-  [ -f "$f" ] || continue
-  base=$(basename "$f")
-  echo "$base" | grep -Eq "$SKIP_REGEX" && continue
-  grep -q "^NoDisplay=true" "$f" && continue
-  grep -q "^Terminal=true" "$f" && continue
-  [ -L "$DST_DIR/$base" ] && continue
-
-  sed -E \
-    -e 's|^TryExec=.*||g' \
-    "$f" > "$DST_DIR/arch-$base"
-done
+# Deprecated: Zinwa Q25 now runs pure Arch Linux ARM directly as its rootfs.
+rm -f /root/.local/share/applications/arch-*.desktop 2>/dev/null || true
+echo "Pure Arch Linux ARM rootfs active — desktop sync no longer needed."

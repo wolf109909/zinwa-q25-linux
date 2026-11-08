@@ -50,6 +50,9 @@ struct q25_sensors_ctx {
 	struct q25_i2c_bb bus_imu; /* GPIO132 (SCL), GPIO133 (SDA) */
 	struct q25_i2c_bb bus_als; /* GPIO148 (SCL), GPIO149 (SDA) */
 	struct platform_device *pdev;
+	u32 last_als0;
+	u32 last_als1;
+	u16 last_ps0;
 };
 
 static struct q25_sensors_ctx *g_q25_sensors;
@@ -419,17 +422,31 @@ static int hx32062se_read_raw(struct iio_dev *indio_dev,
 		if (ret == 0)
 			ret = q25_i2c_read_regs(&ctx->bus_als, 0x2b, 0x0d, buf + 6, 3);
 		q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x83, 0x00);
+		if (ret == 0) {
+			als0 = (buf[0] | (buf[1] << 8) | (buf[2] << 16)) >> 6;
+			als1 = (buf[3] | (buf[4] << 8) | (buf[5] << 16)) >> 6;
+			ps0 = buf[6] | (buf[7] << 8);
+			if (als0 != 0 || ps0 != 0) {
+				ctx->last_als0 = als0;
+				ctx->last_als1 = als1;
+				ctx->last_ps0 = ps0;
+				/* Trigger next conversion cycle */
+				q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x4c, 0x0f);
+				q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x1a, 0x01);
+				q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x1a, 0x05);
+				q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x4c, 0x00);
+			}
+		}
+		als0 = ctx->last_als0;
+		als1 = ctx->last_als1;
+		ps0 = ctx->last_ps0;
 		mutex_unlock(&ctx->lock);
 		if (ret < 0)
 			return ret;
 
-		als0 = (buf[0] | (buf[1] << 8) | (buf[2] << 16)) >> 6;
-		als1 = (buf[3] | (buf[4] << 8) | (buf[5] << 16)) >> 6;
-		ps0 = buf[6] | (buf[7] << 8);
-
 		if (chan->type == IIO_LIGHT) {
 			/* Convert 18-bit ALS counts (baseline ~46800) to lux estimate */
-			*val = (als0 > 46800U) ? (int)((als0 - 46800U) / 5U) : (int)(als0 / 200U);
+			*val = (als0 > 46800U) ? (int)((als0 - 46800U) / 15U) : (int)(als0 / 600U);
 			return IIO_VAL_INT;
 		} else if (chan->type == IIO_INTENSITY) {
 			*val = (int)(chan->address == 0 ? als0 : als1);

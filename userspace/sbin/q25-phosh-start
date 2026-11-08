@@ -114,13 +114,15 @@ for pid in $(pgrep -f "/usr/local/bin/q25-control-center" 2>/dev/null); do
 done
 sleep 1
 
+# Ensure no duplicate arch-*.desktop files clutter Phosh launcher
+rm -f /root/.local/share/applications/arch-*.desktop 2>/dev/null || true
+
 # Launch Phoc + Phosh unlocked
 nohup dbus-run-session -- /usr/bin/phoc -C /etc/phosh/phoc.ini -E "/usr/lib/phosh/phosh -U" </dev/null >/var/log/phosh-live.log 2>&1 &
 sleep 3
 
-# Launch Foot terminal and Q25 Control Center on wayland-0
+# Launch Q25 Control Center on wayland-0
 export WAYLAND_DISPLAY=wayland-0
-nohup foot </dev/null >/var/log/foot.log 2>&1 &
 if [ -x /usr/local/bin/q25-control-center ]; then
     nohup /usr/local/bin/q25-control-center </dev/null >/var/log/q25-control-center.log 2>&1 &
 fi

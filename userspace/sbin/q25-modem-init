@@ -8,9 +8,9 @@
 #   q25-modem-init roaming [0|1] - Disable/enable data roaming
 #   q25-modem-init status     - Print JSON modem status
 
-# Always execute inside the /opt/arch rootfs when called from the outer initramfs
-if [ -d /opt/arch/usr ] && [ -x /opt/arch/usr/local/sbin/q25-modem-init ]; then
-    exec chroot /opt/arch /usr/local/sbin/q25-modem-init "$@"
+# Always execute inside the Arch Linux ARM rootfs when called from the outer initramfs
+if [ ! -f /etc/arch-release ] && [ -x /rootfs/usr/local/sbin/q25-modem-init ]; then
+    exec chroot /rootfs /usr/local/sbin/q25-modem-init "$@"
 fi
 
 APN_FILE="/etc/q25-apn.conf"
