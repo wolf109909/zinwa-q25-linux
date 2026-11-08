@@ -23,4 +23,10 @@ from AUR. The image also includes base-devel and git. Its stock `/etc/paru.conf`
 only enables `BottomUp`. Run paru as the normal user (it uses sudo for pacman),
 review AUR build files before building, and keep the kernel/modem ABI holds.
 
+The full stock `/etc/security/faillock.conf` changes only `deny = 10` and
+`unlock_time = 120`. This tolerates more touchscreen PIN mistakes than Arch's
+3-attempt / 600-second defaults, without disabling lockout or changing the
+900-second failure interval. It also permits more PIN guesses; choose a strong
+credential for an exposed device. Actual lock-screen usability is a device test.
+
 Offline regression check: `python3 build/test-package-config.py -v`.

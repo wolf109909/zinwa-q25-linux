@@ -44,6 +44,14 @@ class PackageDefaults(unittest.TestCase):
         self.assertIn("PgpFetch", paru)
         self.assertIn("#MFlags = --skippgpcheck", paru)
 
+    def test_pin_faillock_limits(self):
+        text = (ROOT / "etc/security/faillock.conf").read_text()
+        values = dict(line.replace(" ", "").split("=", 1) for line in text.splitlines()
+                      if line.strip() and not line.startswith("#"))
+        self.assertEqual(values, {"deny": "10", "unlock_time": "120"})
+        self.assertIn("# fail_interval = 900", text)
+        self.assertIn("# even_deny_root", text)
+
 
 if __name__ == "__main__":
     unittest.main()
