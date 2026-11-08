@@ -68,8 +68,8 @@ zinwa-q25-linux/
 │   ├── cachyos-mt6789.config         # CachyOS BORE + Landlock + cgroups + Panfrost + ZSTD config fragment
 │   ├── config-mt6789-mainline-7.3.aarch64 # Full Linux 7.3.3 MT6789 + BORE kernel configuration
 │   └── config-mt6789-mainline-7.0.aarch64 # Full Linux 7.0.0 MT6789 + BORE kernel configuration
+├── rootfs/etc/keyd/default.conf     # Physical keyboard layers (docs/keyboard.md)
 └── userspace/
-    ├── keyd/q25-qwerty-en.conf       # Physical keyboard & toolbelt keyd remapping (Tab, Esc/Ctrl, Sym layer)
     ├── bin/                          # Q25 CLI utilities (arch, bright, q25-status, q25-hotspot)
     ├── sbin/arch-mount               # Zero-overhead Arch Linux ARM rootfs bind-mounter
     ├── systemd/arch-env.service      # Systemd unit mounting /opt/arch at boot
@@ -189,22 +189,30 @@ makepkg -si
 
 ---
 
-## Custom Q25 Physical Keyboard Layout (`userspace/keyd/q25-qwerty-en.conf`)
+## Custom Q25 Physical Keyboard Layout (`rootfs/etc/keyd/default.conf`)
 
 | Physical Key / Combo | Action |
 | :--- | :--- |
-| **Call Answer** (Far-left toolbelt button) | **`Tab`** (Instant shell/code autocomplete) |
-| **Call End** (Far-right toolbelt button) | **Tap = `Esc`** \| **Hold = `Ctrl`** (e.g. Hold `Call End` + `C` = `Ctrl+C`) |
-| **Back Button** (Toolbelt) | **Tap = `Back`** \| **Hold = `Alt`** |
-| **Left Alt** (`alt`, bottom-left) | **`Shift`** (Tap once = capitalize next key, double-tap = lock Shift, or hold) |
-| **Right Alt** (`sym`, bottom-right) | **Numbers & Symbols Layer** (Tap once = next key, double-tap = lock, or hold) |
-| **Right Shift + `T`** | **Toggle Trackpad Mode** between Arrow Keys and Mouse Cursor (`q25-togglemouse`) |
-| **Right Shift + `Volume Up / Down`** | **Screen Brightness Up / Down** (+10% / -10% via `/usr/local/bin/bright`) |
-| **Right Shift + `W / S / A / D`** | **`PgUp` / `PgDn` / `Home` / `End`** |
-| **Right Shift + `Call End`** | **`Alt + F4`** (Close active window) |
-| **Sym + `0`** | **Toggle Physical Keyboard Backlight** |
+| **Green Call Answer** | Tap **Tab**; hold + **W E R S D F Z X C 0** = **F1–F10**, **V/B** = **F11/F12** (no extra Tab) |
+| **Red Call End** | Tap **Phosh home/overview** (Super+D, not minimize-all); hold **600 ms** = **one Alt+F4** |
+| **Berry/Menu** | **Super**: stock Phosh overview; type to search applications |
+| **Back** | **Alt+Left** (browser/file back) |
+| **Typing Shift + Back**, or **printed left Shift + Back** | **Alt+Right** (forward), without leaking Shift/Control |
+| **Printed Alt / left Alt** | **Shift**: tap = next key, double-tap = Shift lock, or hold |
+| **Printed left Shift** | **Control** (existing shortcuts preserved, except the Back alias) |
+| **Physical `0`** | **Alt** layer (Sym+`0` types zero) |
+| **Sym / right Alt** | Numbers/symbols: tap = next key, double-tap = lock, or hold |
+| **Shift + `$`** | **`|`**; unshifted `$` is unchanged |
+| **Sym + Backspace / arrows / Home** | **Backspace / normal navigation**, never Delete or punctuation |
+| **Trackpad center** | **Enter** in arrow mode; click in mouse mode (unchanged) |
+| **Right Shift + `T`** | Toggle trackpad arrow/mouse mode in the kernel |
+| **Right Shift + `Q`, `W/S/A/D`** | **Esc**, **PgUp/PgDn/Home/End** |
+| **Right Shift + Call End** | Existing **Alt+F4** chord |
 
-*(Run `keys` anytime in the `fish` shell to print this cheatsheet on the phone.)*
+The stock Phosh panel shows Shift/Caps and Sym immediately before battery: no badge
+for held, **1** for next-key, **•** for locked. Momentary Shift is **not** labeled Caps
+Lock. See [keyboard implementation, tests and safe deployment](docs/keyboard.md)
+for the pinned keyd package, read-only state protocol and remaining live checks.
 
 ---
 

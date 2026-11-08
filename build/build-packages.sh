@@ -7,6 +7,7 @@
 #
 # Output: $OUT/packages/*.pkg.tar.* (installed into the image by build-rootfs.sh)
 # Environment: BUILDROOT (default ~/q25-work/pkgbuild-root), OUT (default <repo>/out)
+# Host dependency resolution also needs python3, bsdtar and vercmp.
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -30,6 +31,20 @@ fi
 
 mkdir -p "$OUT/packages"
 dirs=("$@"); [ ${#dirs[@]} -gt 0 ] || dirs=("$REPO"/packages/*/)
+# The status plugin needs the patched keyd at build-dependency installation time.
+# Keep all unrelated packages in their requested order.
+first=(); rest=()
+for d in "${dirs[@]}"; do
+    d=$(cd "$d" && pwd)
+    if [ "$(basename "$d")" = keyd-q25 ]; then first+=("$d"); else rest+=("$d"); fi
+done
+dirs=("${first[@]}" "${rest[@]}")
+missing_deps() {
+    local result=0
+    arch-chroot "$BUILDROOT" pacman -T "$@" || result=$?
+    # pacman deptest uses 127 for unsatisfied dependencies, not a fatal error.
+    [ "$result" = 0 ] || [ "$result" = 127 ]
+}
 for d in "${dirs[@]}"; do
     d=$(cd "$d" && pwd); name=$(basename "$d")
     log "makepkg $name"
@@ -41,7 +56,26 @@ for d in "${dirs[@]}"; do
     deps=$(arch-chroot "$BUILDROOT" runuser -u builder -- bash -c \
         "cd ~/$name && makepkg --printsrcinfo" |
         awk -F' = ' '/^\t(make|check)?depends = /{print $2}' | sort -u | tr '\n' ' ')
-    [ -z "$deps" ] || arch-chroot "$BUILDROOT" pacman -Sy --needed --noconfirm $deps
+    if [ -n "$deps" ]; then
+        needed=$(missing_deps $deps)
+        # keyd-q25 is intentionally not a repository dependency. Never silently
+        # substitute stock keyd (which cannot supply authoritative state).
+        local_packages=$(python3 "$REPO/build/local-package-deps.py" --arch aarch64 \
+            --require keyd-q25 "$OUT/packages" $needed)
+        if [ -n "$local_packages" ]; then
+            mkdir -p "$BUILDROOT/home/builder/.q25-build-deps"
+            local_paths=()
+            while IFS= read -r archive; do
+                cp "$archive" "$BUILDROOT/home/builder/.q25-build-deps/"
+                local_paths+=("/home/builder/.q25-build-deps/$(basename "$archive")")
+            done <<< "$local_packages"
+            # Accept declared package conflicts (e.g. keyd-q25 replacing keyd),
+            # still using libalpm dependency/version/conflict checks.
+            arch-chroot "$BUILDROOT" pacman -U --needed --noconfirm --ask=4 "${local_paths[@]}"
+        fi
+        needed=$(missing_deps $deps)
+        [ -z "$needed" ] || arch-chroot "$BUILDROOT" pacman -Sy --needed --noconfirm $needed
+    fi
     arch-chroot "$BUILDROOT" runuser -u builder -- bash -c \
         "cd ~/$name && makepkg --noconfirm --cleanbuild --force"
     cp "$BUILDROOT/home/builder/$name"/*.pkg.tar.* "$OUT/packages/"

@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: MIT
+pkgname=keyd-q25
+pkgver=2.6.0
+pkgrel=1
+pkgdesc='keyd with bounded read-only Q25 modifier state snapshots'
+arch=('aarch64')
+url='https://github.com/rvaiya/keyd'
+license=('MIT')
+provides=("keyd=$pkgver")
+conflicts=('keyd')
+depends=('glibc')
+makedepends=('gcc' 'make' 'scdoc')
+optdepends=('python: application mapper')
+source=("keyd-$pkgver.tar.gz::https://codeload.github.com/rvaiya/keyd/tar.gz/refs/tags/v$pkgver"
+        '0001-q25-read-only-state.patch' 'q25-state.c' 'q25-state.h')
+sha256sums=(
+    '697089681915b89d9e98caf93d870dbd4abce768af8a647d54650a6a90744e26'
+    '580dc28acd6bfca3f99cb677078f98faa73741a6fe49cb475a892ae0c296884c'
+    '2d462230bbdce82a7034b0c1088b40b201d18a9e3a3fe02ff87c62c024435ceb'
+    'ba688b09cb8a701e959268b5f177c06ad0bac8b6fa0363086dd3f7568923b3d3'
+)
+
+prepare() {
+    cd "keyd-$pkgver"
+    patch -Np1 -i "$srcdir/0001-q25-read-only-state.patch"
+    cp "$srcdir"/q25-state.{c,h} src/
+}
+
+build() {
+    make -C "keyd-$pkgver" PREFIX=/usr COMMIT=q25-state-1
+    make -C "keyd-$pkgver" man
+}
+
+check() {
+    make -C "keyd-$pkgver" test-io
+}
+
+package() {
+    make -C "keyd-$pkgver" PREFIX=/usr DESTDIR="$pkgdir" FORCE_SYSTEMD=1 install
+    # Upstream installs bin/*; its check() executable is not a runtime command.
+    rm -f "$pkgdir/usr/bin/test-io"
+    install -Dm644 "keyd-$pkgver/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

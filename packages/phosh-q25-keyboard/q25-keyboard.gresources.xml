@@ -1,0 +1,7 @@
+<gresources>
+  <gresource prefix="/mobi/phosh/plugins/q25-keyboard">
+    <file alias="icons/scalable/status/q25-shift-symbolic.svg">q25-shift-symbolic.svg</file>
+    <file alias="icons/scalable/status/q25-caps-lock-symbolic.svg">q25-caps-lock-symbolic.svg</file>
+    <file alias="icons/scalable/status/q25-sym-symbolic.svg">q25-sym-symbolic.svg</file>
+  </gresource>
+</gresources>

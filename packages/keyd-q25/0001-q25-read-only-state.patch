@@ -1,0 +1,65 @@
+--- a/src/daemon.c
++++ b/src/daemon.c
+@@ -1,0 +2,7 @@
++#include "q25-state.h"
++
++#ifndef Q25_STATE_SOCKET
++#define Q25_STATE_SOCKET "/run/keyd-q25-state.sock"
++#endif
++static int q25_state_fd = -1;
++static uint8_t q25_capslock;
+@@ -18,0 +26,31 @@
++/* Snapshot only completed engine state, not on_layer_change's intermediate calls. */
++static void publish_q25_state(void)
++{
++	uint8_t shift = 0, sym = 0;
++	int present = 0;
++	for (size_t i = 0; i < device_table_sz; i++)
++		if (device_table[i].data)
++			present |= q25_state_layers(device_table[i].data, &shift, &sym);
++	q25_state_publish(shift | (present && q25_capslock ? 8 : 0), sym);
++}
++
++/* Losing a Q25 input node must not leave held/oneshot/toggled layers behind. */
++static void reset_q25_device(struct device *dev)
++{
++	struct keyboard *kbd = dev->data, *fresh;
++	uint8_t shift = 0, sym = 0;
++	if (!kbd || !q25_state_layers(kbd, &shift, &sym))
++		return;
++	for (size_t i = 0; i < 256; i++)
++		if (kbd->keystate[i]) {
++			vkbd_send_key(vkbd, i, 0);
++			keystate[i] = 0;
++		}
++	fresh = new_keyboard((struct config *)kbd->original_config, &kbd->output);
++	*kbd = *fresh;
++	free(fresh);
++	dev->data = NULL;
++	if (active_kbd == kbd)
++		active_kbd = NULL;
++}
++
+@@ -20,0 +59,2 @@
++	/* Old keyboard storage is invalid immediately after reload. */
++	active_kbd = NULL;
+@@ -305,0 +346 @@
++	publish_q25_state();
+@@ -573,0 +615,2 @@
++			if (ev->devev->code == LED_CAPSL)
++				q25_capslock = !!ev->devev->pressed;
+@@ -590,0 +634 @@
++		reset_q25_device(ev->dev);
+@@ -595 +639,3 @@
+-		if (ev->fd == ipcfd) {
++		if (ev->fd == q25_state_fd)
++			q25_state_accept();
++		else if (ev->fd == ipcfd) {
+@@ -608,0 +655 @@
++	publish_q25_state();
+@@ -641,0 +689,5 @@
++	q25_state_fd = q25_state_init(Q25_STATE_SOCKET);
++	if (q25_state_fd >= 0)
++		evloop_add_fd(q25_state_fd);
++	else
++		keyd_log("WARNING: Q25 state socket unavailable\n");

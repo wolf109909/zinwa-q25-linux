@@ -6,6 +6,13 @@ favorites=['kitty.desktop', 'firefox.desktop', 'org.gnome.Settings.desktop', 'or
 app-filter-mode=[]
 enable-suspend=false
 
+[org.gnome.shell.keybindings:Phosh]
+# Red tap opens the stock home/overview; Berry/Super is still handled by Phosh.
+toggle-overview=['<Super>d']
+
+[mobi.phosh.shell.plugins:Phosh]
+status-icons=['q25-keyboard']
+
 [sm.puri.phosh.lockscreen:Phosh]
 require-unlock=true
 

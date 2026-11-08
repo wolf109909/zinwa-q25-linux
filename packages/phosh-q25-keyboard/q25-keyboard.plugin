@@ -1,0 +1,6 @@
+[Plugin]
+Id=q25-keyboard
+Name=Q25 keyboard state
+Types=status-icon;
+Comment=Authoritative Shift, Caps Lock and Sym state from keyd
+Plugin=/usr/lib/phosh/plugins/libphosh-plugin-q25-keyboard.so
