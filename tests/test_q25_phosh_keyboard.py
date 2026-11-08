@@ -49,7 +49,13 @@ class PhoshKeyboardPlugin(unittest.TestCase):
                             str(plugin / "q25-keyboard.c"), str(tmp / "icons.c"),
                             "-o", str(modules / "libphosh-plugin-q25-keyboard.so"), *flags], check=True)
             module_flags = shlex.split(subprocess.check_output(["pkg-config", "--libs", "gmodule-2.0"], text=True))
-            subprocess.run(["gcc", "-Wl,--export-dynamic", *includes,
+            # Match the real shell's export whitelist. Exporting all test-host
+            # functions hides missing-ABI bugs (e.g. the private priority setter).
+            exports = '\n'.join(line.split('#', 1)[0] for line in
+                (source / 'src/phosh-exported-symbols.txt.in').read_text().splitlines())
+            version_script = tmp / 'exports.map'
+            version_script.write_text('{ global:\n' + exports + '\nlocal: *;\n};\n')
+            subprocess.run(["gcc", "-Wl,--export-dynamic", f"-Wl,--version-script={version_script}", *includes,
                             str(REPO / "tests/q25_phosh_plugin_loader_test.c"),
                             str(source / "src/status-icon.c"), str(source / "src/plugin-loader.c"),
                             str(tmp / "widgets.c"), "-o", str(tmp / "test-loader"), *flags, *module_flags], check=True)

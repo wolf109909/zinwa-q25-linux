@@ -130,6 +130,10 @@ it covers genuine Home versus Sym+H and center Enter, plus mouse/arrow mode
 round-trip. GTK tests use real upstream status widgets, allocation and module
 loading, testing startup, unknown/off, held/one-shot/locked, true CapsLock,
 fragmentation, malformed data, spoofed peer, daemon/Phosh restart and teardown.
+The loader harness applies Phosh's actual exported-symbol whitelist. A header
+alone is not an ABI guarantee: Phosh 0.57 declares but does not export the
+status-icon priority setter, so the plugin uses its public GObject property.
+The ARM package also checks every `phosh_*` import against the installed shell.
 The keyd upstream `make test-io` suite also runs in the package's `check()`.
 
 Use an **isolated** buildroot/output (never the shared staging root while another
@@ -150,8 +154,9 @@ no build-rootfs change or shared rootfs mutation is needed.
 
 ## Deployment / rollback — requires separate approval
 
-No live install, service/session restart, input capture or reboot is part of these
-changes. After review/approval, retain an independent SSH connection and save:
+Tests/builds do not install onto the phone, restart sessions, capture input or
+reboot. For an approved live installation, first take read-only root **and home**
+checkpoints (`/home` is a separate subvolume), retain independent root SSH, and save:
 
 - `/etc/keyd/default.conf`, the Phosh override file and old package versions;
 - `gsettings get org.gnome.shell.keybindings toggle-overview` and
@@ -165,6 +170,10 @@ Super+D for `toggle-overview` and append `q25-keyboard` to their existing
 `status-icons` list rather than clobber other plugins. Restart keyd and the Phosh
 session only with permission; a reboot is unnecessary. Do not add the desktop
 user to the keyd group. Verify the ABI/version and independent SSH first.
+`keyd.service` is Type=simple: an active unit does not yet guarantee its socket
+exists. Validate a complete four-byte snapshot as the desktop user after startup.
+After restarting Phosh, check its live memory map for the plugin and its journal
+for missing-symbol errors; successful package installation alone is insufficient.
 
 Live acceptance checklist: all twelve function chords and both release orders;
 Back/forward in browser and Files; `$`/pipe; red tap versus 600 ms hold (no repeated

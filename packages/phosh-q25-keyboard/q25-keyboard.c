@@ -174,7 +174,9 @@ q25_keyboard_init (Q25Keyboard *self)
   phosh_status_icon_set_pixel_size (PHOSH_STATUS_ICON (self), 16);
   /* 0.57 sorts equal priorities newest first. Battery is the first built-in
    * priority-10 icon, so our priority-10 plugin sits immediately before it. */
-  phosh_status_icon_set_priority (PHOSH_STATUS_ICON (self), 10);
+  /* The setter is declared in the upstream header but is not exported by the
+   * Phosh executable. The public GObject property is available to plugins. */
+  g_object_set (self, "priority", 10, NULL);
   self->extra = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 2);
   self->badge = gtk_label_new (NULL);
   self->sym_image = gtk_image_new_from_icon_name ("q25-sym-symbolic", GTK_ICON_SIZE_MENU);

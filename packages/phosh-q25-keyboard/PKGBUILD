@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 pkgname=phosh-q25-keyboard
 pkgver=0.57.0
-pkgrel=1
+pkgrel=2
 pkgdesc='Q25 Caps/Shift and Sym status icons for the stock Phosh top panel'
 arch=('aarch64')
 url='https://phosh.mobi'
@@ -14,7 +14,7 @@ source=("https://sources.phosh.mobi/releases/phosh/phosh-$pkgver.tar.xz"
         'q25-shift-symbolic.svg' 'q25-caps-lock-symbolic.svg' 'q25-sym-symbolic.svg')
 sha256sums=(
     '30cd0eb182b92846162ab57516170ca09fe8ce08ef95703ee351af7b9c2b9520'
-    'e2a8431b0f21eccc5d8e0355c1e28b0dab9ac3177300768aafc385808a53ab46'
+    'fcf77e27afa71516d592f091520b56a697cd792466e4f192099109e217eee2e7'
     '8a129c0d967a22d21832d4760d959a038dd7311a1a107ff91a8839fc0f8f5b76'
     'aec52a5680ef55726c799f2d31c0d2aa6c718ab6e7bf56ad22c33bb17180c4e9'
     '32ed19507385e51a4f8f8dcd4fd655fd4052452ca2e4228e22e7b88a5427ed90'
@@ -36,6 +36,16 @@ check() {
     readelf -Ws libphosh-plugin-q25-keyboard.so | grep -q g_io_module_load
     # Plugin resolves the upstream PhoshStatusIcon API from the shell process.
     readelf -Ws libphosh-plugin-q25-keyboard.so | grep -q phosh_status_icon_get_type
+    # Headers expose internal functions too; require all Phosh imports to be
+    # exported by the actual packaged shell, not just present in its sources.
+    local missing
+    missing=$(comm -23 \
+        <(nm -D --undefined-only libphosh-plugin-q25-keyboard.so | awk '$NF ~ /^phosh_/ {print $NF}' | sort -u) \
+        <(nm -D --defined-only /usr/lib/phosh/phosh | awk '{print $NF}' | sort -u))
+    if [[ -n $missing ]]; then
+        printf 'Unexported Phosh plugin imports:\n%s\n' "$missing" >&2
+        return 1
+    fi
 }
 
 package() {
