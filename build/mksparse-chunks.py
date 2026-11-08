@@ -21,6 +21,9 @@ BLK = 4096
 MAGIC = 0xED26FF3A
 RAW, FILL, DONT_CARE = 0xCAC1, 0xCAC2, 0xCAC3
 ZERO = bytes(BLK)
+# MediaTek LK fails a single huge FILL ("sparse image write failure" on an
+# ~8 GB zero run), so split zero runs into FILL records of at most 16 MiB.
+MAX_FILL = 4096
 
 
 def write_chunk_file(path, total_blocks, first, blocks):
@@ -35,7 +38,8 @@ def write_chunk_file(path, total_blocks, first, blocks):
         while j < len(blocks) and (blocks[j] is None) == zero:
             j += 1
         if zero:
-            chunks.append((FILL, j - i, struct.pack("<I", 0)))
+            for k in range(i, j, MAX_FILL):
+                chunks.append((FILL, min(MAX_FILL, j - k), struct.pack("<I", 0)))
         else:
             chunks.append((RAW, j - i, b"".join(blocks[i:j])))
         i = j

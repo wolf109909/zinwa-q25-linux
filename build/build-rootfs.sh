@@ -19,6 +19,9 @@
 #   SSH_KEY   public key added to root + user authorized_keys (optional)
 #   Q25_USER  default user name             (default alarm)
 #   Q25_PASSWORD initial user password/PIN  (default $Q25_USER; numeric recommended)
+#   Q25_APN   carrier APN (e.g. ctnet): ships a NetworkManager "mobile" profile
+#             with the initial-EPS (attach) APN set, which this modem needs before
+#             it can register. Unset: create it later (packages/modemmanager-q25)
 set -euo pipefail
 
 REPO=$(cd "$(dirname "$0")/.." && pwd)
@@ -48,7 +51,7 @@ stage_packages() {
     # host pacman (like pacstrap): the staging dir is not a mountpoint, so
     # pacman inside arch-chroot cannot do its free-space check
     SNAP_PAC_SKIP=1 pacman --config "$REPO/build/pacman-build.conf" --root "$ROOT" \
-        --noconfirm --needed -U "${pkgs[@]}"
+        --noconfirm --needed --ask 4 -U "${pkgs[@]}"   # 4 = yes, replace conflicting pkgs (phoc -> phoc-q25)
 }
 
 stage_overlay() {
@@ -132,6 +135,27 @@ stage_configure() {
         in_root chown -R "$Q25_USER:$Q25_USER" "/home/$Q25_USER/.ssh"
     fi
     sed -i "s/^User=.*/User=$Q25_USER/" "$ROOT/etc/systemd/system/phosh.service.d/q25.conf"
+    if [ -n "${Q25_APN:-}" ]; then
+        log "configure: NetworkManager mobile profile (APN $Q25_APN)"
+        install -m600 /dev/stdin "$ROOT/etc/NetworkManager/system-connections/mobile.nmconnection" <<EOC
+[connection]
+id=mobile
+uuid=$(cat /proc/sys/kernel/random/uuid)
+type=gsm
+autoconnect=true
+
+[gsm]
+apn=$Q25_APN
+initial-eps-bearer-apn=$Q25_APN
+initial-eps-bearer-configure=true
+
+[ipv4]
+method=auto
+
+[ipv6]
+method=disabled
+EOC
+    fi
 
     log "configure: GSettings defaults"
     in_root glib-compile-schemas --strict /usr/share/glib-2.0/schemas

@@ -36,8 +36,14 @@ for d in "${dirs[@]}"; do
     rm -rf "$BUILDROOT/home/builder/$name"
     cp -a "$d" "$BUILDROOT/home/builder/$name"
     arch-chroot "$BUILDROOT" chown -R builder: "/home/builder/$name"
+    # install (make)depends as root: sudo inside the chroot breaks when the build
+    # root lives on a nosuid filesystem, so makepkg --syncdeps cannot be used
+    deps=$(arch-chroot "$BUILDROOT" runuser -u builder -- bash -c \
+        "cd ~/$name && makepkg --printsrcinfo" |
+        awk -F' = ' '/^\t(make|check)?depends = /{print $2}' | sort -u | tr '\n' ' ')
+    [ -z "$deps" ] || arch-chroot "$BUILDROOT" pacman -Sy --needed --noconfirm $deps
     arch-chroot "$BUILDROOT" runuser -u builder -- bash -c \
-        "cd ~/$name && makepkg --syncdeps --noconfirm --cleanbuild --force"
+        "cd ~/$name && makepkg --noconfirm --cleanbuild --force"
     cp "$BUILDROOT/home/builder/$name"/*.pkg.tar.* "$OUT/packages/"
 done
 chown -R "${SUDO_USER:-root}:" "$OUT" 2>/dev/null || true
