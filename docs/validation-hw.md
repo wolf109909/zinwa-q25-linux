@@ -30,6 +30,13 @@ The user-owned `faillock --user alarm --reset` succeeded; Windows
 existing keys (directory 0700, file 0600). Subsequent SSH used the key, not
 password retries.
 
+Arch's default faillock policy (`deny=3`, `unlock_time=600`) is hostile to a
+four-digit-PIN phone workflow: a few failed SSH attempts can also deny the
+owner's lock-screen login. The initial lockout was suspected, not independently
+confirmed from its failure records; subsequent `faillock --user alarm` checks
+were empty. No faillock configuration was changed. Policy changes are reserved
+for the supervisor, and no further password-login attempts are planned.
+
 Commands and observed output:
 
 ```text
