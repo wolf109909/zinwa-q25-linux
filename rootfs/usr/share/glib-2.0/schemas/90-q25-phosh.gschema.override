@@ -16,6 +16,10 @@ screen-keyboard-enabled=true
 [mobi.phosh.osk:Phosh]
 ignore-hw-keyboards=false
 
+[org.gnome.desktop.default-applications.terminal:Phosh]
+exec='kitty'
+exec-arg=''
+
 [org.gnome.desktop.session:Phosh]
 idle-delay=120
 

@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: GPL-2.0-only
+# Official upstream ARM64 binary, pinned for Wayland touchscreen support.
+# Keep the self-contained runtime together; never copy bin/kitty alone.
+pkgname=kitty-upstream-bin
+pkgver=0.50.0
+pkgrel=1
+pkgdesc='Kitty terminal (official ARM64 binary with Wayland touch support)'
+arch=('aarch64')
+url='https://sw.kovidgoyal.net/kitty/'
+license=('GPL-3.0-only')
+provides=("kitty=$pkgver" "kitty-shell-integration=$pkgver" "kitty-terminfo=$pkgver")
+conflicts=('kitty' 'kitty-shell-integration' 'kitty-terminfo')
+depends=('glibc' 'gcc-libs' 'libx11' 'libxcursor' 'dbus' 'fontconfig'
+         'ncurses' 'sqlite' 'util-linux-libs' 'libxcb' 'libglvnd'
+         'wayland' 'libxkbcommon' 'hicolor-icon-theme')
+options=('!strip' '!debug')
+source=("https://github.com/kovidgoyal/kitty/releases/download/v$pkgver/kitty-$pkgver-arm64.txz")
+noextract=("kitty-$pkgver-arm64.txz")
+sha256sums=('3eb3257081ece4650dd112b2cf1bdbc0d1952d1a3f3934f22949e666e18451ee')
+
+package() {
+    install -d "$pkgdir/opt/kitty" "$pkgdir/usr/bin" "$pkgdir/usr/share"
+    tar -xJf "$srcdir/kitty-$pkgver-arm64.txz" -C "$pkgdir/opt/kitty" --no-same-owner
+    ln -s /opt/kitty/bin/kitty "$pkgdir/usr/bin/kitty"
+    ln -s /opt/kitty/bin/kitten "$pkgdir/usr/bin/kitten"
+    # Standard desktop ID, icons, manual pages and terminfo; no private launcher.
+    cp -a "$pkgdir/opt/kitty/share/"{applications,icons,man,terminfo} "$pkgdir/usr/share/"
+}

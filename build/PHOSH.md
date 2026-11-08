@@ -23,7 +23,7 @@ Stevia **0.58.0-1**, xdg-desktop-portal-phosh **0.58.0-1**. ARM packages provide
 | Calls, messaging, address book | gnome-calls, chatty, gnome-contacts |
 | Everyday utilities | gnome-clocks, gnome-weather, gnome-calculator, gnome-text-editor |
 | Files and pictures | nautilus, loupe; Evince is also a Phosh dependency |
-| Terminal and browser | **kitty**, gnome-console, **Firefox** |
+| Terminal and browser | **kitty 0.50+** (Fish), gnome-console, **Firefox** |
 | Maps and camera | gnome-maps, snapshot |
 | Appearance | adwaita-icon-theme, adwaita-cursors, gnome-backgrounds; Noto Sans, CJK, emoji and JetBrainsMono Nerd Font retained |
 
@@ -124,7 +124,9 @@ overlay, so missing keys/types fail the build.
 Favorites are kitty, Firefox, Settings, Files, Calls, Chats, Contacts, Clocks and
 Mobile Settings. App filtering is off so non-mobile-tagged installed apps do not
 disappear. MIME defaults select Firefox, Files, Text Editor, Loupe, Calls and
-Chatty. Adwaita/dark, Noto fonts and the existing kitty configuration are used;
+Chatty. Kitty uses Fish and the pinned official ARM64 `kitty-upstream-bin` package
+for working Wayland touch input (see `packages/kitty-upstream-bin/README.md`).
+Foot is not part of the image. Adwaita/dark, Noto fonts and the existing kitty configuration are used;
 stock GNOME backgrounds satisfy Phosh's packaged wallpaper defaults.
 
 Idle blank/lock is two minutes, with password required and no lock grace. Phosh
