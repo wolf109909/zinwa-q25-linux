@@ -1,0 +1,10 @@
+[Default Applications]
+x-scheme-handler/http=firefox.desktop
+x-scheme-handler/https=firefox.desktop
+text/html=firefox.desktop
+inode/directory=org.kde.dolphin.desktop
+text/plain=org.kde.kwrite.desktop
+application/pdf=org.kde.okular.desktop
+image/jpeg=org.kde.gwenview.desktop
+image/png=org.kde.gwenview.desktop
+application/zip=org.kde.ark.desktop

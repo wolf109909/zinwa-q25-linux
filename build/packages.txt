@@ -14,6 +14,7 @@ bash-completion
 pacman-contrib
 # --- networking
 networkmanager
+modemmanager
 wpa_supplicant
 wireless-regdb
 iw
@@ -24,27 +25,34 @@ inetutils
 curl
 dnsmasq
 wget
-# --- desktop (Phosh on Wayland)
-phosh
-phoc
-phosh-mobile-settings
-gnome-control-center
-feedbackd
-upower
-brightnessctl
-gnome-keyring
+# --- Plasma Desktop (default) and Plasma Mobile, both on Wayland
+sddm
+plasma-desktop
+plasma-workspace
+plasma-mobile
+plasma-settings
+plasma-nm
+plasma-pa
+bluedevil
+kwin
+powerdevil
+kscreen
+plasma-keyboard
+kscreenlocker
+polkit-kde-agent
+kde-gtk-config
+breeze-gtk
+xdg-desktop-portal-kde
 xdg-desktop-portal-gtk
 xdg-user-dirs
-gtk4
-libadwaita
-python-gobject
+upower
+brightnessctl
 mesa
 noto-fonts
 noto-fonts-cjk
 noto-fonts-emoji
 ttf-dejavu
 ttf-jetbrains-mono-nerd
-adwaita-icon-theme
 # --- audio
 pipewire
 pipewire-alsa
@@ -56,12 +64,16 @@ keyd
 evtest
 libinput
 # --- apps
-foot
+kitty
 firefox
-nautilus
-gnome-text-editor
-gnome-calculator
-gnome-console
+dolphin
+kwrite
+okular
+gwenview
+ark
+spectacle
+plasma-systemmonitor
+kcalc
 # --- tools
 python
 htop

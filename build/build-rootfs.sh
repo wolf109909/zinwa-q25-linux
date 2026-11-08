@@ -46,7 +46,8 @@ stage_overlay() {
     local CC="${CROSS_COMPILE:-aarch64-linux-gnu-}gcc"
     install -d "$ROOT/usr/lib/q25"
     for p in q25-wmt-init q25-bt-vhci; do
-        $CC --sysroot="$ROOT" -O2 -Wall -o "$ROOT/usr/lib/q25/$p" "$REPO/src/$p.c"
+        # static: independent of the target glibc version and of host sysroot quirks
+        $CC -static -O2 -Wall -o "$ROOT/usr/lib/q25/$p" "$REPO/src/$p.c"
     done
     # freestanding (no libc): loads into bionic and glibc processes alike
     $CC -O2 -Wall -shared -fPIC -nostdlib -fno-stack-protector \
@@ -98,15 +99,14 @@ EOF
         done
         in_root chown -R "$Q25_USER:$Q25_USER" "/home/$Q25_USER/.ssh"
     fi
-    sed -i "s/^User=.*/User=$Q25_USER/" "$ROOT/etc/systemd/system/phosh.service.d/q25.conf" 2>/dev/null || true
+    sed -i "s/^User=.*/User=$Q25_USER/" "$ROOT/etc/sddm.conf.d/20-q25.conf"
 
     log "configure: services"
     in_root systemctl enable \
         NetworkManager.service bluetooth.service sshd.service systemd-timesyncd.service \
         systemd-resolved.service keyd.service q25-firstboot.service q25-usb-gadget.service \
         q25-android.service q25-modemd.service q25-connsys.service q25-bt-vhci.service \
-        phosh.service q25-boot-ok.service >/dev/null
-    in_root dconf update
+        sddm.service q25-boot-ok.service >/dev/null
     in_root systemctl set-default graphical.target >/dev/null
     in_root systemctl mask systemd-networkd.service systemd-networkd-wait-online.service >/dev/null 2>&1 || true
     ln -sf /run/systemd/resolve/stub-resolv.conf "$ROOT/etc/resolv.conf"
