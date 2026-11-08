@@ -1,0 +1,91 @@
+CPMS query: accept whitespace between fields without consuming malformed replies
+
+MOLY replies include spaces around the separators. Match the complete nine-field
+response, keep quoted storage names bounded, and accept multi-digit final counts.
+Unknown storage-name handling and the unused receive-storage behavior stay intact.
+
+Only current-storage parsing is changed; this is not an SMS transport fix.
+
+--- a/src/mm-modem-helpers.c
++++ b/src/mm-modem-helpers.c
+@@ -3178,7 +3178,11 @@
+  * +CPMS: <memr>,<usedr>,<totalr>,<memw>,<usedw>,<totalw>, <mems>,<useds>,<totals>
+  */
+ 
+-#define CPMS_QUERY_REGEX "\\+CPMS:\\s*\"(?P<memr>.*)\",[0-9]+,[0-9]+,\"(?P<memw>.*)\",[0-9]+,[0-9]+,\"(?P<mems>.*)\",[0-9]+,[0-9]"
++#define CPMS_QUERY_REGEX \
++    "^\\s*\\+CPMS:\\s*" \
++    "\"(?P<memr>[^\"\\r\\n]+)\"\\s*,\\s*[0-9]+\\s*,\\s*[0-9]+\\s*,\\s*" \
++    "\"(?P<memw>[^\"\\r\\n]+)\"\\s*,\\s*[0-9]+\\s*,\\s*[0-9]+\\s*,\\s*" \
++    "\"(?P<mems>[^\"\\r\\n]*)\"\\s*,\\s*[0-9]+\\s*,\\s*[0-9]+\\s*$"
+ 
+ gboolean
+ mm_3gpp_parse_cpms_query_response (const gchar *reply,
+--- a/src/tests/test-modem-helpers.c
++++ b/src/tests/test-modem-helpers.c
+@@ -3168,6 +3168,14 @@
+     {"+CPMS: \"SM\",100,100,\"SR\",5,10,\"TA\",1,100", 1, 4},
+     {"+CPMS: \"XX\",100,100,\"BM\",5,10,\"TA\",1,100", 0, 5},
+     {"+CPMS: \"XX\",100,100,\"YY\",5,10,\"TA\",1,100", 0, 0},
++    /* MediaTek MOLY includes spaces after the separators. */
++    {"+CPMS: \"ME\", 0, 50, \"SM\", 0, 40, \"SM\", 0, 40", MM_SMS_STORAGE_ME, MM_SMS_STORAGE_SM},
++    {"+CPMS: \"ME\" , 12 , 500 , \"MT\" , 3 , 600 , \"SM\" , 0 , 700", MM_SMS_STORAGE_ME, MM_SMS_STORAGE_MT},
++    {"+CPMS:\t\"SM\"\t,\t12\t,\t400\t,\t\"MT\"\t,\t0\t,\t120\t,\t\"TA\"\t,\t0\t,\t999\t", MM_SMS_STORAGE_SM, MM_SMS_STORAGE_MT},
++    {"\r\n +CPMS: \"ME\",0,500,\"MT\",0,600,\"SM\",0,700 \r\n", MM_SMS_STORAGE_ME, MM_SMS_STORAGE_MT},
++    {"+CPMS: \"XX\", 1, 12, \"YY\", 2, 34, \"ZZ\", 3, 56", MM_SMS_STORAGE_UNKNOWN, MM_SMS_STORAGE_UNKNOWN},
++    /* mems is not returned; preserve the existing empty-mems behavior. */
++    {"+CPMS: \"ME\",0,50,\"SM\",0,40,\"\",0,0", MM_SMS_STORAGE_ME, MM_SMS_STORAGE_SM},
+     {NULL, 0, 0}
+ };
+ 
+@@ -3191,6 +3199,42 @@
+     }
+ }
+ 
++static void
++test_cpms_query_response_invalid (void *f, gpointer d)
++{
++    static const gchar * const replies[] = {
++        "",
++        "+CPMSX: \"ME\",0,50,\"SM\",0,40,\"SM\",0,40",
++        "prefix +CPMS: \"ME\",0,50,\"SM\",0,40,\"SM\",0,40",
++        "+CPMS: ME,0,50,\"SM\",0,40,\"SM\",0,40",
++        "+CPMS: \"ME,0,50,\"SM\",0,40,\"SM\",0,40",
++        "+CPMS: \"\",0,50,\"SM\",0,40,\"SM\",0,40",
++        "+CPMS: \"ME\",0,50,\"\",0,40,\"SM\",0,40",
++        "+CPMS: \"ME\",,50,\"SM\",0,40,\"SM\",0,40",
++        "+CPMS: \"ME\",-1,50,\"SM\",0,40,\"SM\",0,40",
++        "+CPMS: \"ME\",x,50,\"SM\",0,40,\"SM\",0,40",
++        "+CPMS: \"ME\",1.5,50,\"SM\",0,40,\"SM\",0,40",
++        "+CPMS: \"ME\",0,50,\"SM\",0,40",
++        "+CPMS: \"ME\",0,50,\"SM\",0,40,\"SM\",0,",
++        "+CPMS: \"ME\",0,50,\"SM\",0,40,\"SM\",0,40,1",
++        "+CPMS: \"ME\",0,50,\"SM\",0,40,\"SM\",0,40garbage",
++        "+CPMS: \"ME\",0,50,\"SM\",0,40,\"SM\",0,4 0",
++        "+CPMS: \"ME\",0,50,\"SM\",0,40,\"SM\",0,40\r\n+CPMS: \"SM\",0,40,\"SM\",0,40,\"SM\",0,40",
++        "+CPMS: \"M\nE\",0,50,\"SM\",0,40,\"SM\",0,40",
++        "+CPMS: (\"ME\",\"SM\"),(\"ME\",\"SM\"),(\"SM\")",
++    };
++    guint i;
++
++    for (i = 0; i < G_N_ELEMENTS (replies); i++) {
++        g_autoptr(GError) error = NULL;
++        MMSmsStorage mem1 = MM_SMS_STORAGE_UNKNOWN;
++        MMSmsStorage mem2 = MM_SMS_STORAGE_UNKNOWN;
++
++        g_assert_false (mm_3gpp_parse_cpms_query_response (replies[i], &mem1, &mem2, &error));
++        g_assert_error (error, MM_CORE_ERROR, MM_CORE_ERROR_FAILED);
++    }
++}
++
+ /*****************************************************************************/
+ /* Test CNUM responses */
+ 
+@@ -5050,6 +5094,7 @@
+     g_test_suite_add (suite, TESTCASE (test_cpms_response_mixed_spaces, NULL));
+     g_test_suite_add (suite, TESTCASE (test_cpms_response_empty_fields, NULL));
+     g_test_suite_add (suite, TESTCASE (test_cpms_query_response,        NULL));
++    g_test_suite_add (suite, TESTCASE (test_cpms_query_response_invalid, NULL));
+ 
+     g_test_suite_add (suite, TESTCASE (test_cmp_apn_name, NULL));
+ 

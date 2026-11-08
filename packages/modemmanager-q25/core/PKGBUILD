@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Core-only adaptation of Arch's modemmanager 1.24.2-2 recipe.
+pkgname=modemmanager
+pkgver=1.24.2
+pkgrel=2.1
+pkgdesc='Mobile broadband modem management service'
+arch=('aarch64')
+url='https://www.freedesktop.org/wiki/Software/ModemManager/'
+license=('GPL-2.0-or-later')
+depends=(
+    'bash' 'glib2' 'glibc' 'hicolor-icon-theme' 'libgcc' 'libgudev'
+    'libmbim' 'libqmi' 'libqrtr-glib' 'mobile-broadband-provider-info'
+    'polkit' 'ppp' 'systemd-libs'
+    # Retain the unmodified distro split library, not the local core pkgrel.
+    "libmm-glib=$pkgver-2" 'libmm-glib.so' 'libgudev-1.0.so'
+    'libglib-2.0.so' 'libgobject-2.0.so' 'libgio-2.0.so' 'libgmodule-2.0.so'
+    'libmbim-glib.so' 'libqmi-glib.so' 'libsystemd.so'
+)
+makedepends=('bash-completion' 'glib2-devel' 'meson' 'systemd' 'libxslt')
+checkdepends=('python-dbus' 'python-gobject')
+optdepends=('usb_modeswitch: install if your modem shows up as a storage drive')
+source=(
+    "https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/archive/$pkgver/ModemManager-$pkgver.tar.gz"
+    'https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/commit/1ec2b86239c3686e22034baae0068bd5d52779ae.patch'
+    'https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/commit/018e44084825ab294ad2b5d5b301d2b9e2577eb1.patch'
+    'cpms-query-whitespace.patch'
+)
+sha256sums=(
+    'fbc75adcc0d7b0565f256e7ff4e8872b0a37c4413ff576665f7470932d9c1b68'
+    '307ceda4c6b0044350cfecc7e97bc48568dad6a82825253d1b0a942c1dfcefe0'
+    '4a46e27288d298e9525aa4f27427ab4a88ebcc366ade4b5554516132a09a39d2'
+    '9504097539c0deb4756d240e3f0ebe70be4a76e6717b0bf4f037c0711f6d6402'
+)
+
+prepare() {
+    cd "ModemManager-$pkgver"
+    # The release tag already contains both distro cherry-picks. Require their
+    # exact hunks instead of reapplying the already-present changes.
+    patch --dry-run -Rp1 -i "$srcdir/1ec2b86239c3686e22034baae0068bd5d52779ae.patch"
+    patch --dry-run -Rp1 -i "$srcdir/018e44084825ab294ad2b5d5b301d2b9e2577eb1.patch"
+    patch -Np1 -i "$srcdir/cpms-query-whitespace.patch"
+}
+
+build() {
+    # These three disabled outputs belong only to excluded split packages.
+    # Daemon/runtime options otherwise match the distro recipe and defaults.
+    arch-meson "ModemManager-$pkgver" build \
+        -Ddbus_policy_dir=/usr/share/dbus-1/system.d \
+        -Ddist_version="\"$pkgver-$pkgrel\"" -Dpolkit=permissive \
+        -Dgtk_doc=false -Dvapi=false -Dintrospection=false
+    meson compile -C build
+}
+
+check() {
+    meson test -C build --print-errorlogs \
+        test-modem-helpers test-modem-helpers-qmi test-modem-helpers-mbim \
+        test-error-helpers
+}
+
+package() {
+    meson install -C build --destdir "$pkgdir"
+    # The installed libmm-glib 1.24.2-2 continues to own its library/headers.
+    rm -rf "$pkgdir/usr/include" "$pkgdir/usr/lib/pkgconfig"
+    rm -f "$pkgdir/usr/lib/"libmm-glib.so*
+}
