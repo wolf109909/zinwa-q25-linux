@@ -1,4 +1,0 @@
-#!/bin/bash
-# Deprecated: Zinwa Q25 now runs pure Arch Linux ARM directly as its rootfs.
-rm -f /root/.local/share/applications/arch-*.desktop 2>/dev/null || true
-echo "Pure Arch Linux ARM rootfs active — desktop sync no longer needed."

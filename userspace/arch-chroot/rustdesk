@@ -1,5 +1,0 @@
-#!/bin/sh
-export XDG_RUNTIME_DIR=/run/user/0
-export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
-export DISPLAY="${DISPLAY:-:0}"
-exec /usr/bin/rustdesk "$@"
