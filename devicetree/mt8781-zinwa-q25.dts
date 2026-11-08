@@ -424,6 +424,14 @@
 		};
 	};
 
+	sensors {
+		compatible = "zinwa,q25-sensors";
+		/* UNCALIBRATED: stock DT has no accelerometer direction metadata. */
+		mount-matrix = "1", "0", "0",
+		               "0", "1", "0",
+		               "0", "0", "1";
+	};
+
 	/* Zinwa Q25 RGB Notification LEDs */
 	leds {
 		compatible = "gpio-leds";
@@ -1074,11 +1082,12 @@
 	#address-cells = <1>;
 	#size-cells = <0>;
 
-	panel1@0 {
+	panel: panel1@0 {
 		compatible = "mediatek,q20_panel_general,vdo";
 		reg = <0>;
 		reset-gpios = <&pio 85 GPIO_ACTIVE_HIGH>;
 		avdd-gpios = <&pio 156 GPIO_ACTIVE_HIGH>;
+		backlight = <&i2c_lcd_bias_mtk>;
 		board_name = "q20_v12";
 
 		port {
@@ -1237,6 +1246,7 @@
 		interrupt-parent = <&pio>;
 		interrupts = <12 IRQ_TYPE_EDGE_FALLING>;
 		vibr-supply = <&mt6366_vibr_reg>;
+		panel = <&panel>;
 	};
 };
 
