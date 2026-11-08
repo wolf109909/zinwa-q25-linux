@@ -85,6 +85,28 @@ stage_overlay() {
     fi
 }
 
+configure_archlinuxcn_keyring() (
+    # Trust-on-first-use exception is scoped to one package from one repository.
+    # Never relax the shipped /etc/pacman.conf's signature policy.
+    if ! in_root pacman -Q archlinuxcn-keyring >/dev/null 2>&1; then
+        local conf
+        # arch-chroot mounts a fresh /tmp, so keep this outside it.
+        conf=$(mktemp "$ROOT/etc/pacman.d/q25-archlinuxcn.XXXXXX.conf")
+        trap 'rm -f "$conf"' EXIT
+        cat > "$conf" <<'EOF'
+[options]
+Architecture = aarch64
+SigLevel = Required DatabaseOptional
+[archlinuxcn]
+SigLevel = Never
+Server = https://mirrors.cernet.edu.cn/archlinuxcn/$arch
+EOF
+        in_root env SNAP_PAC_SKIP=1 pacman --config "${conf#"$ROOT"}" \
+            --noconfirm --needed -Sy archlinuxcn-keyring
+    fi
+    in_root pacman-key --populate archlinuxcn
+)
+
 stage_configure() {
     log "configure: identity, locale, time"
     echo q25 > "$ROOT/etc/hostname"
@@ -122,6 +144,7 @@ stage_configure() {
     log "configure: pacman keyring"
     in_root pacman-key --init >/dev/null 2>&1 || true
     in_root pacman-key --populate archlinuxarm >/dev/null 2>&1 || true
+    configure_archlinuxcn_keyring
     in_root bash -c 'pkill -f gpg-agent' 2>/dev/null || true
     rm -rf "$ROOT/var/cache/pacman/pkg/"*
 }

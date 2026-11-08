@@ -5,4 +5,17 @@ upstream Arch Linux ARM mirror. `rootfs/etc/pacman.d/mirrorlist` is the shipped
 source of truth; configure installs that file rather than regenerating a
 separate list. `build/pacman-build.conf` uses the same ordered mirrors.
 
+The `archlinuxcn` repository also uses CERNET's HTTPS redirector. Configure
+bootstraps **only archlinuxcn-keyring** with a temporary config containing only
+that repository and a scoped `SigLevel=Never` exception. This is an explicit
+trust-on-first-use dependency on the HTTPS mirror, not cryptographic validation
+of that first keyring. The file is removed even on error, and
+`pacman-key --populate archlinuxcn` must succeed. If the keyring is already
+installed, configure only repopulates it.
+
+The shipped `pacman.conf` always uses `Required DatabaseOptional` signatures;
+there is no repository signature bypass in the image. Host-side bootstrap
+retains its existing build-only signature exception. Kernel/firmware and
+modemmanager/libmm-glib IgnorePkg holds are unchanged.
+
 Offline regression check: `python3 build/test-package-config.py -v`.
