@@ -4,7 +4,7 @@
         "data": [
             {
                 "connectorName": "DSI-1",
-                "scale": 1.5,
+                "scale": 1.25,
                 "transform": "Normal",
                 "autoRotation": "Never"
             }

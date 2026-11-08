@@ -29,7 +29,7 @@ inetutils
 curl
 dnsmasq
 wget
-# --- Plasma Desktop (default) and Plasma Mobile, both on Wayland
+# --- Plasma Mobile (default) and Plasma Desktop, both on Wayland
 sddm
 plasma-desktop
 plasma-workspace

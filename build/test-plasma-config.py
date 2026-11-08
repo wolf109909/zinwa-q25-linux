@@ -42,7 +42,7 @@ class PlasmaDefaults(unittest.TestCase):
         output = json.loads((ROOT / "etc/xdg/kwinoutputconfig.json").read_text())
         self.assertEqual(output[0]["name"], "outputs")
         self.assertEqual(output[0]["data"], [{
-            "connectorName": "DSI-1", "scale": 1.5,
+            "connectorName": "DSI-1", "scale": 1.25,
             "transform": "Normal", "autoRotation": "Never",
         }])
         self.assertEqual(output[1], {"name": "setups", "data": []})
@@ -50,13 +50,22 @@ class PlasmaDefaults(unittest.TestCase):
 
     def test_sddm_autologin_and_greeter(self):
         sddm = config("etc/sddm.conf.d/20-q25.conf")
+        sddm.read(ROOT / "etc/sddm.conf.d/30-q25-mobile.conf")
         self.assertEqual(sddm["Autologin"]["User"], os.environ.get("Q25_TEST_USER", "alarm"))
-        self.assertEqual(sddm["Autologin"]["Session"], "plasma.desktop")
+        self.assertEqual(sddm["Autologin"]["Session"], "plasma-mobile.desktop")
         self.assertFalse(sddm["Autologin"].getboolean("Relogin"))
         self.assertEqual(sddm["General"]["DisplayServer"], "wayland")
         self.assertIn("--no-lockscreen", sddm["Wayland"]["CompositorCommand"])
         self.assertEqual(sddm["General"]["GreeterEnvironment"],
-                         "KWIN_DRM_DEVICES=/dev/dri/q25-display,KWIN_FORCE_SW_CURSOR=1")
+                         "KWIN_DRM_DEVICES=/dev/dri/q25-display,KWIN_FORCE_SW_CURSOR=1,QT_SCALE_FACTOR=0.8")
+        theme = config("usr/share/sddm/themes/breeze/theme.conf.user")["General"]
+        self.assertFalse(theme.getboolean("showClock"))
+        self.assertEqual(theme["type"], "color")
+
+    def test_mobile_gesture_navigation(self):
+        mobile = config("etc/xdg/plasmamobilerc")["General"]
+        self.assertFalse(mobile.getboolean("navigationPanelEnabled"))
+        self.assertTrue(mobile.getboolean("gesturePanelEnabled"))
 
     def test_touch_keyboard_and_normal_window_rule(self):
         kwin = config("etc/xdg/kwinrc")

@@ -8,15 +8,16 @@ SDDM **0.21.0**; recheck their configuration schemas when updating packages.
 
 ## Login and session selection
 
-* SDDM starts the packaged `plasma.desktop` session automatically as `Q25_USER`
+* SDDM starts the packaged `plasma-mobile.desktop` session automatically as `Q25_USER`
   (`alarm` by default). `configure` substitutes that same user into the SDDM
   configuration. `graphical.target` and `display-manager.service` select SDDM.
 * KScreenLocker has `LockOnStart=true`, no grace period, and password protection.
   Autologin starts the session, **not an unlocked desktop**. The build's existing
   initial password is `alarm`; change it before using the image on a network.
-* Log out to reach the standard Breeze SDDM greeter. Choose **Plasma Mobile** in
+* Log out to reach the standard Breeze SDDM greeter. Choose **Plasma Desktop** in
   its session menu. `Relogin=false` prevents an autologin loop after logout.
-  On reboot the configured default is still Plasma Desktop.
+  On reboot the configured default is still Plasma Mobile. The session choice
+  is isolated in `sddm.conf.d/30-q25-mobile.conf` for easy replacement.
 * Mobile keeps its upstream shell and its own `~/.config/plasma-mobile` defaults
   layer. The Q25 Desktop look-and-feel only supplies Breeze defaults and an
   initial layout of stock applets; it does not replace Mobile's home screen.
@@ -31,11 +32,19 @@ selected for the current display driver. SDDM filters inherited environment
 variables, so its **GreeterEnvironment** also explicitly supplies both settings.
 
 The built-in, EDID-less `DSI-1` has a 720×720 native mode. KWin's system-wide
-`kwinoutputconfig.json` seeds **1.5×** scaling, giving a **480×480 logical** desktop.
+`kwinoutputconfig.json` seeds **1.25×** scaling, giving a **576×576 logical** desktop.
 A user's saved display configuration takes precedence. Fonts use logical 96 DPI
 (no extra `QT_SCALE_FACTOR` or forced font DPI). Noto Sans 10 pt, 32 px toolbar
 icons, permanent tablet mode and a 48-logical-pixel panel provide larger touch
 controls without reducing the workspace to 360×360.
+
+`plasmamobilerc` disables Mobile's three-button bottom navigation panel and
+selects its stock gesture navigation (with gesture handle). The Mobile PIN lock
+screen uses the session's 576×576 logical area. The Breeze SDDM greeter alone
+gets `QT_SCALE_FACTOR=0.8`, compensating KWin's 1.25× seed for a 720×720 login and
+session chooser; its optional clock/logo are hidden. This is deliberately only
+configuration, not a forked greeter or lock screen. PIN-pad reachability and
+saved per-user output settings still require hardware verification.
 
 The stock Kickoff popup is seeded to fill most of the available area, with an
 icon task manager, system tray and clock alongside it. Normal application
@@ -74,8 +83,8 @@ bash -n build/build-rootfs.sh
 python3 build/test-plasma-config.py -v
 node --check rootfs/usr/share/plasma/look-and-feel/org.zinwa.q25.desktop/contents/layouts/org.kde.plasma.desktop-layout.js
 # After installing the package list and applying overlay/configure:
-Q25_TEST_ROOT=/home/maxsun/q25-work/rootfs python3 build/test-plasma-config.py -v
-sudo systemd-analyze --root=/home/maxsun/q25-work/rootfs --man=no verify sddm.service
+Q25_TEST_ROOT=/home/maxsun/q25-work/rootfs-btrfs python3 build/test-plasma-config.py -v
+sudo systemd-analyze --root=/home/maxsun/q25-work/rootfs-btrfs --man=no verify sddm.service
 ```
 
 The staging test additionally checks both packaged session entries, UID 1000,
@@ -91,8 +100,9 @@ repository snapshot). These are offline staging workarounds, not device hooks.
 
 ## Required device checks (not performed by this change)
 
-1. Boot into the standard lock screen, unlock, confirm 720×720 at 1.5× and
-   Panfrost rendering. Log out, select Mobile, then return to Desktop.
+1. Boot into Mobile's lock screen, unlock, confirm 720×720 at 1.25× and
+   Panfrost rendering. Check the PIN pad fits. Log out, check SDDM's session
+   chooser, select Desktop, then return to Mobile and check gesture navigation.
 2. Check Kickoff and tray popup reachability, app maximization, dialogs and
    keyboard focus. Type using the physical keyboard without an unwanted OSK;
    touch a text field to show it. Check kitty Nerd Font symbols, CJK and emoji.
