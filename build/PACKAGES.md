@@ -18,4 +18,9 @@ there is no repository signature bypass in the image. Host-side bootstrap
 retains its existing build-only signature exception. Kernel/firmware and
 modemmanager/libmm-glib IgnorePkg holds are unchanged.
 
+`paru` is installed as a signed **aarch64 binary from archlinuxcn**, not built
+from AUR. The image also includes base-devel and git. Its stock `/etc/paru.conf`
+only enables `BottomUp`. Run paru as the normal user (it uses sudo for pacman),
+review AUR build files before building, and keep the kernel/modem ABI holds.
+
 Offline regression check: `python3 build/test-package-config.py -v`.

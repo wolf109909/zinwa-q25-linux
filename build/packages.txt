@@ -16,6 +16,8 @@ openssh
 man-db
 bash-completion
 pacman-contrib
+base-devel
+paru
 # --- networking
 networkmanager
 modemmanager

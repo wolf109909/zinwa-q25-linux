@@ -34,6 +34,16 @@ class PackageDefaults(unittest.TestCase):
         self.assertIn("--noconfirm --needed -Sy archlinuxcn-keyring", configure)
         self.assertIn("in_root pacman-key --populate archlinuxcn", configure)
 
+    def test_paru_and_build_tools(self):
+        packages = (REPO / "build/packages.txt").read_text().splitlines()
+        for package in ("paru", "base-devel", "git"):
+            self.assertEqual(packages.count(package), 1)
+        paru = (ROOT / "etc/paru.conf").read_text().splitlines()
+        self.assertIn("BottomUp", paru)
+        self.assertNotIn("#BottomUp", paru)
+        self.assertIn("PgpFetch", paru)
+        self.assertIn("#MFlags = --skippgpcheck", paru)
+
 
 if __name__ == "__main__":
     unittest.main()
