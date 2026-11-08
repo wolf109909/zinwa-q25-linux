@@ -10,4 +10,5 @@ Restart=on-failure
 RestartSec=5
 
 [Install]
-WantedBy=bluetooth.target
+# This bridge creates the first HCI device; bluetooth.target is device-triggered.
+WantedBy=multi-user.target

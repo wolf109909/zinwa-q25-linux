@@ -78,8 +78,7 @@ static void program_bdaddr(int stpbt_fd)
 			uint8_t evt[64];
 			(void)read(stpbt_fd, evt, sizeof(evt));
 		}
-		fprintf(stderr, "[q25-bt-vhci] Set factory BD_ADDR %02X:%02X:%02X:%02X:%02X:%02X\n",
-			bdaddr[0], bdaddr[1], bdaddr[2], bdaddr[3], bdaddr[4], bdaddr[5]);
+		fprintf(stderr, "[q25-bt-vhci] Factory address command submitted\n");
 	}
 }
 
