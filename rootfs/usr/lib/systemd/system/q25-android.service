@@ -1,0 +1,17 @@
+[Unit]
+Description=Q25 Android vendor runtime (super partition, NVRAM)
+Documentation=file:///usr/share/doc/q25/README.md
+DefaultDependencies=no
+After=local-fs.target systemd-udev-settle.service
+Wants=local-fs.target
+Before=q25-ccci@ccci_rpcd.service q25-ccci@ccci_mdinit.service q25-connsys.service
+ConditionPathExists=/dev/disk/by-partlabel/super
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/q25/q25-android-setup start
+ExecStop=/usr/lib/q25/q25-android-setup stop
+
+[Install]
+WantedBy=multi-user.target

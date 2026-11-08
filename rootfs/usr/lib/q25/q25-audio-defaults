@@ -1,0 +1,17 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0
+# Default mixer routing for the MT6358 codec + OCA72xx speaker amp. Applied
+# only when there is no saved ALSA state (alsa-restore takes over afterwards).
+[ -s /var/lib/alsa/asound.state ] && exec alsactl restore ZinwaQ25Audio
+c="amixer -q -c ZinwaQ25Audio cset"
+$c name='LOL Mux' 'Playback'
+$c name='Lineout Volume' 18,18
+$c name='Headphone Volume' 18,18
+$c name='PGA Volume' 3,3
+$c name='Q25 Output Route' 'Speaker'
+$c name='Mic Type Mux' 'ACC'
+$c name='ADC L Mux' 'Left Preamplifier'
+$c name='ADC R Mux' 'Right Preamplifier'
+$c name='PGA L Mux' 'AIN0'
+$c name='PGA R Mux' 'AIN2'
+exit 0

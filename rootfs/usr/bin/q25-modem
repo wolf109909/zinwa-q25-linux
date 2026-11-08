@@ -1,0 +1,80 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-2.0
+"""q25-modem - command line front end for q25-modemd.
+
+  q25-modem                     show status
+  q25-modem data on|off         mobile data
+  q25-modem roaming on|off      data roaming
+  q25-modem apn NAME|auto       APN (auto = from SIM operator)
+  q25-modem reconnect           drop and re-establish the data connection
+  q25-modem at 'AT+...'         raw AT command (root)
+  q25-modem --json              status as JSON
+"""
+import json
+import socket
+import sys
+
+SOCK = "/run/q25/modemd.sock"
+
+
+def call(req):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(60)
+    try:
+        s.connect(SOCK)
+    except OSError as e:
+        sys.exit(f"q25-modemd is not running ({e})")
+    s.sendall((json.dumps(req) + "\n").encode())
+    data = b""
+    while not data.endswith(b"\n"):
+        c = s.recv(65536)
+        if not c:
+            break
+        data += c
+    r = json.loads(data)
+    if not r.get("ok"):
+        sys.exit(f"error: {r.get('error')}")
+    return r
+
+
+def onoff(v):
+    if v in ("on", "1", "yes", "true"):
+        return True
+    if v in ("off", "0", "no", "false"):
+        return False
+    sys.exit(f"expected on/off, got {v!r}")
+
+
+def main(a):
+    if not a or a[0] in ("status", "--json"):
+        r = call({"cmd": "status"})
+        r.pop("ok", None)
+        if a and a[0] == "--json":
+            print(json.dumps(r, indent=1))
+            return
+        sig = f"{r['rsrp']} dBm RSRP" if r["rsrp"] is not None else \
+            f"{r['rssi']} dBm RSSI" if r["rssi"] is not None else "-"
+        print(f"State:     {r['state']}" + (f" ({r['error']})" if r["error"] else ""))
+        print(f"SIM:       {r['sim']}")
+        print(f"Network:   {r['operator'] or '-'} {r['rat']} ({r['registration']})")
+        print(f"Signal:    {'▂▄▆█'[:r['bars']] or '-'}  {sig}")
+        print(f"Data:      {'on' if r['data'] else 'off'}, roaming {'on' if r['roaming'] else 'off'}")
+        if r["iface"]:
+            print(f"Address:   {r['ipv4']} on {r['iface']} (APN {r['apn']})")
+            print(f"DNS:       {' '.join(r['dns'])}")
+        return
+    cmd = a[0]
+    if cmd in ("data", "roaming") and len(a) == 2:
+        call({"cmd": "set", cmd: onoff(a[1])})
+    elif cmd == "apn" and len(a) == 2:
+        call({"cmd": "set", "apn": "" if a[1] == "auto" else a[1]})
+    elif cmd == "reconnect":
+        call({"cmd": "reconnect"})
+    elif cmd == "at" and len(a) == 2:
+        print("\n".join(call({"cmd": "at", "line": a[1]})["lines"]))
+    else:
+        sys.exit(__doc__)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

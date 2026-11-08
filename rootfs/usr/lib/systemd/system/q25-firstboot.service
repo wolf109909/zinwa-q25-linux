@@ -1,0 +1,12 @@
+[Unit]
+Description=Q25 first boot: grow root filesystem
+ConditionPathExists=!/var/lib/q25/firstboot-done
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/q25/q25-firstboot
+StateDirectory=q25
+
+[Install]
+WantedBy=multi-user.target

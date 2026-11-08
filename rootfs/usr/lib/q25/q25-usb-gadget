@@ -1,0 +1,48 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0
+# USB NCM network gadget: the phone is 10.15.19.82 on usb0 (NetworkManager
+# "USB network" connection hands out addresses to the PC and shares internet).
+set -e
+G=/sys/kernel/config/usb_gadget/q25
+
+stop() {
+    [ -d $G ] || return 0
+    echo "" > $G/UDC 2>/dev/null || true
+}
+
+start() {
+    mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config
+    UDC=
+    for i in $(seq 1 20); do
+        UDC=$(ls /sys/class/udc 2>/dev/null | head -n1)
+        [ -n "$UDC" ] && break
+        sleep 0.5
+    done
+    [ -n "$UDC" ] || { echo "no USB device controller"; exit 1; }
+    # MUSB is dual-role; force peripheral mode for the gadget
+    m=/sys/class/udc/$UDC/device/../mode
+    [ -w "$m" ] && echo -n peripheral > "$m" 2>/dev/null || true
+
+    stop
+    if [ ! -d $G/functions/ncm.usb0 ]; then
+        mkdir -p $G/strings/0x409 $G/configs/c.1/strings/0x409 $G/functions/ncm.usb0
+        echo 0x1d6b > $G/idVendor
+        echo 0x0104 > $G/idProduct
+        echo 0x0200 > $G/bcdUSB
+        echo "NCM" > $G/configs/c.1/strings/0x409/configuration
+        echo 250 > $G/configs/c.1/MaxPower
+        echo "ee:b2:17:5c:b0:26" > $G/functions/ncm.usb0/host_addr
+        echo "82:33:c4:62:3a:75" > $G/functions/ncm.usb0/dev_addr
+        ln -s $G/functions/ncm.usb0 $G/configs/c.1/
+    fi
+    echo "Zinwa" > $G/strings/0x409/manufacturer
+    echo "Zinwa Q25" > $G/strings/0x409/product
+    cat /etc/machine-id 2>/dev/null | cut -c1-16 > $G/strings/0x409/serialnumber || true
+    echo "$UDC" > $G/UDC
+}
+
+case "$1" in
+    start) start ;;
+    stop) stop ;;
+    *) echo "usage: $0 start|stop"; exit 2 ;;
+esac

@@ -1,0 +1,7 @@
+[Unit]
+Description=Q25 default audio routing
+After=alsa-restore.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/q25/q25-audio-defaults

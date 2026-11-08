@@ -1,0 +1,197 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-2.0
+"""Prepare the minimal Android runtime used by the MediaTek modem daemons.
+
+The MT6789 modem needs two closed vendor daemons (ccci_rpcd, ccci_mdinit) from
+the stock Android vendor partition. They are bionic binaries with Android
+paths compiled in, so they run in a private root (systemd RootDirectory=) at
+/var/lib/q25/android that looks just enough like Android:
+
+  /vendor            <- vendor_<slot> from the dynamic "super" partition (ro)
+  /system_root       <- system_<slot> from "super" (ro, system-as-root)
+  /system/{bin,lib64,etc}  -> /system_root/system/...
+  /apex/com.android.runtime  bionic + linker copied from system bootstrap
+  /mnt/vendor/*      nvdata/nvcfg/protect_f/protect_s/persist (see /etc/fstab)
+  /data/vendor/*     writable state
+  /tmp/mtk_props     property store used by libprop_preload.so
+  /q25/libprop_preload.so
+
+Nothing in the Arch root is touched. The super partition is parsed directly
+(Android LP metadata) so no lpunpack/dmsetup tooling is needed.
+"""
+import os
+import shutil
+import struct
+import subprocess
+import sys
+
+ROOT = "/var/lib/q25/android"
+SUPER = "/dev/disk/by-partlabel/super"
+PROPS = {
+    "vendor.service.nvram_restore": "Ready",
+    "ro.boot.opt_c2k_support": "0",
+    "ro.vendor.mtk_protocol1_rat_config": "Lf/Lt/W/G",
+    "ro.boot.opt_md1_support": "Lf/Lt/W/G",
+    "ro.vendor.mtk_md1_support": "1",
+    "persist.vendor.radio.mtk_ps2_rat": "0",
+}
+
+
+def log(msg):
+    print(msg, flush=True)
+
+
+def lp_partitions(dev):
+    """Return {name: [(offset_bytes, size_bytes), ...]} from LP metadata slot 0."""
+    with open(dev, "rb") as f:
+        f.seek(4096)
+        geo = f.read(4096)
+        magic, _size = struct.unpack_from("<II", geo, 0)
+        if magic != 0x616C4467:
+            raise RuntimeError("super: bad LP geometry magic")
+        f.seek(4096 + 4096 * 2)  # reserved + 2x geometry -> primary metadata slot 0
+        hdr = f.read(256)
+        (magic, _maj, _min, header_size) = struct.unpack_from("<IHHI", hdr, 0)
+        if magic != 0x414C5030:
+            raise RuntimeError("super: bad LP header magic")
+        tables_size = struct.unpack_from("<I", hdr, 44)[0]
+        p_off, p_num, p_sz = struct.unpack_from("<III", hdr, 80)
+        e_off, e_num, e_sz = struct.unpack_from("<III", hdr, 92)
+        f.seek(4096 + 4096 * 2 + header_size)
+        tables = f.read(tables_size)
+    extents = []
+    for i in range(e_num):
+        nsec, ttype, tdata, _src = struct.unpack_from("<QIQI", tables, e_off + i * e_sz)
+        extents.append((nsec, ttype, tdata))
+    parts = {}
+    for i in range(p_num):
+        raw = tables[p_off + i * p_sz:p_off + (i + 1) * p_sz]
+        name = raw[:36].split(b"\0", 1)[0].decode()
+        _attr, first, num, _grp = struct.unpack_from("<IIII", raw, 36)
+        exts = []
+        for nsec, ttype, tdata in extents[first:first + num]:
+            if ttype != 0:  # only LP_TARGET_TYPE_LINEAR is meaningful here
+                raise RuntimeError(f"super: {name} has non-linear extent")
+            exts.append((tdata * 512, nsec * 512))
+        parts[name] = exts
+    return parts
+
+
+def is_mounted(path):
+    path = os.path.realpath(path)
+    with open("/proc/self/mountinfo") as f:
+        return any(line.split()[4] == path for line in f)
+
+
+def mount_lp(parts, name, target):
+    if is_mounted(target):
+        return True
+    exts = parts.get(name)
+    if not exts:
+        log(f"super: no partition {name}")
+        return False
+    if len(exts) != 1:
+        log(f"super: {name} has {len(exts)} extents; unsupported")
+        return False
+    off, size = exts[0]
+    os.makedirs(target, exist_ok=True)
+    for fstype in ("ext4", "erofs"):
+        r = subprocess.run(["mount", "-t", fstype, "-o",
+                            f"ro,nodev,loop,offset={off},sizelimit={size}",
+                            SUPER, target], capture_output=True, text=True)
+        if r.returncode == 0:
+            log(f"super: {name} -> {target} ({fstype}, {size >> 20} MiB)")
+            return True
+    log(f"super: mounting {name} failed: {r.stderr.strip()}")
+    return False
+
+
+def slot():
+    try:
+        cmd = open("/proc/cmdline").read().split()
+        for a in cmd:
+            if a.startswith("androidboot.slot_suffix="):
+                return a.split("=", 1)[1].lstrip("_")
+    except OSError:
+        pass
+    return "a"
+
+
+def sync_dir(src, dst):
+    """Copy regular files and symlinks from src into dst (bionic bootstrap)."""
+    os.makedirs(dst, exist_ok=True)
+    if not os.path.isdir(src):
+        return
+    for n in os.listdir(src):
+        s, d = os.path.join(src, n), os.path.join(dst, n)
+        if os.path.islink(s) or os.path.isfile(s):
+            if os.path.lexists(d):
+                os.remove(d)
+            shutil.copy2(s, d, follow_symlinks=False)
+
+
+def symlink(target, path):
+    if os.path.islink(path) and os.readlink(path) == target:
+        return
+    if os.path.lexists(path):
+        os.remove(path)
+    os.symlink(target, path)
+
+
+def start():
+    for d in ("dev", "proc", "sys", "tmp", "run", "q25", "vendor", "system_root", "system",
+              "mnt/vendor/nvdata", "mnt/vendor/nvcfg", "mnt/vendor/protect_f",
+              "mnt/vendor/protect_s", "mnt/vendor/persist",
+              "data/vendor/ccci_cfg", "data/vendor/mdlpm", "data/vendor/md3",
+              "data/vendor_de/md", "data/nvram",
+              "apex/com.android.runtime/bin", "apex/com.android.runtime/lib64/bionic",
+              "linkerconfig"):
+        os.makedirs(os.path.join(ROOT, d), exist_ok=True)
+
+    s = slot()
+    parts = lp_partitions(SUPER)
+    ok = mount_lp(parts, f"vendor_{s}", f"{ROOT}/vendor")
+    ok &= mount_lp(parts, f"system_{s}", f"{ROOT}/system_root")
+    if not ok:
+        return 1
+
+    for sub in ("bin", "lib64", "lib", "etc"):
+        symlink(f"/system_root/system/{sub}", f"{ROOT}/system/{sub}")
+    sysr = f"{ROOT}/system_root/system"
+    sync_dir(f"{sysr}/bin/bootstrap", f"{ROOT}/apex/com.android.runtime/bin")
+    sync_dir(f"{sysr}/lib64/bootstrap", f"{ROOT}/apex/com.android.runtime/lib64")
+    sync_dir(f"{sysr}/lib64/bootstrap", f"{ROOT}/apex/com.android.runtime/lib64/bionic")
+
+    for d in ("md", "md3"):
+        p = f"{ROOT}/mnt/vendor/nvdata/{d}"
+        if is_mounted(f"{ROOT}/mnt/vendor/nvdata"):
+            os.makedirs(p, exist_ok=True)
+
+    # never rewrite a mapped library in place (SIGBUS in the running daemons
+    # makes CCCI force-stop the modem): copy aside and rename over it
+    shutil.copy2("/usr/lib/q25/libprop_preload.so", f"{ROOT}/q25/.libprop_preload.so")
+    os.replace(f"{ROOT}/q25/.libprop_preload.so", f"{ROOT}/q25/libprop_preload.so")
+
+    # Property store: shared with the host via /run/q25/props (bind-mounted
+    # to /tmp/mtk_props inside the runtime by the ccci units).
+    os.makedirs("/run/q25/props", exist_ok=True)
+    os.chmod("/run/q25/props", 0o755)
+    for k, v in PROPS.items():
+        p = f"/run/q25/props/{k}"
+        if not os.path.exists(p):
+            with open(p, "w") as f:
+                f.write(v)
+    log("android runtime ready")
+    return 0
+
+
+def stop():
+    for t in (f"{ROOT}/system_root", f"{ROOT}/vendor"):
+        if is_mounted(t):
+            subprocess.run(["umount", "-l", t], check=False)
+    return 0
+
+
+if __name__ == "__main__":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "start"
+    sys.exit(start() if cmd == "start" else stop())

@@ -1,0 +1,748 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-2.0
+"""q25-modemd - LTE connection manager for the Zinwa Q25 (MT6789 CCCI modem).
+
+The modem is driven over its AT channel (/dev/ttyC0) using the MediaTek
+"EAPN"/"EIF" command set that the stock Android RIL uses. This daemon is the
+only process that opens the AT channel; everything else (the control centre,
+the q25-modem CLI, scripts) talks to it over /run/q25/modemd.sock and reads
+/run/q25/modem.json.
+
+Responsibilities
+  * wait for the modem firmware (ccci_mdinit) to report MD1 ready
+  * radio on, SIM/IMSI, registration tracking, signal quality
+  * APN selection (user setting, else apns-conf.xml by MCC/MNC)
+  * bring up the default PDN and configure ccmniN (IPv4 + DNS; IPv6 comes
+    from router advertisements on ccmniN)
+  * keep it up: re-attach after network detach, PDN loss, data stalls or
+    modem restarts, with exponential back-off
+  * mobile data / roaming switches, persisted in /var/lib/q25/modem.json
+
+Control protocol (one JSON object per line, reply is one JSON line):
+  {"cmd": "status"}
+  {"cmd": "set", "data": true|false, "roaming": true|false, "apn": "name"|""}
+  {"cmd": "reconnect"}
+  {"cmd": "at", "line": "AT+..."}            (root only, for debugging)
+"""
+import asyncio
+import json
+import os
+import re
+import socket
+import struct
+import subprocess
+import sys
+import time
+import xml.etree.ElementTree as ET
+
+AT_DEV = "/dev/ttyC0"
+CCCI_BOOT = "/sys/kernel/ccci/boot"
+RUN_DIR = "/run/q25"
+SOCK = f"{RUN_DIR}/modemd.sock"
+STATUS = f"{RUN_DIR}/modem.json"
+STATE = "/var/lib/q25/modem.json"
+APNS_XML = "/usr/share/mobile-broadband-provider-info/apns-conf.xml"
+ROUTE_METRIC = 700          # NetworkManager uses 600 for Wi-Fi: Wi-Fi wins
+MTU = 1400
+POLL = 15                   # seconds between health checks
+SIGNAL_EVERY = 30
+DEBUG = os.environ.get("Q25_MODEM_DEBUG") == "1"
+
+FALLBACK_APN = {
+    # China
+    "46000": "cmnet", "46002": "cmnet", "46004": "cmnet", "46007": "cmnet",
+    "46008": "cmnet", "46001": "3gnet", "46006": "3gnet", "46009": "3gnet",
+    "46003": "ctnet", "46005": "ctnet", "46011": "ctnet", "46015": "cbnet",
+}
+OPERATOR_NAMES = {
+    "46000": "China Mobile", "46002": "China Mobile", "46004": "China Mobile",
+    "46007": "China Mobile", "46008": "China Mobile", "46001": "China Unicom",
+    "46006": "China Unicom", "46009": "China Unicom", "46003": "China Telecom",
+    "46005": "China Telecom", "46011": "China Telecom", "46015": "China Broadnet",
+}
+RAT = {0: "GSM", 1: "GSM", 2: "UMTS", 3: "EDGE", 4: "HSDPA", 5: "HSUPA",
+       6: "HSPA", 7: "LTE", 9: "LTE", 10: "LTE", 11: "NR", 12: "NR", 13: "NR"}
+REG = {0: "not registered", 1: "home", 2: "searching", 3: "denied",
+       4: "unknown", 5: "roaming"}
+
+
+def log(*a):
+    print(*a, flush=True)
+
+
+def dbg(*a):
+    if DEBUG:
+        print(*a, flush=True)
+
+
+def sh(*cmd):
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        dbg("cmd failed:", " ".join(cmd), r.stderr.strip())
+    return r.returncode == 0
+
+
+def md_ready():
+    try:
+        return "md1:4" in open(CCCI_BOOT).read() and os.path.exists(AT_DEV)
+    except OSError:
+        return False
+
+
+def write_atomic(path, data):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(data)
+    os.replace(tmp, path)
+
+
+def lookup_apn(plmn):
+    """Best internet APN for an MCC+MNC from Android's apns-conf.xml."""
+    mcc, mnc = plmn[:3], plmn[3:]
+    best = None
+    try:
+        for _, el in ET.iterparse(APNS_XML):
+            if el.tag != "apn":
+                continue
+            a = el.attrib
+            if a.get("mcc") == mcc and a.get("mnc") == mnc:
+                types = a.get("type", "default")
+                if "default" in types or types == "*":
+                    # prefer entries without proxies / special bearers
+                    score = 0 if not a.get("proxy") and not a.get("mmsc") else 1
+                    if best is None or score < best[0]:
+                        best = (score, a.get("apn"), a.get("carrier"))
+            el.clear()
+    except (OSError, ET.ParseError):
+        pass
+    if best:
+        return best[1], best[2]
+    return FALLBACK_APN.get(plmn), OPERATOR_NAMES.get(plmn)
+
+
+class ATError(Exception):
+    pass
+
+
+class AT:
+    """Serialized AT command channel with URC dispatch."""
+
+    FINAL = re.compile(r"^(OK|ERROR|NO CARRIER|\+CM[ES] ERROR:.*)$")
+
+    def __init__(self, loop, on_urc):
+        self.loop = loop
+        self.on_urc = on_urc
+        self.fd = None
+        self.buf = b""
+        self.lock = asyncio.Lock()
+        self.pending = None      # (prefix, lines, future)
+        self.dead = False
+
+    def open(self):
+        self.fd = os.open(AT_DEV, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        self.dead = False
+        self.loop.add_reader(self.fd, self._readable)
+
+    def close(self):
+        if self.fd is not None:
+            try:
+                self.loop.remove_reader(self.fd)
+            except Exception:
+                pass
+            try:
+                os.close(self.fd)
+            except OSError:
+                pass
+        self.fd = None
+        self.dead = True
+        if self.pending and not self.pending[2].done():
+            self.pending[2].set_exception(ATError("channel closed"))
+
+    def _readable(self):
+        try:
+            chunk = os.read(self.fd, 4096)
+        except BlockingIOError:
+            return
+        except OSError as e:
+            log(f"AT channel read error: {e}")
+            self.close()
+            return
+        if not chunk:
+            log("AT channel EOF")
+            self.close()
+            return
+        self.buf += chunk
+        while b"\n" in self.buf or b"\r" in self.buf:
+            m = re.search(rb"[\r\n]", self.buf)
+            line, self.buf = self.buf[:m.start()], self.buf[m.end():]
+            line = line.decode(errors="replace").strip()
+            if line:
+                self._line(line)
+
+    def _line(self, line):
+        dbg("<", line)
+        p = self.pending
+        if p and not p[2].done():
+            prefix, lines, fut = p
+            if self.FINAL.match(line):
+                lines.append(line)
+                fut.set_result(lines)
+                return
+            if line.startswith("+") and prefix and not line.startswith(prefix):
+                self.on_urc(line)   # unsolicited, but keep it in the reply too
+            lines.append(line)
+            return
+        if line.startswith("+") or line.startswith("^"):
+            self.on_urc(line)
+
+    async def cmd(self, line, timeout=3.0, check=False):
+        if self.fd is None:
+            raise ATError("channel not open")
+        m = re.match(r"AT([+^$%]\w+)", line, re.I)
+        prefix = m.group(1).upper() + ":" if m else None
+        async with self.lock:
+            fut = self.loop.create_future()
+            self.pending = (prefix, [], fut)
+            dbg(">", line)
+            try:
+                os.write(self.fd, (line + "\r\n").encode())
+            except OSError as e:
+                self.pending = None
+                self.close()
+                raise ATError(f"write: {e}")
+            try:
+                lines = await asyncio.wait_for(fut, timeout)
+            except asyncio.TimeoutError:
+                lines = None
+            finally:
+                self.pending = None
+        if lines is None:
+            raise ATError(f"timeout: {line}")
+        if check and lines[-1] != "OK":
+            raise ATError(f"{line}: {lines[-1]}")
+        return lines
+
+    async def query(self, line, prefix, timeout=3.0):
+        """Return the payload of the first '<prefix> ...' line, or None."""
+        try:
+            lines = await self.cmd(line, timeout)
+        except ATError:
+            return None
+        for l in lines:
+            if l.startswith(prefix):
+                return l[len(prefix):].strip()
+        return None
+
+
+class Modem:
+    def __init__(self, loop):
+        self.loop = loop
+        self.at = AT(loop, self.urc)
+        self.settings = {"data": True, "roaming": False, "apn": ""}
+        self.load_settings()
+        self.wake = asyncio.Event()
+        self.st = {
+            "state": "starting", "sim": "unknown", "imsi": "", "plmn": "",
+            "operator": "", "registration": "unknown", "rat": "",
+            "rsrp": None, "rsrq": None, "rssi": None, "bars": 0,
+            "apn": "", "iface": "", "ipv4": "", "dns": [],
+            "data": self.settings["data"], "roaming": self.settings["roaming"],
+            "connected_since": None, "error": "", "updated": 0,
+        }
+        self.if_id = None
+        self.backoff = 0
+        self.last_signal = 0
+        self.stall = {"tx": 0, "rx": 0, "count": 0}
+        self.last_mdinit_restart = 0
+
+    # ---- persistence --------------------------------------------------
+    def load_settings(self):
+        try:
+            with open(STATE) as f:
+                self.settings.update({k: v for k, v in json.load(f).items()
+                                      if k in self.settings})
+        except (OSError, ValueError):
+            pass
+
+    def save_settings(self):
+        os.makedirs(os.path.dirname(STATE), exist_ok=True)
+        write_atomic(STATE, json.dumps(self.settings, indent=1) + "\n")
+
+    def publish(self):
+        self.st["data"] = self.settings["data"]
+        self.st["roaming"] = self.settings["roaming"]
+        self.st["apn_setting"] = self.settings["apn"]
+        self.st["updated"] = int(time.time())
+        try:
+            write_atomic(STATUS, json.dumps(self.st, indent=1) + "\n")
+        except OSError:
+            pass
+
+    def set_state(self, s, err=""):
+        if self.st["state"] != s or self.st["error"] != err:
+            log(f"state: {s}" + (f" ({err})" if err else ""))
+        self.st["state"] = s
+        self.st["error"] = err
+        self.publish()
+
+    # ---- unsolicited results -------------------------------------------
+    def urc(self, line):
+        dbg("URC", line)
+        if line.startswith("+EIF:"):
+            m = re.match(r"\+EIF:\s*(\d+)\s*,\s*\"?(\w+)", line)
+            if m:
+                if m.group(2).lower() == "ifup":
+                    self.if_id = int(m.group(1))
+                elif m.group(2).lower() == "ifdown":
+                    log(f"network took the PDN down ({line})")
+                    self.wake.set()
+        elif line.startswith(("+CEREG:", "+CREG:", "+CGREG:")):
+            self.wake.set()
+        elif line.startswith("+CGEV:") and ("DEACT" in line or "DETACH" in line):
+            log(f"network event: {line}")
+            self.wake.set()
+
+    # ---- radio / SIM / registration -----------------------------------
+    async def init_modem(self):
+        for c in ("ATE0", "AT+CMEE=1", "AT+CEREG=2", "AT+CREG=2", "AT+CGEREP=2,1"):
+            try:
+                await self.at.cmd(c, 2)
+            except ATError:
+                pass
+        cfun = await self.at.query("AT+CFUN?", "+CFUN:")
+        if not cfun or not cfun.startswith("1"):
+            log("turning the radio on")
+            for c, t in (("AT+EFUN=1", 10), ("AT+CFUN=1", 10)):
+                try:
+                    await self.at.cmd(c, t)
+                except ATError as e:
+                    log(f"{c}: {e}")
+
+    async def read_sim(self):
+        cpin = await self.at.query("AT+CPIN?", "+CPIN:")
+        if cpin is None:
+            self.st["sim"] = "absent"
+            return False
+        self.st["sim"] = "ready" if cpin == "READY" else cpin.lower()
+        if cpin != "READY":
+            return False
+        if not self.st["imsi"]:
+            try:
+                lines = await self.at.cmd("AT+CIMI", 3)
+                for l in lines:
+                    if re.fullmatch(r"\d{14,15}", l):
+                        self.st["imsi"] = l
+            except ATError:
+                pass
+        return True
+
+    async def read_registration(self):
+        reg = 0
+        for q, p in (("AT+CEREG?", "+CEREG:"), ("AT+CREG?", "+CREG:")):
+            r = await self.at.query(q, p)
+            if r:
+                try:
+                    stat = int(r.split(",")[1])
+                except (ValueError, IndexError):
+                    continue
+                if stat in (1, 5):
+                    reg = stat
+                    break
+                reg = reg or stat
+        self.st["registration"] = REG.get(reg, str(reg))
+        cops = await self.at.query("AT+COPS?", "+COPS:")
+        if cops:
+            parts = [x.strip().strip('"') for x in cops.split(",")]
+            if len(parts) >= 3 and parts[2]:
+                plmn = parts[2]
+                if plmn.isdigit():
+                    self.st["plmn"] = plmn
+                    self.st["operator"] = OPERATOR_NAMES.get(plmn) or \
+                        lookup_apn(plmn)[1] or plmn
+                else:
+                    self.st["operator"] = plmn
+            if len(parts) >= 4 and parts[3].isdigit():
+                self.st["rat"] = RAT.get(int(parts[3]), "")
+        return reg
+
+    async def read_signal(self):
+        self.last_signal = time.monotonic()
+        rsrp = rsrq = rssi = None
+        r = await self.at.query("AT+CESQ", "+CESQ:")
+        if r:
+            v = [int(x) if x.strip().lstrip("-").isdigit() else 255 for x in r.split(",")]
+            if len(v) >= 6:
+                if v[5] != 255:
+                    rsrp = v[5] - 141
+                if v[4] != 255:
+                    rsrq = round(v[4] / 2 - 20, 1)
+                if v[0] != 99:
+                    rssi = v[0] - 111
+        if rsrp is None and rssi is None:
+            r = await self.at.query("AT+CSQ", "+CSQ:")
+            if r:
+                try:
+                    q = int(r.split(",")[0])
+                    if q != 99:
+                        rssi = -113 + 2 * q
+                except ValueError:
+                    pass
+        self.st.update(rsrp=rsrp, rsrq=rsrq, rssi=rssi)
+        if rsrp is not None:
+            b = 4 if rsrp >= -95 else 3 if rsrp >= -105 else 2 if rsrp >= -115 \
+                else 1 if rsrp >= -125 else 0
+        elif rssi is not None:
+            b = 4 if rssi >= -73 else 3 if rssi >= -83 else 2 if rssi >= -93 \
+                else 1 if rssi >= -105 else 0
+        else:
+            b = 0
+        self.st["bars"] = b
+
+    # ---- data connection ----------------------------------------------
+    def wanted_apn(self):
+        if self.settings["apn"]:
+            return self.settings["apn"]
+        imsi = self.st["imsi"]
+        for plmn in (imsi[:6], imsi[:5]) if imsi else ():
+            apn = lookup_apn(plmn)[0]
+            if apn:
+                return apn
+        if self.st["plmn"]:
+            apn = lookup_apn(self.st["plmn"])[0]
+            if apn:
+                return apn
+        return "internet"
+
+    async def pdn_address(self):
+        r = await self.at.query('AT+EPDN=0,"addr"', "+EPDN:")
+        if r:
+            m = re.search(r'"(\d+\.\d+\.\d+\.\d+)"', r)
+            if m and m.group(1) != "0.0.0.0":
+                return m.group(1)
+        return None
+
+    async def pdn_dns(self):
+        dns = []
+        try:
+            lines = await self.at.cmd("AT+CGCONTRDP", 3)
+        except ATError:
+            return dns
+        for l in lines:
+            if not l.startswith("+CGCONTRDP:"):
+                continue
+            f = [x.strip().strip('"') for x in l[11:].split(",")]
+            for x in f[5:7]:
+                if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", x) and x != "0.0.0.0":
+                    dns.append(x)
+                elif re.fullmatch(r"(\d+\.){15}\d+", x):  # dotted-decimal IPv6
+                    b = bytes(int(n) for n in x.split("."))
+                    if any(b):
+                        dns.append(socket.inet_ntop(socket.AF_INET6, b))
+        return list(dict.fromkeys(dns))
+
+    async def connect(self):
+        apn = self.wanted_apn()
+        log(f"activating PDN (APN {apn})")
+        self.set_state("connecting")
+        try:
+            await self.at.cmd("AT+EGTYPE=4", 2)
+            await self.at.cmd("AT+EAPNLOCK=1", 2)
+            await self.at.cmd('AT+EAPNSET="",1,"",""', 2)
+            roam = "IPV4V6"
+            await self.at.cmd(
+                f'AT+EAPNSET="{apn}",2,"type=default,supl;protocol=IPV4V6;'
+                f'roaming_protocol={roam};authtype=0;carrier_enabled=1;max_conns=0;'
+                'max_conns_time=0;wait_time=0;bearer_bitmask=0;inactive_timer=0"', 3)
+            await self.at.cmd("AT+EAPNLOCK=0", 2)
+            await self.at.cmd("AT+ECNCFG=1,,,1,1,1", 2)
+            await self.at.cmd(f'AT+EIAAPN="{apn}",0,"IPV4V6","IPV4V6",0,"",""', 3)
+            await self.at.cmd("AT+EIAREG=1", 2)
+            await self.at.cmd("AT+EDALLOW=1", 2)
+            try:
+                lines = await self.at.cmd(f'AT+EAPNACT=1,"{apn}","default",0', 20)
+                for l in lines:
+                    m = re.match(r"\+EIF:\s*(\d+)\s*,\s*\"?ifup", l)
+                    if m:
+                        self.if_id = int(m.group(1))
+            except ATError as e:
+                log(f"EAPNACT: {e}")
+            if self.if_id is None:
+                await asyncio.sleep(2)
+            if_id = self.if_id if self.if_id is not None else 100
+            await self.at.cmd(f'AT+EIF={if_id},"ifst","up",3', 3)
+        except ATError as e:
+            self.set_state("error", f"PDN setup failed: {e}")
+            return False
+
+        ipv4 = None
+        for _ in range(10):
+            ipv4 = await self.pdn_address()
+            if ipv4:
+                break
+            await asyncio.sleep(1)
+        if not ipv4:
+            self.set_state("error", "network gave no IPv4 address")
+            return False
+        dns = await self.pdn_dns()
+        if not any("." in d for d in dns):
+            dns += ["223.5.5.5", "119.29.29.29"]
+        idx = (self.if_id or 100) % 100
+        iface = f"ccmni{idx if idx <= 7 else 0}"
+        self.configure_iface(iface, ipv4, dns)
+        self.st.update(apn=apn, iface=iface, ipv4=ipv4, dns=dns,
+                       connected_since=int(time.time()))
+        self.stall = {"tx": 0, "rx": 0, "count": 0}
+        self.backoff = 0
+        log(f"connected: {ipv4} on {iface}, APN {apn}, DNS {' '.join(dns)}")
+        self.set_state("connected")
+        return True
+
+    def configure_iface(self, iface, ipv4, dns):
+        for i in range(8):
+            other = f"ccmni{i}"
+            if other != iface and os.path.exists(f"/sys/class/net/{other}"):
+                sh("ip", "addr", "flush", "dev", other)
+                sh("ip", "link", "set", other, "down")
+        try:
+            with open(f"/proc/sys/net/ipv6/conf/{iface}/accept_ra", "w") as f:
+                f.write("2")
+        except OSError:
+            pass
+        sh("ip", "link", "set", iface, "mtu", str(MTU), "up")
+        sh("ip", "-4", "addr", "flush", "dev", iface)
+        # point-to-point: the PDN address is a /32 with no on-link neighbours
+        sh("ip", "addr", "add", f"{ipv4}/32", "dev", iface)
+        sh("ip", "route", "replace", "default", "dev", iface, "metric", str(ROUTE_METRIC))
+        if os.path.isdir("/run/systemd/resolve"):
+            sh("resolvectl", "dns", iface, *dns)
+            sh("resolvectl", "domain", iface, "~.")
+            sh("resolvectl", "default-route", iface, "yes")
+        else:
+            write_atomic("/etc/resolv.conf", "".join(f"nameserver {d}\n" for d in dns))
+
+    def deconfigure_iface(self):
+        iface = self.st["iface"]
+        if iface:
+            if os.path.isdir("/run/systemd/resolve"):
+                sh("resolvectl", "revert", iface)
+            sh("ip", "-4", "addr", "flush", "dev", iface)
+            sh("ip", "-6", "addr", "flush", "dev", iface, "scope", "global")
+            sh("ip", "link", "set", iface, "down")
+        self.st.update(iface="", ipv4="", dns=[], connected_since=None)
+
+    async def disconnect(self, reason):
+        log(f"disconnecting: {reason}")
+        try:
+            await self.at.cmd(f'AT+EAPNACT=0,"{self.st["apn"] or self.wanted_apn()}","default",0', 10)
+        except ATError:
+            pass
+        try:
+            await self.at.cmd("AT+EIF=%d,\"ifst\",\"down\"" % (self.if_id or 100), 3)
+        except ATError:
+            pass
+        self.deconfigure_iface()
+        self.if_id = None
+
+    def iface_ok(self):
+        iface, ip = self.st["iface"], self.st["ipv4"]
+        if not iface:
+            return False
+        r = subprocess.run(["ip", "-4", "-o", "addr", "show", "dev", iface],
+                           capture_output=True, text=True)
+        return f" {ip}/" in r.stdout
+
+    def data_stalled(self):
+        """Android-style stall detection: we send, nothing comes back."""
+        iface = self.st["iface"]
+        try:
+            tx = int(open(f"/sys/class/net/{iface}/statistics/tx_packets").read())
+            rx = int(open(f"/sys/class/net/{iface}/statistics/rx_packets").read())
+        except (OSError, ValueError):
+            return False
+        s = self.stall
+        sent, got = tx - s["tx"], rx - s["rx"]
+        if s["tx"] and sent >= 10 and got == 0:
+            s["count"] += 1
+        else:
+            s["count"] = 0
+        s["tx"], s["rx"] = tx, rx
+        return s["count"] >= 3   # ~45 s of one-way traffic
+
+    # ---- main loop ------------------------------------------------------
+    async def wait_modem(self):
+        self.set_state("waiting for modem")
+        t0 = time.monotonic()
+        while not md_ready():
+            await asyncio.sleep(2)
+            if time.monotonic() - t0 > 90 and time.monotonic() - self.last_mdinit_restart > 600:
+                log("modem not ready after 90 s, restarting the modem daemons")
+                self.last_mdinit_restart = time.monotonic()
+                sh("systemctl", "restart", "q25-ccci@ccci_rpcd.service",
+                   "q25-ccci@ccci_mdinit.service")
+                t0 = time.monotonic()
+        self.at.open()
+        await self.init_modem()
+
+    async def step(self):
+        """One health check / state transition. Returns seconds to sleep."""
+        if self.at.dead or not md_ready():
+            if self.st["iface"]:
+                self.deconfigure_iface()
+            self.at.close()
+            log("modem went away")
+            await self.wait_modem()
+            return 1
+
+        if not await self.read_sim():
+            self.set_state("no sim" if self.st["sim"] in ("absent", "unknown") else "sim locked")
+            return POLL
+        reg = await self.read_registration()
+        if time.monotonic() - self.last_signal >= SIGNAL_EVERY or not self.st["connected_since"]:
+            await self.read_signal()
+
+        connected = bool(self.st["iface"])
+        want = self.settings["data"] and reg in (1, 5) and \
+            (reg == 1 or self.settings["roaming"])
+        if connected and not want:
+            await self.disconnect("data disabled" if not self.settings["data"]
+                                  else "roaming not allowed" if reg == 5
+                                  else "lost registration")
+            connected = False
+        if connected:
+            ip = await self.pdn_address()
+            if ip is None or ip != self.st["ipv4"]:
+                log(f"PDN lost or changed ({self.st['ipv4']} -> {ip})")
+                self.deconfigure_iface()
+                connected = False
+            elif not self.iface_ok():
+                log("interface lost its address, reconfiguring")
+                self.configure_iface(self.st["iface"], ip, self.st["dns"])
+            elif self.data_stalled():
+                log("data stall detected, re-activating PDN")
+                await self.disconnect("data stall")
+                connected = False
+        if connected:
+            self.set_state("connected")
+            return POLL
+        if not want:
+            self.set_state("registered" if reg in (1, 5) else
+                           "searching" if reg == 2 else
+                           "registration denied" if reg == 3 else "no service")
+            return POLL
+        if await self.connect():
+            return POLL
+        self.backoff = min(max(self.backoff * 2, 5), 120)
+        log(f"retrying in {self.backoff} s")
+        return self.backoff
+
+    async def run(self):
+        await self.wait_modem()
+        while True:
+            try:
+                delay = await self.step()
+            except ATError as e:
+                log(f"AT error: {e}")
+                delay = 5
+            except Exception as e:   # never die on a parse surprise
+                log(f"unexpected error: {e!r}")
+                delay = 10
+            self.publish()
+            self.wake.clear()
+            try:
+                await asyncio.wait_for(self.wake.wait(), delay)
+                await asyncio.sleep(1)    # let URC bursts settle
+            except asyncio.TimeoutError:
+                pass
+
+    # ---- control socket -------------------------------------------------
+    async def handle(self, reader, writer):
+        sock = writer.get_extra_info("socket")
+        try:
+            uid = struct.unpack("3i", sock.getsockopt(
+                socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")))[1]
+        except OSError:
+            uid = -1
+        privileged = uid == 0 or uid_in_group(uid, "wheel")
+        try:
+            while True:
+                raw = await reader.readline()
+                if not raw:
+                    break
+                try:
+                    req = json.loads(raw)
+                    reply = await self.request(req, privileged, uid)
+                except Exception as e:
+                    reply = {"ok": False, "error": str(e)}
+                writer.write((json.dumps(reply) + "\n").encode())
+                await writer.drain()
+        finally:
+            writer.close()
+
+    async def request(self, req, privileged, uid):
+        cmd = req.get("cmd")
+        if cmd == "status":
+            return {"ok": True, **self.st}
+        if not privileged:
+            return {"ok": False, "error": "permission denied"}
+        if cmd == "set":
+            changed = False
+            for k, typ in (("data", bool), ("roaming", bool), ("apn", str)):
+                if k in req:
+                    v = req[k]
+                    if not isinstance(v, typ):
+                        return {"ok": False, "error": f"{k} must be {typ.__name__}"}
+                    if k == "apn" and not re.fullmatch(r"[\w.\-]{0,62}", v):
+                        return {"ok": False, "error": "invalid APN"}
+                    if self.settings[k] != v:
+                        self.settings[k] = v
+                        changed = True
+                        if k == "apn" and self.st["iface"]:
+                            await self.disconnect("APN changed")
+            if changed:
+                self.save_settings()
+                self.backoff = 0
+                self.publish()
+                self.wake.set()
+            return {"ok": True, **self.settings}
+        if cmd == "reconnect":
+            if self.st["iface"]:
+                await self.disconnect("reconnect requested")
+            self.backoff = 0
+            self.wake.set()
+            return {"ok": True}
+        if cmd == "at" and uid == 0:
+            return {"ok": True, "lines": await self.at.cmd(str(req.get("line", "AT")), 30)}
+        return {"ok": False, "error": f"unknown command {cmd!r}"}
+
+
+def uid_in_group(uid, group):
+    import grp
+    import pwd
+    try:
+        g = grp.getgrnam(group)
+        pw = pwd.getpwuid(uid)
+        return pw.pw_name in g.gr_mem or pw.pw_gid == g.gr_gid
+    except KeyError:
+        return False
+
+
+async def main():
+    os.makedirs(RUN_DIR, exist_ok=True)
+    loop = asyncio.get_running_loop()
+    modem = Modem(loop)
+    modem.publish()
+    try:
+        os.unlink(SOCK)
+    except FileNotFoundError:
+        pass
+    server = await asyncio.start_unix_server(modem.handle, path=SOCK)
+    os.chmod(SOCK, 0o666)
+    async with server:
+        await modem.run()
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        sys.exit(0)

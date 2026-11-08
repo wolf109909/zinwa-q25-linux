@@ -1,0 +1,23 @@
+# Android-style partition links (used by the vendor modem/NVRAM daemons)
+SUBSYSTEM=="block", KERNEL=="sdc[0-9]*", ENV{PARTNAME}=="?*", SYMLINK+="block/by-name/$env{PARTNAME}", SYMLINK+="block/platform/bootdevice/by-name/$env{PARTNAME}"
+# Hide the firmware/Android partitions from udisks/Nautilus; only userdata is ours
+SUBSYSTEM=="block", KERNEL=="sd[a-c]*", ENV{PARTNAME}!="userdata", ENV{UDISKS_IGNORE}="1"
+SUBSYSTEM=="block", KERNEL=="sd[a-c]", ENV{UDISKS_IGNORE}="1"
+# Never touch the loop devices that expose Android super sub-partitions
+SUBSYSTEM=="block", KERNEL=="loop*", ENV{UDISKS_IGNORE}="1"
+# Torch, keyboard backlight and vibrator are user-controllable from the session
+SUBSYSTEM=="leds", KERNEL=="q25:*", RUN+="/bin/chgrp video /sys%p/brightness", RUN+="/bin/chmod g+w /sys%p/brightness"
+# The touchscreen is a direct-touch panel attached to DSI-1
+SUBSYSTEM=="input", ATTRS{name}=="s2716b_ts", ENV{ID_INPUT_TOUCHSCREEN}="1", ENV{WL_OUTPUT}="DSI-1"
+# Q25 hardware keyboard: built-in, never an "external" keyboard for the OSK
+SUBSYSTEM=="input", ATTRS{name}=="Q25_keyboard", ENV{ID_INPUT_KEYBOARD}="1", ENV{ID_INTEGRATION}="internal"
+# Modem AT/status ports: only root (q25-modemd) talks to the modem
+KERNEL=="ttyC[0-9]*", MODE="0600"
+KERNEL=="ccci_*", MODE="0660"
+# Stable names for the display controller and the GPU (card numbers vary)
+SUBSYSTEM=="drm", KERNEL=="card[0-9]*", DRIVERS=="mediatek-drm", SYMLINK+="dri/q25-display"
+SUBSYSTEM=="drm", KERNEL=="card[0-9]*", DRIVERS=="panfrost", SYMLINK+="dri/q25-gpu"
+# Default speaker/mic routing once the sound card registers
+SUBSYSTEM=="sound", KERNEL=="controlC*", ATTRS{id}=="ZinwaQ25Audio", TAG+="systemd", ENV{SYSTEMD_WANTS}+="q25-audio-defaults.service"
+# Wi-Fi mode switch (station / access point) for the hotspot
+KERNEL=="wmtWifi", GROUP="network", MODE="0660"

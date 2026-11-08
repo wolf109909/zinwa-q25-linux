@@ -1,0 +1,82 @@
+# Zinwa Q25 Arch Linux ARM package set (one per line, '#' comments allowed)
+# --- base system
+base
+archlinuxarm-keyring
+sudo
+busybox
+e2fsprogs
+dosfstools
+zram-generator
+polkit
+openssh
+man-db
+bash-completion
+pacman-contrib
+# --- networking
+networkmanager
+wpa_supplicant
+wireless-regdb
+iw
+bluez
+bluez-utils
+iproute2
+inetutils
+curl
+dnsmasq
+wget
+# --- desktop (Phosh on Wayland)
+phosh
+phoc
+phosh-mobile-settings
+gnome-control-center
+feedbackd
+upower
+brightnessctl
+gnome-keyring
+xdg-desktop-portal-gtk
+xdg-user-dirs
+gtk4
+libadwaita
+python-gobject
+mesa
+noto-fonts
+noto-fonts-cjk
+noto-fonts-emoji
+ttf-dejavu
+ttf-jetbrains-mono-nerd
+adwaita-icon-theme
+# --- audio
+pipewire
+pipewire-alsa
+pipewire-pulse
+wireplumber
+alsa-utils
+# --- input
+keyd
+evtest
+libinput
+# --- apps
+foot
+firefox
+nautilus
+gnome-text-editor
+gnome-calculator
+gnome-console
+# --- tools
+python
+htop
+btop
+nano
+neovim
+git
+tmux
+fastfetch
+rsync
+i2c-tools
+usbutils
+jq
+ripgrep
+fd
+less
+which
+terminus-font

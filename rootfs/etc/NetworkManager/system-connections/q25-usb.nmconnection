@@ -1,0 +1,18 @@
+[connection]
+id=USB network
+uuid=4a2f1c7e-9a55-4c1f-9a12-0f2b5f6a2501
+type=ethernet
+interface-name=usb0
+autoconnect=true
+autoconnect-priority=-10
+
+[ethernet]
+
+[ipv4]
+# Static address so "ssh <user>@10.15.19.82" always works over USB; the PC side
+# gets an address from the built-in DHCP server (method=shared, also NATs).
+method=shared
+address1=10.15.19.82/24
+
+[ipv6]
+method=link-local

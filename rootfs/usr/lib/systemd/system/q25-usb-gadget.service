@@ -1,0 +1,13 @@
+[Unit]
+Description=Q25 USB network gadget (NCM, 10.15.19.82)
+After=systemd-modules-load.service sys-kernel-config.mount
+Before=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/q25/q25-usb-gadget start
+ExecStop=/usr/lib/q25/q25-usb-gadget stop
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Q25 boot reached multi-user (reset the initramfs rescue counter)
+After=multi-user.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/rm -f /var/lib/q25/boot-count
+
+[Install]
+WantedBy=multi-user.target

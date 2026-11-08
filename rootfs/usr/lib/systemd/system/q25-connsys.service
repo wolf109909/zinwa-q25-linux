@@ -1,0 +1,15 @@
+[Unit]
+Description=Q25 CONNSYS (Wi-Fi/Bluetooth) power-on and firmware download
+After=systemd-modules-load.service q25-android.service
+Wants=q25-android.service
+Before=NetworkManager.service bluetooth.service q25-bt-vhci.service
+ConditionPathExists=/dev/wmtdetect
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/q25/q25-wmt-init
+TimeoutStartSec=60
+
+[Install]
+WantedBy=multi-user.target

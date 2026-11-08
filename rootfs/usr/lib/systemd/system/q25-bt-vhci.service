@@ -1,0 +1,13 @@
+[Unit]
+Description=Q25 Bluetooth HCI bridge (/dev/stpbt <-> hci0)
+Requires=q25-connsys.service
+After=q25-connsys.service
+Before=bluetooth.service
+
+[Service]
+ExecStart=/usr/lib/q25/q25-bt-vhci
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=bluetooth.target

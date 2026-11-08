@@ -775,6 +775,9 @@ static INT32 mtk_wcn_stp_uart_init(VOID)
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 15, 0))
 	stp_uart_ldisc.magic = TTY_LDISC_MAGIC;
 #endif
+	/* memset() above zeroed .num; without this the ldisc hijacks N_TTY (0)
+	 * and every pty/console created afterwards becomes unusable. */
+	stp_uart_ldisc.num = N_MTKSTP;
 	stp_uart_ldisc.name = "n_mtkstp";
 	stp_uart_ldisc.open = stp_uart_tty_open;
 	stp_uart_ldisc.close = stp_uart_tty_close;

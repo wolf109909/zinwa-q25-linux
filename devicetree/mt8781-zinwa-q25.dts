@@ -47,9 +47,9 @@
 		ranges;
 
 		stdout-path = "serial0:921600n1";
-		bootargs = "console=tty0 loglevel=8 earlycon panic=5 clk_ignore_unused pd_ignore_unused initcall_debug=1 ramoops.mem_address=0x48090000 ramoops.mem_size=0xcf000 ramoops.record_size=0x1000 ramoops.console_size=0x40000 ramoops.ftrace_size=0 ramoops.pmsg_size=0 arm64.nomte";
+		bootargs = "console=tty0 quiet loglevel=3 rd.udev.log_level=3 systemd.show_status=auto vt.global_cursor_default=0 panic=10 clk_ignore_unused pd_ignore_unused ramoops.mem_address=0x48090000 ramoops.mem_size=0xcf000 ramoops.record_size=0x1000 ramoops.console_size=0x40000 ramoops.ftrace_size=0 ramoops.pmsg_size=0 arm64.nomte";
 		linux,initrd-start = <0 0x66f00000>;
-		linux,initrd-end = <0 0x691ac5b6>;
+		linux,initrd-end = <0 0x6890c19f>; /* 0x66f00000 + 18923935 (vendor) + 8 MiB (boot, padded) */
 		atag,boot = <0x10000000 0x2080041 0x00 0x2000000>;
 		atag,chipid = <0x18000000 0x8120000 0x8a0000 0xca0000 0x00>;
 		atag,masp = <0x58000000 0x66080041 0x11000000 0x22000000 0x00 0x00 0x46be1a9a 0x939bac1e 0x84107e 0xfb18ab69 0x31413532 0x41333637 0x43423132 0x43343538 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00>;
@@ -327,6 +327,13 @@
 			thermal-sensors = <&cpu_thermal_sensor>;
 
 			trips {
+				/* throttle the A76 pair first to keep the chassis comfortable */
+				cpu_warm: trip-warm {
+					temperature = <70000>;
+					hysteresis = <3000>;
+					type = "passive";
+				};
+
 				cpu_alert: trip-alert {
 					temperature = <85000>;
 					hysteresis = <2000>;
@@ -341,6 +348,12 @@
 			};
 
 			cooling-maps {
+				map-warm {
+					trip = <&cpu_warm>;
+					cooling-device = <&cpu6 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+					                 <&cpu7 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+				};
+
 				map0 {
 					trip = <&cpu_alert>;
 					cooling-device = <&cpu0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
@@ -893,14 +906,78 @@
 	domain-supply = <&mt6366_vgpu_reg>;
 };
 
-&cpu0 { #cooling-cells = <2>; };
-&cpu1 { #cooling-cells = <2>; };
-&cpu2 { #cooling-cells = <2>; };
-&cpu3 { #cooling-cells = <2>; };
-&cpu4 { #cooling-cells = <2>; };
-&cpu5 { #cooling-cells = <2>; };
-&cpu6 { #cooling-cells = <2>; };
-&cpu7 { #cooling-cells = <2>; };
+/*
+ * PSCI CPU idle states (values from the stock q20_v12_factory DT). Only the
+ * CPU-off and cluster-off states are used; the deeper MCUSYS/system states
+ * need the vendor SPM/MCUPM low-power drivers.
+ */
+&{/cpus} {
+	idle-states {
+		entry-method = "psci";
+
+		cpuoff_l: cpu-off-l {
+			compatible = "arm,idle-state";
+			arm,psci-suspend-param = <0x00010001>;
+			local-timer-stop;
+			entry-latency-us = <50>;
+			exit-latency-us = <100>;
+			min-residency-us = <1600>;
+		};
+
+		cpuoff_b: cpu-off-b {
+			compatible = "arm,idle-state";
+			arm,psci-suspend-param = <0x00010002>;
+			local-timer-stop;
+			entry-latency-us = <50>;
+			exit-latency-us = <100>;
+			min-residency-us = <1400>;
+		};
+
+		clusteroff_l: cluster-off-l {
+			compatible = "arm,idle-state";
+			arm,psci-suspend-param = <0x01010101>;
+			local-timer-stop;
+			entry-latency-us = <100>;
+			exit-latency-us = <250>;
+			min-residency-us = <2100>;
+		};
+
+		clusteroff_b: cluster-off-b {
+			compatible = "arm,idle-state";
+			arm,psci-suspend-param = <0x01010102>;
+			local-timer-stop;
+			entry-latency-us = <100>;
+			exit-latency-us = <250>;
+			min-residency-us = <1900>;
+		};
+	};
+};
+
+&cpu0 { #cooling-cells = <2>; cpu-idle-states = <&cpuoff_l &clusteroff_l>; };
+&cpu1 { #cooling-cells = <2>; cpu-idle-states = <&cpuoff_l &clusteroff_l>; };
+&cpu2 { #cooling-cells = <2>; cpu-idle-states = <&cpuoff_l &clusteroff_l>; };
+&cpu3 { #cooling-cells = <2>; cpu-idle-states = <&cpuoff_l &clusteroff_l>; };
+&cpu4 { #cooling-cells = <2>; cpu-idle-states = <&cpuoff_l &clusteroff_l>; };
+&cpu5 { #cooling-cells = <2>; cpu-idle-states = <&cpuoff_l &clusteroff_l>; };
+&cpu6 { #cooling-cells = <2>; cpu-idle-states = <&cpuoff_b &clusteroff_b>; };
+&cpu7 { #cooling-cells = <2>; cpu-idle-states = <&cpuoff_b &clusteroff_b>; };
+
+/*
+ * TOPRGU doubles as the reboot-mode syscon, exactly like the stock DT:
+ * "systemctl reboot bootloader" lands in LK fastboot, "recovery" in recovery.
+ */
+&toprgu {
+	compatible = "mediatek,mt6789-wdt", "mediatek,mt6589-wdt", "syscon", "simple-mfd";
+
+	reboot-mode {
+		compatible = "syscon-reboot-mode";
+		offset = <0x24>;
+		mask = <0x0f>;
+		mode-charger = <0x01>;
+		mode-recovery = <0x02>;
+		mode-bootloader = <0x03>;
+	};
+};
 
 /* Open-Source Panfrost GPU (Arm Mali-G57 MC2) */
 &gpu {

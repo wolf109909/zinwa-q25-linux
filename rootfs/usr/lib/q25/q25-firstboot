@@ -1,0 +1,8 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0
+# Grow the root filesystem to fill the userdata partition (online ext4 resize).
+set -e
+dev=$(findmnt -no SOURCE /)
+echo "growing $dev"
+resize2fs "$dev"
+touch /var/lib/q25/firstboot-done

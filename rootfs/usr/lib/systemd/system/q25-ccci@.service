@@ -1,0 +1,24 @@
+# Template for the closed MediaTek modem daemons (ccci_rpcd, ccci_mdinit).
+# They run inside the minimal Android root prepared by q25-android.service.
+[Unit]
+Description=MediaTek modem daemon %i
+Requires=q25-android.service
+After=q25-android.service systemd-modules-load.service
+StopWhenUnneeded=no
+
+[Service]
+Type=simple
+RootDirectory=/var/lib/q25/android
+MountAPIVFS=yes
+BindPaths=/dev
+BindPaths=/run/q25/props:/tmp/mtk_props
+Environment=LD_PRELOAD=/q25/libprop_preload.so
+Environment=LD_LIBRARY_PATH=/vendor/lib64:/system/lib64:/apex/com.android.runtime/lib64:/apex/com.android.runtime/lib64/bionic
+ExecStart=/vendor/bin/%i 0
+Restart=on-failure
+RestartSec=3
+# logs go to the journal (stdout); the binaries also use __android_log_print,
+# which libprop_preload.so redirects to stderr.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=%i

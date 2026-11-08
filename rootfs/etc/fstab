@@ -1,0 +1,10 @@
+# Zinwa Q25 — the root filesystem is mounted read-write by the initramfs
+# (ext4 on PARTLABEL=userdata, fsck'd before mount). Vendor partitions are
+# needed by the modem/connectivity firmware and are only exposed inside the
+# Android-blob runtime under /var/lib/q25/android.
+PARTLABEL=userdata  /  ext4  rw,noatime,commit=30  0 0
+PARTLABEL=nvdata    /var/lib/q25/android/mnt/vendor/nvdata     ext4  noatime,nosuid,nodev,nofail,x-mount.mkdir,x-systemd.device-timeout=15s  0 0
+PARTLABEL=nvcfg     /var/lib/q25/android/mnt/vendor/nvcfg      ext4  noatime,nosuid,nodev,nofail,x-mount.mkdir,x-systemd.device-timeout=15s  0 0
+PARTLABEL=protect1  /var/lib/q25/android/mnt/vendor/protect_f  ext4  noatime,nosuid,nodev,nofail,x-mount.mkdir,x-systemd.device-timeout=15s  0 0
+PARTLABEL=protect2  /var/lib/q25/android/mnt/vendor/protect_s  ext4  noatime,nosuid,nodev,nofail,x-mount.mkdir,x-systemd.device-timeout=15s  0 0
+PARTLABEL=persist   /var/lib/q25/android/mnt/vendor/persist    ext4  noatime,nosuid,nodev,nofail,x-mount.mkdir,x-systemd.device-timeout=15s  0 0

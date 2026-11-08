@@ -1,0 +1,7 @@
+#%PAM-1.0
+# Autologin session for phosh.service (the lock screen still asks for the password)
+auth       requisite    pam_nologin.so
+auth       required     pam_permit.so
+account    include      system-local-login
+password   include      system-local-login
+session    include      system-local-login
