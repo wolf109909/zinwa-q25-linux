@@ -1,0 +1,3 @@
+# NetworkManager's 85-nm-unmanaged.rules excludes USB gadgets by default.
+# On Q25, NM owns usb0's shared profile and its host-facing DHCP server.
+ACTION=="add|change|move", SUBSYSTEM=="net", KERNEL=="usb0", ENV{DEVTYPE}=="gadget", ENV{NM_UNMANAGED}="0"
