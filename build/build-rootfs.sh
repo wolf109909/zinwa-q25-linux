@@ -92,11 +92,7 @@ stage_configure() {
     sed -i 's/^#\(en_US.UTF-8 UTF-8\)/\1/; s/^#\(zh_CN.UTF-8 UTF-8\)/\1/' "$ROOT/etc/locale.gen"
     echo LANG=en_US.UTF-8 > "$ROOT/etc/locale.conf"
     in_root locale-gen >/dev/null
-    cat > "$ROOT/etc/pacman.d/mirrorlist" <<'EOF'
-Server = https://mirrors.ustc.edu.cn/archlinuxarm/$arch/$repo
-Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/$arch/$repo
-Server = http://mirror.archlinuxarm.org/$arch/$repo
-EOF
+    install -Dm644 "$REPO/rootfs/etc/pacman.d/mirrorlist" "$ROOT/etc/pacman.d/mirrorlist"
 
     log "configure: users"
     if ! in_root id "$Q25_USER" >/dev/null 2>&1; then

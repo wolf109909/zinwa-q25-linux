@@ -1,0 +1,4 @@
+# CERNET chooses a nearby Arch Linux ARM mirror; keep independent fallbacks.
+Server = https://mirrors.cernet.edu.cn/archlinuxarm/$arch/$repo
+Server = https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/$arch/$repo
+Server = http://mirror.archlinuxarm.org/$arch/$repo
