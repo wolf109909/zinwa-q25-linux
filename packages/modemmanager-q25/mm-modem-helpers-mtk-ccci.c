@@ -132,3 +132,129 @@ mm_mtk_ccci_valid_apn (const gchar *apn)
     }
     return TRUE;
 }
+
+/* Only one short, complete solicited response is accepted. Never salvage fields
+ * from a mixed response (which could contain an unrelated unsolicited record). */
+static gchar **
+ims_response_fields (const gchar *response, const gchar *tag)
+{
+    g_autofree gchar *copy = NULL;
+    g_auto(GStrv) fields = NULL;
+    guint count, i;
+
+    if (!response || strnlen (response, MM_MTK_CCCI_IMS_RESPONSE_MAX + 1) > MM_MTK_CCCI_IMS_RESPONSE_MAX)
+        return NULL;
+    copy = g_strdup (response);
+    g_strstrip (copy);
+    if (!g_str_has_prefix (copy, tag) || strpbrk (copy, "\r\n\v\f"))
+        return NULL;
+    fields = g_strsplit (copy + strlen (tag), ",", 4);
+    count = g_strv_length (fields);
+    if (count != 2 && count != 3)
+        return NULL;
+    for (i = 0; i < count; i++)
+        g_strstrip (fields[i]);
+    return g_steal_pointer (&fields);
+}
+
+static gboolean
+ims_enum (const gchar *field, gint maximum, gint *value)
+{
+    if (strlen (field) != 1 || field[0] < '0' || field[0] > '0' + maximum)
+        return FALSE;
+    *value = field[0] - '0';
+    return TRUE;
+}
+
+gboolean
+mm_mtk_ccci_parse_cireg (const gchar *response, MMMtkCcciCireg *result)
+{
+    g_auto(GStrv) fields = ims_response_fields (response, "+CIREG:");
+    MMMtkCcciCireg parsed = { .reporting = -1, .registered = -1 };
+    const gchar *p;
+
+    *result = parsed;
+    if (!fields || !ims_enum (fields[0], 2, &parsed.reporting) ||
+        !ims_enum (fields[1], 1, &parsed.registered))
+        return FALSE;
+    if (fields[2]) {
+        guint32 capabilities;
+
+        /* Stock RIL reads the first two enums independently. Still validate
+         * the entire hex tail, but do not interpret unregistered/zero padding
+         * as TS 27.007 ext_info or let it erase valid registration. */
+        if (!*fields[2] || strlen (fields[2]) > 8)
+            return FALSE;
+        for (p = fields[2]; *p; p++) {
+            if (!g_ascii_isxdigit (*p))
+                return FALSE;
+        }
+        capabilities = (guint32) g_ascii_strtoull (fields[2], NULL, 16);
+        if (parsed.registered && capabilities) {
+            parsed.capabilities = capabilities;
+            parsed.capabilities_known = TRUE;
+        }
+    }
+    *result = parsed;
+    return TRUE;
+}
+
+gboolean
+mm_mtk_ccci_parse_cirep (const gchar *response, MMMtkCcciCirep *result)
+{
+    g_auto(GStrv) fields = ims_response_fields (response, "+CIREP:");
+    MMMtkCcciCirep parsed = { .reporting = -1, .vops = -1, .vops_n3gpp = -1 };
+
+    *result = parsed;
+    if (!fields || !ims_enum (fields[0], 1, &parsed.reporting) ||
+        !ims_enum (fields[1], 1, &parsed.vops) ||
+        (fields[2] && !ims_enum (fields[2], 1, &parsed.vops_n3gpp)))
+        return FALSE;
+    *result = parsed;
+    return TRUE;
+}
+
+/* Diagnostic predicates only: never retain tokens or turn a rejected response
+ * into registration. Ignore unrelated/multiline tails and cap all counts. */
+void
+mm_mtk_ccci_inspect_ims_response (const gchar *response, const gchar *tag, MMMtkCcciImsShape *shape)
+{
+    g_autofree gchar *copy = NULL;
+    g_auto(GStrv) fields = NULL;
+    gchar *body;
+    guint i;
+
+    *shape = (MMMtkCcciImsShape) { -1, -1, -1, -1, -1, -1 };
+    if (!response)
+        return;
+    shape->length = strnlen (response, MM_MTK_CCCI_IMS_RESPONSE_MAX + 1);
+    if (shape->length > MM_MTK_CCCI_IMS_RESPONSE_MAX)
+        return;
+    copy = g_strdup (response);
+    g_strstrip (copy);
+    shape->prefix_matches = g_str_has_prefix (copy, tag);
+    shape->multiline = strpbrk (copy, "\r\n\v\f") != NULL;
+    if (!shape->prefix_matches || shape->multiline)
+        return;
+    body = g_strstrip (copy + strlen (tag));
+    shape->fields = shape->decimal_fields = shape->hex_fields = 0;
+    if (!*body)
+        return;
+    fields = g_strsplit (body, ",", 4);
+    shape->fields = g_strv_length (fields);
+    for (i = 0; i < MIN ((guint) shape->fields, 3); i++) {
+        const gchar *p = g_strstrip (fields[i]);
+        guint length = strlen (p);
+        gboolean decimal = length > 0 && length <= 10;
+        gboolean hex = length > 0 && length <= 8;
+
+        for (; *p; p++) {
+            decimal = decimal && g_ascii_isdigit (*p);
+            hex = hex && g_ascii_isxdigit (*p);
+        }
+        if (decimal && g_ascii_strtoull (fields[i], NULL, 10) <= G_MAXUINT32)
+            shape->decimal_fields |= 1 << i;
+        if (hex)
+            shape->hex_fields |= 1 << i;
+    }
+}

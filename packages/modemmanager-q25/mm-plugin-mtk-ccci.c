@@ -13,6 +13,7 @@
 #include "mm-log-object.h"
 #include "mm-modem-helpers.h"
 #include "mm-modem-helpers-mtk-ccci.h"
+#include "mm-ims-observer-mtk-ccci.h"
 
 typedef struct {
     MMBaseModemAtCommand commands[9];
@@ -449,6 +450,7 @@ struct _MMBroadbandModemMtkCcci {
     MMBroadbandModem parent;
     /* EIAAPN has no read form; retain only settings acknowledged this session. */
     MMBearerProperties *initial_eps_settings;
+    MMMtkCcciImsObserver ims_observer;
 };
 static void iface_modem_init (MMIfaceModemInterface *iface);
 static void iface_modem_3gpp_init (MMIfaceModem3gppInterface *iface);
@@ -777,11 +779,23 @@ iface_modem_init (MMIfaceModemInterface *iface)
     iface->setup_flow_control_finish = NULL;
 }
 
-static void mm_broadband_modem_mtk_ccci_init (MMBroadbandModemMtkCcci *self) {}
+static void
+mm_broadband_modem_mtk_ccci_init (MMBroadbandModemMtkCcci *self)
+{
+    mm_mtk_ccci_ims_observer_init (&self->ims_observer, MM_BASE_MODEM (self));
+}
+
+static void
+modem_dispose (GObject *object)
+{
+    mm_mtk_ccci_ims_observer_dispose (&MM_BROADBAND_MODEM_MTK_CCCI (object)->ims_observer);
+    G_OBJECT_CLASS (mm_broadband_modem_mtk_ccci_parent_class)->dispose (object);
+}
 
 static void
 modem_finalize (GObject *object)
 {
+    mm_mtk_ccci_ims_observer_clear (&MM_BROADBAND_MODEM_MTK_CCCI (object)->ims_observer);
     g_clear_object (&MM_BROADBAND_MODEM_MTK_CCCI (object)->initial_eps_settings);
     G_OBJECT_CLASS (mm_broadband_modem_mtk_ccci_parent_class)->finalize (object);
 }
@@ -789,6 +803,7 @@ modem_finalize (GObject *object)
 static void
 mm_broadband_modem_mtk_ccci_class_init (MMBroadbandModemMtkCcciClass *klass)
 {
+    G_OBJECT_CLASS (klass)->dispose = modem_dispose;
     G_OBJECT_CLASS (klass)->finalize = modem_finalize;
     MM_BROADBAND_MODEM_CLASS (klass)->setup_ports = setup_ports;
     MM_BROADBAND_MODEM_CLASS (klass)->initialization_started = initialization_started;

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 pkgname=modemmanager-q25
 pkgver=1.24.2
-pkgrel=1
+pkgrel=4
 pkgdesc='MediaTek CCCI AT/ccmni plugin for the Zinwa Q25 (ModemManager 1.24.2 ABI)'
 arch=('aarch64')
 url='https://gitlab.freedesktop.org/mobile-broadband/ModemManager'
@@ -14,7 +14,10 @@ source=("https://gitlab.freedesktop.org/mobile-broadband/ModemManager/-/archive/
         'mm-plugin-mtk-ccci.c'
         'mm-modem-helpers-mtk-ccci.c'
         'mm-modem-helpers-mtk-ccci.h'
+        'mm-ims-observer-mtk-ccci.c'
+        'mm-ims-observer-mtk-ccci.h'
         'test-modem-helpers-mtk-ccci.c'
+        'test-ims-observer-mtk-ccci.c'
         '77-mm-mtk-ccci.rules')
 
 prepare() {
@@ -36,6 +39,11 @@ check() {
         mm-modem-helpers-mtk-ccci.c test-modem-helpers-mtk-ccci.c \
         $(pkg-config --cflags --libs gio-2.0) $LDFLAGS -o test-modem-helpers-mtk-ccci
     ./test-modem-helpers-mtk-ccci
+    cc $CFLAGS $CPPFLAGS -Wall -Wextra -Werror \
+        -Ibuild/include -I"ModemManager-$pkgver/include" -I"ModemManager-$pkgver/src" \
+        mm-modem-helpers-mtk-ccci.c test-ims-observer-mtk-ccci.c \
+        $(pkg-config --cflags --libs gio-2.0) $LDFLAGS -o test-ims-observer-mtk-ccci
+    ./test-ims-observer-mtk-ccci
 }
 
 package() {
@@ -48,10 +56,13 @@ package() {
 
 sha256sums=(
     'fbc75adcc0d7b0565f256e7ff4e8872b0a37c4413ff576665f7470932d9c1b68'
-    '6a4afc0d8736ba8ac63034e70a21be5a2cb779ce0d33188ac4e099e26e699580'
-    '98c3a7fd092ceaede6132a5f057002a5841e7f0e603803c9869774bc97ebe263'
-    'e32ff93a4ad19f83e21df8bbb8d5b94dbb48c4ee6fb787be47deda5ee638123b'
-    '5da4b02e5197aba8ed33cadf1b378222a8f32f9d4e50d1672de198ab3d5a62ef'
-    '27a2441a41ac44eb10a1cbf7e21cd1eb87d506baf5e86a8b3348f3ca54956e05'
+    'ec15fe123491cc5afea935d70673a95690cf240157355565db953428eefff779'
+    '80fb35f62c25ae3bd21064ddf974b22d3dc57d3dfd2dfd084ca8db3359b0a18a'
+    '8694a4681c475617dc1e6c6848598dac42191b25e30f7f9f03748856eea155d5'
+    'ec5e8a6a32b58ec9ec7cae06e80f32ae2a6a8f81f2c6704ddd8e1fbf39f0cb4b'
+    '1502c7c238ca0ebaf08c471f3089e730583afc72e9e7e32ace3e2d938644fe6a'
+    '7502440068e28cb417e877eff3a0ec129bcd5e9e111b6dfd359f4db4af863b4e'
+    '83367fe01e97622a6a23503e09481b68d271a3e3ef05d20c89721f41c5cebf2a'
+    '8fff072d68fabd3304b6d7d6efa2a1a69655ca12c966b1eeed06af37fa31c1d5'
     '6ad0f6cb02ed611ec809f0386d2ff878e342cf79fbb12e1af71ff63c35e686f1'
 )
