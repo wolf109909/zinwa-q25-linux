@@ -1,11 +1,11 @@
 # IMS protocol lab — offline Channel frame codec
 
-**Not a live IMS backend.** This library only encodes/decodes byte buffers for
-one proven `libvolte_core_shr.so` Channel envelope. It opens no socket, sends
-nothing, loads no vendor code, and implements no registration sequence. Message
-IDs, the third header word and payload schemas remain opaque. In particular,
-there is **no interpretation of the previously observed 256-byte registration
-payload** and no fabricated registration fixture.
+**Not a live IMS backend.** The lab contains a byte-buffer Channel frame codec
+and a bounded registration-payload inspector. It opens no socket, sends nothing,
+loads no vendor code, and implements no registration sequence. The inspector
+extracts only independently proved fields; **there is no registration payload
+encoder, template editor or account creation**. Other message schemas and the
+Channel header's third word remain opaque.
 
 ## Proven wire format
 
@@ -38,7 +38,8 @@ make -C tools/ims-protocol-lab check-sanitize
 ```
 
 Requires a C11 compiler, libc and `ar`; no Android/device libraries. Generated
-files stay in ignored `build/`. `make all` builds `build/libims_channel_frame.a`.
+files stay in ignored `build/`. `make all` builds `build/libims_channel_frame.a`
+and the independent `build/libims_reg_request.a` inspector.
 
 The optional provenance check reads a **local archived file**, not a device, and
 never uses `dlopen` or executes the binary:
@@ -71,7 +72,29 @@ frames and apply message-specific bounds; socket connection, handshake,
 endpoint selection, authentication, IPC routing and callbacks are absent.
 Other CCCI/modem transports are not covered.
 
-## Synthetic fixtures/tests
+## Registration payload inspector
+
+See [REGISTRATION-PROVENANCE.md](REGISTRATION-PROVENANCE.md) for the proved
+IMCB11001 → UA → stack91001 remap and the fixed256-byte payload. The inspector
+retains the supplied event metadata, decodes account ID as LE32, copies raw64
+cell-ID bytes and preserves every opaque region. It makes no runtime account
+validity or cell-string-format claim. **A pre-existing private account is
+required by the receiver; this library cannot create one.**
+
+The separate synthetic inspection fixture is not a valid registration recipe.
+No float/address interpretation of its52-byte opaque block is performed.
+Normal and sanitizer targets include the inspector tests. Optional identity and
+instruction verification reads only the archived producer/consumer files:
+
+```sh
+make -C tools/ims-protocol-lab verify-reg-provenance \
+  STOCK_BIN_DIR=/home/maxsun/q25-work/ims-stock-complete/bin
+```
+
+Further custom backend work is paused while the parent evaluates reuse of
+existing open-source IMS implementations.
+
+## Channel codec synthetic fixtures/tests
 
 All `.hex` fixtures are manually specified, artificial bytes—not captures:
 

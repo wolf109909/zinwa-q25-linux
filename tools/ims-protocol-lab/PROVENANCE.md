@@ -79,9 +79,13 @@ destinations. It is static validation, not a vendor conformance/runtime test.
 ## Remaining unknowns
 
 - Message IDs and opaque word8 meanings; no registration/control permission map.
-- Payload schemas, including the earlier 256-byte IMCB/UA registration request.
+- Complete payload schemas. The bounded account/cell-byte inspection of the
+  256-byte registration request is now documented in
+  [REGISTRATION-PROVENANCE.md](REGISTRATION-PROVENANCE.md); its opaque regions
+  and private-account setup remain unresolved.
 - Cross-process handles/pointers inside any particular payload, handshake,
   readiness ordering, response correlation and service lifecycle.
 
-Resolving those is separate from this completed transport-frame codec. Nothing
-here synthesizes an IMS registration request or enables a live backend.
+Resolving those is separate from this completed transport-frame codec and its
+inspection-only companion. Nothing here synthesizes an IMS registration
+request or enables a live backend.
