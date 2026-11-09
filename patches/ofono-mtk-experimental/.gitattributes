@@ -1,0 +1,2 @@
+# Unified-diff context prefixes are required bytes, not source whitespace.
+*.patch -whitespace
