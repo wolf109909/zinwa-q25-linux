@@ -1,6 +1,6 @@
 # Inactive native telephony foundations
 
-These are self-contained **source** bundles for four independently reviewed ARM64 library packages. They are deliberately outside `packages/` and are **not included in build-all or installed on the phone**. They do not provide a working IMS backend.
+These are self-contained **source** bundles for four independently reviewed ARM64 library packages. They are deliberately outside `packages/` and **not included in build-all**. After explicit user authorization, the four library packages were installed on the phone and passed the native smoke test below. They do not provide a working IMS backend.
 
 | Package | Version |
 |---|---|
@@ -21,6 +21,12 @@ These are self-contained **source** bundles for four independently reviewed ARM6
 
 The API package includes the experimental `SMSC_HEX=0x04` header. It **does not contain the patched Binder daemon plugin or MTK extension**. Exact core/extension version pairing is still required; generic SONAME/API compatibility is insufficient. See `patches/ofono-mtk-experimental/README.md`.
 
-## Not validated or authorized
+## Native installation result
 
-No vendor RIL/oFono service startup, ownership transition, registration, message/call, audio, or phone installation. Existing ModemManager data/control remains in place; its transmit guards do not protect an alternative backend. Native oFono, the patched core and MTK extension, real Android property provider, vendor runtime namespaces and single-owner data/client integration remain separate work.
+The four listed libraries were installed in one ordinary pacman transaction (0.90 MiB total installed size), after verifying matching target GLib/glibc and existing recovery pair57/home332. `/usr/local/libexec/q25-foundations-smoke` passed natively as user `max`, without creating a Binder connection. Libraries and the test remain installed for continued testing. ModemManager, NetworkManager, Phosh and sshd stayed active with unchanged PIDs.
+
+Normal package pre/post snapshots66/67 were created; no manual home snapshot was added. Observed total afterward:22 root +4 home =26. Ordinary automatic history remains count-bounded. Remove only these four packages together with `pacman -R` if a rollback is required and nothing later depends on them; retain package archives under `/var/cache/q25-telephony-foundations`. Do not use recursive dependency removal indiscriminately.
+
+## Not validated
+
+No vendor RIL/oFono service startup, ownership transition, registration, message/call or audio test. Existing ModemManager data/control remains in place; its transmit guards do not protect an alternative backend. Native oFono, the patched core and MTK extension, real Android property provider, vendor runtime namespaces and single-owner data/client integration remain separate work.
