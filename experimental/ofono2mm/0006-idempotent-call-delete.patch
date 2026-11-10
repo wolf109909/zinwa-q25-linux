@@ -1,0 +1,69 @@
+--- a/ofono2mm/mm_modem_voice.py
++++ b/ofono2mm/mm_modem_voice.py
+@@ -154,21 +154,25 @@
+             self.pending_removed.add(path)
+             return
+ 
+-        try:
+-            mm_path = self.call_path_map[path]
+-            self.props['Calls'].value.remove(mm_path)
+-            self.bus.unexport(mm_path)
+-            self.calls.pop(mm_path, None)
+-            del self.call_path_map[path]
+-            self.emit_properties_changed({'Calls': self.props['Calls'].value})
+-            self.CallDeleted(mm_path)
+-        except KeyError:
+-            ofono2mm_print(f"No mapping found for ofono path {path}", self.verbose)
+-        except Exception as e:
+-            ofono2mm_print(f"Error while removing call {path}", self.verbose)
+-
++        mm_path = self.call_path_map.get(path)
++        if mm_path is not None:
++            self._remove_local_call(mm_path)
+         self.set_emergency_mode()
+ 
++    def _remove_local_call(self, path):
++        call = self.calls.pop(path, None)
++        if call is None:
++            return
++        call.deleted = True
++        if path in self.props['Calls'].value:
++            self.props['Calls'].value.remove(path)
++        for native_path, mm_path in list(self.call_path_map.items()):
++            if mm_path == path:
++                del self.call_path_map[native_path]
++        self.bus.unexport(path)
++        self.emit_properties_changed({'Calls': self.props['Calls'].value})
++        self.CallDeleted(path)
++
+     @method()
+     def ListCalls(self) -> 'ao':
+         ofono2mm_print("Returning list of calls", self.verbose)
+@@ -184,15 +188,7 @@
+                 raise DBusError('org.freedesktop.ModemManager1.Error.Core.WrongState', 'Call outcome is unknown')
+             if call.ofono_voicecall is not None:
+                 await call.ofono_voicecall.call_hangup()
+-            call.deleted = True
+-            self.props['Calls'].value.remove(path)
+-            ofono_path = next((k for k, v in self.call_path_map.items() if v == path), None)
+-            if ofono_path:
+-                del self.call_path_map[ofono_path]
+-            self.bus.unexport(path)
+-            self.calls.pop(path, None)
+-            self.emit_properties_changed({'Calls': self.props['Calls'].value})
+-            self.CallDeleted(path)
++            self._remove_local_call(path)
+ 
+         self.set_emergency_mode()
+ 
+@@ -200,8 +196,8 @@
+     async def CreateCall(self, properties: 'a{sv}') -> 'o':
+         ofono2mm_print("Allocating outgoing call", self.verbose)
+         global call_i
+-        if 'number' not in properties:
+-            raise DBusError('org.freedesktop.ModemManager1.Error.Core.InvalidArgs', "Property 'number' is required")
++        if not isinstance(properties.get('number'), Variant) or properties['number'].signature != 's':
++            raise DBusError('org.freedesktop.ModemManager1.Error.Core.InvalidArgs', "Property 'number' must be a string variant")
+ 
+         object_path = f'/org/freedesktop/ModemManager1/Call/{call_i}'
+         call_i += 1

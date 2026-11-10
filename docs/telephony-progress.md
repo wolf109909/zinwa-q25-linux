@@ -1,6 +1,17 @@
-# Native Q25 telephony investigation — 2026-11-09
+# Native Q25 telephony investigation — updated 2026-11-10
 
-**SMS and calls are not fixed or end-to-end validated.** No investigator call, SMS, USSD, queued retry or private-message inspection was performed. Chatty/Calls remain frozen/masked and transmission guards remain in place.
+**SMS and calls are not fixed or end-to-end validated.** No investigator call, SMS, USSD, queued retry or private-message inspection was performed. Transmission restrictions remain. The user has since power-cycled the phone: old process IDs, runtime masks and client freezes must not be assumed to survive. Guard/client and network state require fresh verification after renewed hotel access.
+
+## Current offline handoff
+
+- Native foundation/Binder/oFono packages were installed in earlier authorized work, but neither RIL/HAL/IMS operation nor app compatibility follows from a version/linking smoke test. Isolated HIDL manager RPC succeeded with process-local no-SID compatibility handling; this is not real SELinux security or proof that radio HALs work. See `../experimental/telephony-foundations/STACK-STATUS.md`.
+- A prior authorized physical MUX trial produced genuine ready tokens and13 channels, but direct raw-AT handback failed. The ordinary modem lifecycle fallback restored raw AT and native MM. No RIL/IMS stage followed. Later fake-bearer trials never reached RIL execution. Earlier trial PIDs are historical after the user reboot.
+- The maintained FuriLabs app bridge is archived under `../experimental/ofono2mm/`, **outside the image build and not installed**. Seven patches defer send/dial until explicit methods, add passive diagnostic startup, remove sensitive logging, reconcile native SMS submission state, and clean up signal observers. Parent independently passed46 private-bus tests against the packaged tree;48 synthetic completed messages retained without Delete left no SMS-owned broker rules or handlers. These are contract tests, not phone/app acceptance or recipient delivery.
+- The separately observed boot crash has a bounded CCCI tag-parser fix (`8e39b6f`) and a verified linked module candidate, **not installed**. Its driver has no unload entry; later deployment needs stable power, actual installed-module backup, exact kernel matching and an authorized reboot/recovery plan. The cold-phone thermal cutoff remains unresolved; see `power-unplug-investigation.md`.
+- Host stock-RIL emulation is blocked on missing exact32/64-bit Android bootstrap/linker files, not a demonstrated QEMU incompatibility. `~/q25-work/ims-reuse/native-packages/live-stack/ril-host-qemu/public-runtime-manifest.json` identifies public-file candidates, exact local reuse, unresolved namespace choices and unknown closure. It is not authorization to collect every candidate. No phone fetch or substitute firmware download was attempted.
+- Hotel work must first establish fresh access, stable power and recovery/guard baselines. Native queue replay, direct backend authorization, modem ownership transfer, real RIL/HAL/IMS integration, standard-app interoperability and call audio remain gates. Any call/message acceptance still requires separate explicit permission.
+
+The restoration and snapshot counts below are historical evidence, **not a current live inventory**. Reuse suitable verified recovery points and check retention before adding more.
 
 ## Established observations
 

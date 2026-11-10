@@ -1,0 +1,197 @@
+--- a/ofono2mm/mm_sms.py
++++ b/ofono2mm/mm_sms.py
+@@ -1,12 +1,12 @@
+ from dbus_fast.service import (ServiceInterface, method,
+                                dbus_property)
+-from dbus_fast.constants import PropertyAccess
+-from dbus_fast import Variant, DBusError
++from dbus_fast.constants import PropertyAccess, MessageType
++from dbus_fast import Variant, DBusError, Message
+ 
+ from ofono2mm.logging import ofono2mm_print
+ 
+ class MMSmsInterface(ServiceInterface):
+-    def __init__(self, verbose=False, ofono_interfaces=None):
++    def __init__(self, verbose=False, ofono_interfaces=None, bus=None, modem_name=None):
+         super().__init__('org.freedesktop.ModemManager1.Sms')
+         ofono2mm_print("Initializing SMS interface", verbose)
+         self.verbose = verbose
+@@ -14,6 +14,16 @@
+         self.send_attempted = False
+         self.deleted = False
+         self.ofono_sms_path = None
++        self.bus = bus
++        self.modem_name = modem_name
++        self._native_owner = None
++        self._watching = False
++        self._match_rules = []
++        self._early_states = {}
++        self._early_removed = set()
++        self._native_state = None
++        self._removed = False
++        self._state_revision = 0
+         self.props = {
+             "State": Variant('u', 0), # default value unknown MM_SMS_STATE_UNKNOWN
+             "PduType": Variant('u', 0), # default value unknown MM_SMS_PDU_TYPE_UNKNOWN
+@@ -48,12 +58,124 @@
+         self.props['State'] = Variant('u', 4) # MM_SMS_STATE_SENDING
+         self.emit_properties_changed({'State': 4})
+         try:
++            if not await self._start_native_watch():
++                return # Deleted while subscriptions were being installed.
+             self.ofono_sms_path = await manager.call_send_message(self.props['Number'].value, self.props['Text'].value)
++            if not isinstance(self.ofono_sms_path, str) or not self.ofono_sms_path.startswith(self.modem_name + '/'):
++                raise ValueError('Invalid native message path')
+         except Exception:
+             self.props['State'] = Variant('u', 0) # Outcome unknown; never retry here.
+             self.emit_properties_changed({'State': 0})
++            await self.disconnect_native()
+             raise DBusError('org.freedesktop.ModemManager1.Error.Core.Failed', 'SMS submission failed or outcome unknown; not retried') from None
+ 
++        if self.deleted:
++            await self.disconnect_native()
++            return
++        self._removed = self.ofono_sms_path in self._early_removed
++        self._apply_native_state(self._early_states.get(self.ofono_sms_path))
++        self._early_states.clear()
++        self._early_removed.clear()
++        revision = self._state_revision
++        try:
++            reply = await self.bus.call(Message(destination=self._native_owner,
++                path=self.ofono_sms_path, interface='org.ofono.Message', member='GetProperties'))
++            if reply.message_type == MessageType.ERROR:
++                raise ValueError('Native message no longer available')
++            # A signal received during GetProperties is newer than its snapshot.
++            if not self.deleted and revision == self._state_revision:
++                self._apply_native_state(reply.body[0].get('State'))
++        except Exception:
++            if not self.deleted and self._native_state not in ('sent', 'failed', 'cancelled'):
++                self._apply_native_state(None)
++
++    async def _start_native_watch(self):
++        reply = await self.bus.call(Message(destination='org.freedesktop.DBus',
++            path='/org/freedesktop/DBus', interface='org.freedesktop.DBus',
++            member='GetNameOwner', signature='s', body=['org.ofono']))
++        if reply.message_type == MessageType.ERROR:
++            raise ValueError('Native message service unavailable')
++        if self.deleted:
++            return False
++        self._native_owner = reply.body[0]
++        self.bus.add_message_handler(self._native_message_signal)
++        self._watching = True
++        prefix = f"type='signal',sender='{self._native_owner}',"
++        rules = [prefix + f"interface='org.ofono.Message',member='PropertyChanged',path_namespace='{self.modem_name}'"]
++        rules += [prefix + f"interface='org.ofono.MessageManager',member='{member}',path='{self.modem_name}'"
++                  for member in ('MessageAdded', 'MessageRemoved')]
++        # Await AddMatch before SendMessage, so fast terminal signals cannot race
++        # subscription installation. No GetMessages or unrelated property reads.
++        for rule in rules:
++            reply = await self.bus.call(Message(destination='org.freedesktop.DBus',
++                path='/org/freedesktop/DBus', interface='org.freedesktop.DBus',
++                member='AddMatch', signature='s', body=[rule]))
++            if reply.message_type == MessageType.ERROR:
++                raise ValueError('Cannot observe native message state')
++            self._match_rules.append(rule)
++            if self.deleted:
++                await self.disconnect_native()
++                return False
++        return True
++
++    def _native_message_signal(self, message):
++        if self.deleted or message.message_type != MessageType.SIGNAL or message.sender != self._native_owner:
++            return
++        if message.interface == 'org.ofono.MessageManager' and message.path == self.modem_name:
++            if message.member == 'MessageAdded' and message.signature == 'oa{sv}' and self.ofono_sms_path is None:
++                path, props = message.body
++                if path.startswith(self.modem_name + '/'):
++                    self._early_states[path] = props.get('State')
++            elif message.member == 'MessageRemoved' and message.signature == 'o':
++                path = message.body[0]
++                if path == self.ofono_sms_path:
++                    self._removed = True
++                    self._state_revision += 1
++                    self._apply_native_state(None)
++                elif self.ofono_sms_path is None and path in self._early_states:
++                    self._early_removed.add(path)
++        elif message.interface == 'org.ofono.Message' and message.member == 'PropertyChanged' and message.signature == 'sv':
++            name, value = message.body
++            if name != 'State':
++                return
++            if message.path == self.ofono_sms_path:
++                self._state_revision += 1
++                self._apply_native_state(value)
++            elif self.ofono_sms_path is None and message.path in self._early_states:
++                # Retain only State for newly announced objects during this Send;
++                # correlate with its returned path, then discard every other path.
++                self._early_states[message.path] = value
++
++    def _apply_native_state(self, value):
++        if self.deleted or self._native_state in ('sent', 'failed', 'cancelled'):
++            return
++        state = value.value if isinstance(value, Variant) and value.signature == 's' else None
++        if state not in ('pending', 'sent', 'failed', 'cancelled'):
++            state = None
++        if self._removed and state == 'pending':
++            state = None
++        self._native_state = state
++        # MM has no FAILED SMS state. Native sent means submitted, NOT delivered.
++        mm_state = 5 if state == 'sent' else 4 if state == 'pending' else 0
++        if self.props['State'].value != mm_state:
++            self.props['State'] = Variant('u', mm_state)
++            self.emit_properties_changed({'State': mm_state})
++
++    async def disconnect_native(self):
++        if self._watching:
++            self.bus.remove_message_handler(self._native_message_signal)
++            self._watching = False
++        rules, self._match_rules = self._match_rules, []
++        self._early_states.clear()
++        self._early_removed.clear()
++        for rule in rules:
++            try:
++                await self.bus.call(Message(destination='org.freedesktop.DBus',
++                    path='/org/freedesktop/DBus', interface='org.freedesktop.DBus',
++                    member='RemoveMatch', signature='s', body=[rule]))
++            except Exception:
++                pass # Connection may already be gone; local handler is detached.
++
+     @method()
+     def Store(self, storage: 'u'):
+         ofono2mm_print(f"Storing SMS to {storage}", self.verbose)
+--- a/ofono2mm/mm_modem_messaging.py
++++ b/ofono2mm/mm_modem_messaging.py
+@@ -59,12 +59,13 @@
+         return self.props['Messages'].value
+ 
+     @method()
+-    def Delete(self, path: 'o'):
++    async def Delete(self, path: 'o'):
+         ofono2mm_print(f"Delete message with object path {path}", self.verbose)
+ 
+         if path in self.props['Messages'].value:
+             self.props['Messages'].value.remove(path)
+             self.messages[path].deleted = True
++            await self.messages[path].disconnect_native()
+             self.bus.unexport(path)
+             self.messages.pop(path, None)
+             self.emit_properties_changed({'Messages': self.props['Messages'].value})
+@@ -77,11 +78,16 @@
+         ofono2mm_print("Allocating outgoing SMS", self.verbose)
+ 
+         global message_i
+-        if 'number' not in properties or 'text' not in properties:
+-            raise DBusError('org.freedesktop.ModemManager1.Error.Core.InvalidArgs', "Properties 'number' and 'text' are required")
++        for name, signature in (('number', 's'), ('text', 's')):
++            value = properties.get(name)
++            if not isinstance(value, Variant) or value.signature != signature:
++                raise DBusError('org.freedesktop.ModemManager1.Error.Core.InvalidArgs', "Properties 'number' and 'text' must be string variants")
++        if 'delivery-report-request' in properties and (not isinstance(properties['delivery-report-request'], Variant) or properties['delivery-report-request'].signature != 'b'):
++            raise DBusError('org.freedesktop.ModemManager1.Error.Core.InvalidArgs', 'Delivery report request must be a boolean variant')
+ 
+-        mm_sms_interface = MMSmsInterface(self.verbose, self.ofono_interfaces)
++        mm_sms_interface = MMSmsInterface(self.verbose, self.ofono_interfaces, self.bus, self.modem_name)
+         mm_sms_interface.props.update({
++            'DeliveryState': Variant('u', 0x100), # MM_SMS_DELIVERY_STATE_UNKNOWN
+             'State': Variant('u', 1), # MM_SMS_STATE_STORED (local, unsent)
+             'PduType': Variant('u', 2), # MM_SMS_PDU_TYPE_SUBMIT
+             'Text': properties['text'],

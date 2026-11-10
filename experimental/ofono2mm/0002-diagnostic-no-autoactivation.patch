@@ -1,0 +1,258 @@
+--- a/main.py
++++ b/main.py
+@@ -19,12 +19,13 @@
+     return "1.24.0"
+ 
+ class MMInterface(ServiceInterface):
+-    def __init__(self, loop, bus, verbose=False):
++    def __init__(self, loop, bus, verbose=False, diagnostic=False):
+         super().__init__('org.freedesktop.ModemManager1')
+         ofono2mm_print("Initializing Manager interface", verbose)
+         self.loop = loop
+         self.bus = bus
+         self.verbose = verbose
++        self.diagnostic = diagnostic
+         self.ofono_client: Ofono = Ofono(bus)
+         self.dbus_client: DBus = DBus(bus)
+         self.modems: Dict[str, MMModemInterface] = {}
+@@ -105,13 +106,13 @@
+         for path, props in ril_modems:
+             ofono2mm_print(f"Found modem: {path}, {props}", self.verbose)
+ 
+-            if not props['Powered'].value:
++            if not self.diagnostic and not props['Powered'].value:
+                 try:
+                     await self.ofono_client["ofono_modem"][path]['org.ofono.Modem'].call_set_property('Powered', Variant('b', True))
+                 except DBusError as e:
+                     ofono2mm_print(f"Failed to power up modem {path}: {e}", self.verbose)
+ 
+-            if not props['Online'].value:
++            if not self.diagnostic and not props['Online'].value:
+                 try:
+                     await self.ofono_client["ofono_modem"][path]['org.ofono.Modem'].call_set_property('Online', Variant('b', True))
+                 except DBusError as e:
+@@ -170,7 +171,7 @@
+ 
+         index = int(path.split('_')[-1])
+ 
+-        mm_modem_interface = MMModemInterface(self.loop, index, self.bus, self.ofono_client, path, self.verbose)
++        mm_modem_interface = MMModemInterface(self.loop, index, self.bus, self.ofono_client, path, self.verbose, diagnostic=self.diagnostic)
+         promises = [mm_modem_interface.init_mm_sim_interface(),
+                     mm_modem_interface.init_mm_3gpp_interface(),
+                     mm_modem_interface.init_mm_3gpp_ussd_interface(),
+@@ -193,9 +194,12 @@
+         self.modems[path] = mm_modem_interface
+ 
+         mm_modem_simple = mm_modem_interface.get_mm_modem_simple_interface()
+-        self.loop.create_task(self.simple_set_apn(mm_modem_simple))
++        if not self.diagnostic:
++            self.loop.create_task(self.simple_set_apn(mm_modem_simple))
+ 
+     async def simple_set_apn(self, mm_modem_simple):
++        if self.diagnostic:
++            return
+         ofono2mm_print("Setting APN in Network Manager", self.verbose)
+ 
+         while True:
+@@ -242,6 +246,8 @@
+     parser.add_argument('-V', '--version', action='store_true', help='Print version.')
+     parser.add_argument('-h', '--help', action='store_true', help='Show help.')
+ 
++    parser.add_argument('--diagnostic', action='store_true', help='Observe backend state without automatic radio/data activation; explicit MM mutators are NOT blocked.')
++
+     args = parser.parse_args()
+ 
+     if args.version:
+@@ -260,7 +266,7 @@
+     bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
+     loop = asyncio.get_running_loop()
+ 
+-    mm_manager_interface = MMInterface(loop, bus, verbose=verbose)
++    mm_manager_interface = MMInterface(loop, bus, verbose=verbose, diagnostic=args.diagnostic)
+ 
+     bus.export('/org/freedesktop/ModemManager1', mm_manager_interface)
+ 
+--- a/ofono2mm/mm_modem.py
++++ b/ofono2mm/mm_modem.py
+@@ -32,7 +32,7 @@
+ bearer_i = 0
+ 
+ class MMModemInterface(ServiceInterface):
+-    def __init__(self, loop, index, bus, ofono_client, modem_name, verbose=False):
++    def __init__(self, loop, index, bus, ofono_client, modem_name, verbose=False, diagnostic=False):
+         super().__init__('org.freedesktop.ModemManager1.Modem')
+         self.modem_name = modem_name
+         ofono2mm_print("Initializing Modem interface", verbose)
+@@ -42,6 +42,7 @@
+         self.ofono_client = ofono_client
+         self.ofono_proxy = self.ofono_client["ofono_modem"][modem_name]
+         self.verbose = verbose
++        self.diagnostic = diagnostic
+         self.ofono_modem = self.ofono_proxy['org.ofono.Modem']
+         self.ofono_interfaces = {}
+         self.ofono_interface_props = DBusInterfaceProperties(self.ofono_proxy, verbose)
+@@ -194,10 +195,12 @@
+         if self.mm_modem_signal_interface and iface == "org.ofono.NetworkMonitor":
+             await self.mm_modem_signal_interface.set_props()
+ 
+-        if iface == "org.ofono.FuriLabs.AT":
++        if iface == "org.ofono.FuriLabs.AT" and not self.diagnostic:
+             self.loop.create_task(self._restore_saved_bands())
+ 
+     async def _restore_saved_bands(self):
++        if self.diagnostic:
++            return
+         bands = read_setting("current_bands")
+         if not bands or not bands.strip():
+             return
+@@ -384,7 +387,7 @@
+     async def init_mm_cell_broadcast_interface(self):
+         ofono2mm_print("Initialize Cell Broadcast interface", self.verbose)
+ 
+-        self.mm_modem_cell_broadcast_interface = MMModemCellBroadcastInterface(self.bus, self.modem_name, self.ofono_interfaces, self.verbose)
++        self.mm_modem_cell_broadcast_interface = MMModemCellBroadcastInterface(self.bus, self.modem_name, self.ofono_interfaces, self.verbose, diagnostic=self.diagnostic)
+         self.bus.export(f'/org/freedesktop/ModemManager1/Modem/{self.index}', self.mm_modem_cell_broadcast_interface)
+ 
+         self.loop.create_task(self.init_cell_broadcast())
+@@ -723,9 +726,9 @@
+ 
+         old_state = self.props['State'].value
+         self.props['UnlockRequired'] = Variant('u', 1) # modem is unlocked MM_MODEM_LOCK_NONE
+-        if 'Powered' in self.ofono_interface_props['org.ofono.Modem'].props and self.ofono_interface_props['org.ofono.Modem']['Powered'].value and 'org.ofono.SimManager' in self.ofono_interface_props and self.enabled:
++        if 'Powered' in self.ofono_interface_props['org.ofono.Modem'].props and self.ofono_interface_props['org.ofono.Modem']['Powered'].value and 'org.ofono.SimManager' in self.ofono_interface_props and (self.diagnostic or self.enabled):
+             if 'Present' in self.ofono_interface_props['org.ofono.SimManager'].props:
+-                if not self.was_powered:
++                if not self.was_powered and not self.diagnostic:
+                     # Bring the modem online now that it's powered
+                     try:
+                         await self.ofono_proxy['org.ofono.Modem'].call_set_property('Online', Variant('b', True))
+@@ -961,7 +964,9 @@
+             supported_modes.append([2, 0]) # none
+ 
+         self.props['SupportedModes'] = Variant('a(uu)', supported_modes)
+-        if self.selected_current_mode in supported_modes:
++        if self.diagnostic:
++            self.props['CurrentModes'] = Variant('(uu)', [modes, pref])
++        elif self.selected_current_mode in supported_modes:
+             self.props['CurrentModes'] = Variant('(uu)', self.selected_current_mode)
+         elif read_setting("current_mode") != "False":
+             self.selected_current_mode = literal_eval(read_setting("current_mode").strip())
+@@ -976,6 +981,10 @@
+             self.props['SupportedModes'] = Variant('a(uu)', [[0, 0]]) # allowed mode none, preferred mode none MM_MODEM_MODE_NONE
+             self.props['CurrentModes'] = Variant('(uu)', [0, 0]) # allowed mode none, preferred mode none MM_MODEM_MODE_NONE
+ 
++        if self.diagnostic:
++            powered = self.ofono_interface_props['org.ofono.Modem'].props.get('Powered', Variant('b', False)).value
++            self.props['PowerState'] = Variant('u', 3 if powered else 1)
++
+         self.props['EquipmentIdentifier'] = Variant('s', self.ofono_interface_props['org.ofono.Modem']['Serial'].value if 'Serial' in self.ofono_interface_props['org.ofono.Modem'].props else '')
+         self.props['HardwareRevision'] = Variant('s', self.ofono_interface_props['org.ofono.Modem']['Revision'].value if 'Revision' in self.ofono_interface_props['org.ofono.Modem'].props else '')
+         self.props['Revision'] = Variant('s', self.ofono_interface_props['org.ofono.Modem']['SoftwareVersionNumber'].value if 'SoftwareVersionNumber' in self.ofono_interface_props['org.ofono.Modem'].props else '')
+@@ -1078,7 +1087,7 @@
+                 # Setting Protocol needs the context down, so writing the value it
+                 # already holds would cost a live PDN.
+                 ctx_props = await ofono_ctx_interface.call_get_properties()
+-                if not (ctx_props.get('Active', Variant('b', False)).value
++                if not self.diagnostic and not (ctx_props.get('Active', Variant('b', False)).value
+                         and ctx_props.get('Protocol', Variant('s', '')).value == protocol):
+                     await ofono_ctx_interface.call_set_property("Active", Variant('b', False))
+                     await ofono_ctx_interface.call_set_property("Protocol", Variant('s', protocol))
+@@ -1533,6 +1542,8 @@
+ 
+     @dbus_property(access=PropertyAccess.READ)
+     async def SupportedBands(self) -> 'au':
++        if self.diagnostic:
++            return self.props['SupportedBands'].value
+         try:
+             supported_bands = await self._send_at_command("AT+EPBSEH=?")
+             if supported_bands:
+@@ -1551,6 +1562,8 @@
+ 
+     @dbus_property(access=PropertyAccess.READ)
+     async def CurrentBands(self) -> 'au':
++        if self.diagnostic:
++            return self.props['CurrentBands'].value
+         try:
+             current_bands = await self._send_at_command("AT+EPBSEH?")
+             if current_bands:
+--- a/ofono2mm/mm_modem_cell_broadcast.py
++++ b/ofono2mm/mm_modem_cell_broadcast.py
+@@ -8,13 +8,14 @@
+ cbm_i = 0
+ 
+ class MMModemCellBroadcastInterface(ServiceInterface):
+-    def __init__(self, bus, modem_name, ofono_interfaces, verbose=False):
++    def __init__(self, bus, modem_name, ofono_interfaces, verbose=False, diagnostic=False):
+         super().__init__('org.freedesktop.ModemManager1.Modem.CellBroadcast')
+         self.modem_name = modem_name
+         ofono2mm_print("Initializing Cell Broadcast interface", verbose)
+         self.bus = bus
+         self.ofono_interfaces = ofono_interfaces
+         self.verbose = verbose
++        self.diagnostic = diagnostic
+         self.cbms = {}
+         self.props = {
+             'CellBroadcasts': Variant('ao', []),
+@@ -83,7 +84,8 @@
+             self.ofono_interfaces['org.ofono.CellBroadcast'].on_property_changed(self.property_changed)
+ 
+             try:
+-                await self.ofono_interfaces['org.ofono.CellBroadcast'].call_set_property('Powered', Variant('b', True))
++                if not self.diagnostic:
++                    await self.ofono_interfaces['org.ofono.CellBroadcast'].call_set_property('Powered', Variant('b', True))
+             except Exception as e:
+                 ofono2mm_print(f"Failed to set org.ofono.CellBroadcast Powered to True: {e}", self.verbose)
+ 
+--- a/ofono2mm/mm_modem_simple.py
++++ b/ofono2mm/mm_modem_simple.py
+@@ -218,6 +218,8 @@
+         return self.props
+ 
+     async def network_manager_set_apn(self, force=False):
++        if self.mm_modem.diagnostic:
++            return True
+         ofono2mm_print("Generating Network Manager connection", self.verbose)
+ 
+         if 'org.ofono.SimManager' in self.ofono_interface_props and 'Present' in self.ofono_interface_props['org.ofono.SimManager'].props:
+--- a/ofono2mm/mm_bearer.py
++++ b/ofono2mm/mm_bearer.py
+@@ -162,7 +162,7 @@
+ 
+             roaming_allowed = ofono_props.get('RoamingAllowed', Variant('b', True)).value
+ 
+-            if read_setting('roaming').strip() != str(roaming_allowed):
++            if not self.mm_modem.diagnostic and read_setting('roaming').strip() != str(roaming_allowed):
+                 ofono2mm_print("Saving roaming toggle state", self.verbose)
+                 save_setting('roaming', str(roaming_allowed))
+ 
+@@ -212,6 +212,9 @@
+         return self.has_usable_config()
+ 
+     @async_retryable()
++    async def retry_activate_ofono_context(self, ofono_ctx_interface, protocol):
++        await self.activate_ofono_context(ofono_ctx_interface, protocol)
++
+     async def activate_ofono_context(self, ofono_ctx_interface, protocol):
+         # Re-activating a context that is already up would tear down a live PDN.
+         if await self.adopt_active_context(ofono_ctx_interface):
+@@ -254,7 +257,10 @@
+         ofono2mm_print(f"Activating bearer with protocol {protocol}", self.verbose)
+ 
+         try:
+-            await self.activate_ofono_context(ofono_ctx_interface, protocol)
++            if self.mm_modem.diagnostic:
++                await self.activate_ofono_context(ofono_ctx_interface, protocol)
++            else:
++                await self.retry_activate_ofono_context(ofono_ctx_interface, protocol)
+ 
+             # NetworkManager falls back to SLAAC without an address, and these modems
+             # never answer a router solicitation.
+@@ -319,7 +325,7 @@
+ 
+             if self.disconnecting and value.value:
+                 self.disconnecting = False
+-            elif not self.disconnecting and (not value.value) and self.reconnect_task is None and self.props['Connected'].value:
++            elif not self.mm_modem.diagnostic and not self.disconnecting and (not value.value) and self.reconnect_task is None and self.props['Connected'].value:
+                 # Initiate a reconnection using NetworkManager.
+                 # TODO: ideally NM would take care of this itself once it learns that we lost the connection.
+ 

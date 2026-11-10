@@ -1,0 +1,142 @@
+--- a/main.py
++++ b/main.py
+@@ -104,7 +104,7 @@
+         modems_to_export = []
+ 
+         for path, props in ril_modems:
+-            ofono2mm_print(f"Found modem: {path}, {props}", self.verbose)
++            ofono2mm_print(f"Found modem: {path}", self.verbose)
+ 
+             if not self.diagnostic and not props['Powered'].value:
+                 try:
+@@ -148,7 +148,7 @@
+                 self.ofono_added()
+ 
+     def ofono_modem_added(self, path, mprops):
+-        ofono2mm_print(f"oFono modem added at path {path} and properties {mprops}", self.verbose)
++        ofono2mm_print(f"oFono modem added at path {path}", self.verbose)
+ 
+         try:
+             self.loop.create_task(self.export_new_modem(path, mprops))
+@@ -163,7 +163,7 @@
+             ofono2mm_print(f"Modem {path} is not a RIL modem, skipping", self.verbose)
+             return
+ 
+-        ofono2mm_print(f"Processing modem {path} with properties {mprops}", self.verbose)
++        ofono2mm_print(f"Processing modem {path}", self.verbose)
+ 
+         if path in self.modems:
+             ofono2mm_print(f"Modem {path} already exists. Not sure why we're here.", self.verbose)
+--- a/ofono2mm/mm_modem_messaging.py
++++ b/ofono2mm/mm_modem_messaging.py
+@@ -33,7 +33,7 @@
+             ofono2mm_print("org.ofono.MessageManager was not available when initializing messaging", self.verbose)
+ 
+     def add_incoming_message(self, msg, props):
+-        ofono2mm_print(f"Add incoming message {msg} with properties {props}", self.verbose)
++        ofono2mm_print("Incoming SMS received", self.verbose)
+ 
+         global message_i
+         mm_sms_interface = MMSmsInterface(self.verbose)
+@@ -74,7 +74,7 @@
+ 
+     @method()
+     async def Create(self, properties: 'a{sv}') -> 'o':
+-        ofono2mm_print(f"Create message with properties {properties}", self.verbose)
++        ofono2mm_print("Allocating outgoing SMS", self.verbose)
+ 
+         global message_i
+         if 'number' not in properties or 'text' not in properties:
+--- a/ofono2mm/mm_call.py
++++ b/ofono2mm/mm_call.py
+@@ -36,7 +36,7 @@
+         self.ofono_voicecall.on_property_changed(self.property_changed)
+ 
+     def property_changed(self, prop, value):
+-        ofono2mm_print(f"Voice Call {self.voicecall} property {prop} changed to {value}", self.verbose)
++        ofono2mm_print(f"Voice Call {self.voicecall} property {prop} changed", self.verbose)
+ 
+         if prop == 'Multiparty':
+             self.props['Multiparty'] = value
+@@ -93,7 +93,7 @@
+ 
+     @method()
+     async def Deflect(self, number: 's'):
+-        ofono2mm_print(f"Deflecting number {number}", self.verbose)
++        ofono2mm_print("Deflecting call", self.verbose)
+         await self.ofono_voicecall.call_deflect(number)
+         old_state = self.props['State'].value
+         new_state = 7 # terminated MM_CALL_STATE_TERMINATED
+@@ -130,7 +130,7 @@
+         try:
+             await self.ofono_voicecall.call_hangup()
+         except Exception as e:
+-            ofono2mm_print(f"Failed to hang up call: {e}", self.verbose)
++            ofono2mm_print("Failed to hang up call", self.verbose)
+             ofono2mm_print("Calling hang up all instead", self.verbose)
+             await self.ofono_interfaces['org.ofono.VoiceCallManager'].call_hangup_all()
+ 
+@@ -144,12 +144,12 @@
+ 
+     @method()
+     async def SendDtmf(self, dtmf: 's'):
+-        ofono2mm_print(f"Send dtmf {dtmf}", self.verbose)
++        ofono2mm_print("Sending DTMF", self.verbose)
+         await self.ofono_interfaces['org.ofono.VoiceCallManager'].call_send_tones(dtmf)
+ 
+     @signal()
+     def DtmfReceived(self, dtmf) -> 's':
+-        ofono2mm_print(f"Dtmf {dtmf} received", self.verbose)
++        ofono2mm_print("DTMF received", self.verbose)
+         return dtmf
+ 
+     @signal()
+--- a/ofono2mm/mm_modem_voice.py
++++ b/ofono2mm/mm_modem_voice.py
+@@ -36,7 +36,7 @@
+                 if 'FixedDialing' in sim_props.props:
+                     val = bool(sim_props['FixedDialing'].value)
+         except Exception as e:
+-            ofono2mm_print(f"Failed to check emergency state, defaulting to False: {e}", self.verbose)
++            ofono2mm_print("Failed to check emergency state, defaulting to False", self.verbose)
+             val = False
+ 
+         if val != prev:
+@@ -61,7 +61,7 @@
+         return number
+ 
+     def add_call(self, path, props):
+-        ofono2mm_print(f"Add call with object path {path} and properties {props}", self.verbose)
++        ofono2mm_print(f"Call added at {path}", self.verbose)
+ 
+         global call_i
+ 
+@@ -165,7 +165,7 @@
+         except KeyError:
+             ofono2mm_print(f"No mapping found for ofono path {path}", self.verbose)
+         except Exception as e:
+-            ofono2mm_print(f"Error while removing call {path}: {e}", self.verbose)
++            ofono2mm_print(f"Error while removing call {path}", self.verbose)
+ 
+         self.set_emergency_mode()
+ 
+@@ -311,7 +311,7 @@
+             if status == "enabled":
+                 enabled = True
+         else:
+-            ofono2mm_print(f"VoiceCallWaiting is not available in org.ofono.CallSettings properties: {props}", self.verbose)
++            ofono2mm_print("VoiceCallWaiting is not available", self.verbose)
+         return enabled
+ 
+     @signal()
+--- a/ofono2mm/mm_modem.py
++++ b/ofono2mm/mm_modem.py
+@@ -1610,7 +1610,7 @@
+ 
+     def ofono_interface_changed(self, iface):
+         async def ofono_interface_property_changed(name, varval):
+-            ofono2mm_print(f"Property name: {name}, property value: {varval.value}", self.verbose)
++            ofono2mm_print(f"Property changed: {name}", self.verbose)
+             if iface in self.ofono_interface_props:
+                 await self.set_props()
+                 if self.mm_modem3gpp_interface:
