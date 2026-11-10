@@ -123,65 +123,89 @@ static int s_g_curr_ccci_fo_version;
 static int find_ccci_tag_inf(char *name, char *buf, unsigned int size)
 {
 	unsigned int i;
-
-	/* For strcmp/strncmp should not be used on device memory,
-	 * so prepare a temp buffer.
-	 */
-	char tag_name[64];
+	unsigned int tag_offset = 0;
+	unsigned int tag_size;
+	unsigned int name_size;
+	size_t name_len;
+	const char *tag_name;
 	unsigned int data_offset;
 	unsigned int data_size;
 	unsigned int next_tag_offset;
-	unsigned int tmp_buf;
 	int cpy_size;
-	char *curr = NULL;
 	union u_tag {
 		struct _ccci_tag v1;
 		struct _ccci_tag_v2 v2;
 	} tag;
 
-	if (buf == NULL)
+	if (buf == NULL || name == NULL)
 		return -1;
 
 	if (s_g_lk_inf_base == NULL)
 		return -2;
 
-	curr = (char *)s_g_lk_inf_base;
+	if (s_g_lk_info_tag_version >= CCCI_LK_INFO_VER_V2) {
+		tag_size = sizeof(tag.v2);
+		name_size = sizeof(tag.v2.tag_name);
+	} else {
+		tag_size = sizeof(tag.v1);
+		name_size = sizeof(tag.v1.tag_name);
+	}
+
+	/* The mapping is larger than the reported tag data in some boots. */
+	if (s_g_tag_inf_size > MAX_LK_INFO_SIZE ||
+	    s_g_tag_cnt > s_g_tag_inf_size / tag_size)
+		return -1;
+
+	name_len = strnlen(name, name_size + 1);
+	if (name_len > name_size)
+		return -1;
+
 	CCCI_UTIL_INF_MSG("------curr tags:%s----------\n", name);
 	for (i = 0; i < s_g_tag_cnt; i++) {
-		/* 1. Copy tag */
-		memcpy_fromio(&tag, curr, sizeof(union u_tag));
+		/* Check before forming an MMIO pointer; do not add untrusted sizes. */
+		if (tag_offset > s_g_tag_inf_size ||
+		    tag_size > s_g_tag_inf_size - tag_offset)
+			return -1;
+
+		memcpy_fromio(&tag, s_g_lk_inf_base + tag_offset, tag_size);
 		if (s_g_lk_info_tag_version >= CCCI_LK_INFO_VER_V2) {
-			scnprintf(tag_name, 64, "%s", tag.v2.tag_name);
+			tag_name = tag.v2.tag_name;
 			data_offset = tag.v2.data_offset;
 			data_size = tag.v2.data_size;
 			next_tag_offset = tag.v2.next_tag_offset;
 		} else {
-			scnprintf(tag_name, 64, "%s", tag.v1.tag_name);
+			tag_name = tag.v1.tag_name;
 			data_offset = tag.v1.data_offset;
 			data_size = tag.v1.data_size;
 			next_tag_offset = tag.v1.next_tag_offset;
 		}
-		memcpy_fromio(&tmp_buf, (void *)(s_g_lk_inf_base + data_offset),
-			sizeof(int));
+		if (data_offset > s_g_tag_inf_size ||
+		    data_size > s_g_tag_inf_size - data_offset)
+			return -1;
+
+		/* The final next offset is unused. Cycles cannot exceed tag_cnt. */
+		if (i + 1 < s_g_tag_cnt &&
+		    (next_tag_offset > s_g_tag_inf_size ||
+		     tag_size > s_g_tag_inf_size - next_tag_offset))
+			return -1;
 
 		#ifdef LK_LOAD_MD_INFO_DEBUG_EN
-		CCCI_UTIL_INF_MSG("tag->name:%s\n", tag_name);
+		CCCI_UTIL_INF_MSG("tag->name:%.*s\n", (int)name_size, tag_name);
 		CCCI_UTIL_INF_MSG("tag->data_offset:%d\n", data_offset);
 		CCCI_UTIL_INF_MSG("tag->data_size:%d\n", data_size);
 		CCCI_UTIL_INF_MSG("tag->next_tag_offset:%d\n", next_tag_offset);
-		CCCI_UTIL_INF_MSG("tag value:%d\n", tmp_buf);
 		#endif
 
-		/* 2. compare tag value. */
-		if (strcmp(tag_name, name) != 0) {
-			curr = (char *)(s_g_lk_inf_base + next_tag_offset);
+		/* Compare only the fixed-width name copied into normal memory. */
+		if (strnlen(tag_name, name_size) != name_len ||
+		    memcmp(tag_name, name, name_len)) {
+			tag_offset = next_tag_offset;
 			continue;
 		}
 		/* found it */
-		cpy_size = size > data_size?data_size:size;
-		memcpy_fromio(buf,
-			(void *)(s_g_lk_inf_base + data_offset),
-			cpy_size);
+		cpy_size = size > data_size ? data_size : size;
+		if (cpy_size)
+			memcpy_fromio(buf, s_g_lk_inf_base + data_offset, cpy_size);
 
 		return cpy_size;
 	}
@@ -683,7 +707,18 @@ static void md_mem_info_parsing(void)
 		return;
 	}
 
-	find_ccci_tag_inf("hdr_tbl_inf", (char *)md_inf, sizeof(md_inf));
+	if (md_num <= 0 || md_num > ARRAY_SIZE(md_inf)) {
+		CCCI_UTIL_ERR_MSG("Invalid hdr_count: %d\n", md_num);
+		s_g_lk_load_img_status |= LK_LOAD_MD_ERR_NO_MD_LOAD;
+		return;
+	}
+
+	if (find_ccci_tag_inf("hdr_tbl_inf", (char *)md_inf,
+			     md_num * sizeof(*md_inf)) != md_num * sizeof(*md_inf)) {
+		CCCI_UTIL_ERR_MSG("get hdr_tbl_inf fail\n");
+		s_g_lk_load_img_status |= LK_LOAD_MD_ERR_LK_INFO_FAIL;
+		return;
+	}
 	CCCI_UTIL_INF_MSG("md_num:%d\n", md_num);
 	curr = md_inf;
 
@@ -701,7 +736,7 @@ static void md_mem_info_parsing(void)
 		CCCI_UTIL_INF_MSG("=============================\n");
 		#endif
 		md_id = (int)curr->md_id;
-		if ((md_id < MAX_MD_NUM_AT_LK)
+		if ((md_id >= 0 && md_id < MAX_MD_NUM_AT_LK)
 				&& (md_resv_mem_size[md_id] == 0)) {
 			md_resv_mem_size[md_id] = curr->size;
 			md_resv_mem_addr[md_id] = (phys_addr_t)curr->base_addr;

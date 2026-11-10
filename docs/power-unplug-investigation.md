@@ -37,6 +37,10 @@ The faulting virtual address is `ffff80018353ffff`. The current source's tag wal
 
 The subsequent pstore record faults during module-load unwinding. The filesystem handoff message alone was not evidence of filesystem damage; logs show systemd/sshd started during the problematic boot.
 
+An offline defensive fix now validates version-specific tag headers, count, chain/payload bounds and fixed-width names before any MMIO read; it removes the unconditional debug peek and checks modem-table lengths/counts/IDs. Production functions are exercised by `tests/run-ccci-util-lib-fo-tests.py` with checked MMIO mocks and sanitizers. This has **not been installed on the phone** and does not repair corrupt boot metadata; it aims to reject it without crashing the kernel.
+
+The embedded DTS hard-codes `ccci,modem_info_v2` (little-endian structure: tag base0xbf7f0000, size0x1828, version3, count27) and reserves64KiB at that address. The working kernel substitutes its embedded DT for the bootloader DT. A stale or different bootloader handoff is therefore a hypothesis worth checking, not an established corruption cause. No DT, early-boot memory mapping or modem memory layout was changed.
+
 ## Preserved artifacts and next checks
 
 Host-only artifacts: `~/q25-work/power-unplug/{shutdown-cause.log,dmesg-ramoops-0,dmesg-ramoops-1}`. No phone/user data was erased. No kernel or module was replaced during diagnosis.
