@@ -45,4 +45,10 @@ The embedded DTS hard-codes `ccci,modem_info_v2` (little-endian structure: tag b
 
 Host-only artifacts: `~/q25-work/power-unplug/{shutdown-cause.log,dmesg-ramoops-0,dmesg-ramoops-1}`. No phone/user data was erased. No kernel or module was replaced during diagnosis.
 
+## Linked modem-module candidate (not deployed)
+
+The parser fix from `8e39b6f` now has a normal Kbuild-linked candidate at `~/q25-work/boot-tag-hardening/artifacts/module-8e39b6f/candidate/ccci_util_lib.ko`, SHA-256 `97ad582a75cf964c13c2ee8a932108f1c40ed227fb5565eb2f0006b6e00e01e2`. Parent independently checked identity and the artifact verifier:39 exports unchanged,66 kernel imports resolved, strict modpost passed, target build#37/vermagic matched, and shared build inputs unchanged. This is build validation, not on-device acceptance.
+
+The archived baseline is a **host** module, not a verified copy of the currently installed phone module. Before deployment, independently back up the actual installed module and check the running kernel/config, lookup path and any initramfs copy. The driver has no cleanup/unload entry despite `mod_unload` in kernel vermagic. Do not force-unload it or attempt a hot replacement; plan a later authorized reboot with stable power and recovery access. Existing recovery points should be reused where suitable. This candidate does not change or fix the thermal sensor.
+
 Before a later controlled unplug test, compare the stock BAT_TEMP channel/bias and conversion implementation, arrange persistent high-rate **hardware-only** readings, and retain recovery access. Do not raise critical thresholds or disable thermal protection as a substitute for fixing bad measurements. The user has departed with the phone; further access requires the hotel handoff. Offline boot-tag hardening is being tested separately.
