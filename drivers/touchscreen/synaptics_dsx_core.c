@@ -105,6 +105,15 @@ ctp {
  * Tunable filter parameters with defaults for typical touch panels.
  * Adjust via sysfs if touch feels too jittery or too laggy.
  */
+/*
+ * Off by default: the vendor (LineageOS) driver reports raw coordinates with
+ * no smoothing (fuzz 0), and this filter adds drag lag/wobble. It works in
+ * raw sensor units (0..sensor_max), not pixels. Enable for experiments with
+ * one_euro_enable=1.
+ */
+static bool one_euro_enable;
+module_param(one_euro_enable, bool, 0644);
+MODULE_PARM_DESC(one_euro_enable, "Enable the One Euro coordinate filter (default off, like vendor)");
 static int one_euro_min_cutoff = 5000;	/* 5.0 Hz - base cutoff frequency */
 static int one_euro_beta = 20000;	/* 20.0 - speed coefficient */
 static int one_euro_d_cutoff = 5000;	/* 5.0 Hz - derivative filter cutoff */
@@ -877,12 +886,14 @@ static int synaptics_rmi4_f11_abs_report(struct synaptics_rmi4_data *rmi4_data,
 			if (rmi4_data->hw_if->board_data->y_flip)
 				y = rmi4_data->sensor_max_y - y;
 
-			/* Apply One Euro filter to reduce jitter */
-			timestamp_ns = ktime_get_ns();
-			x = one_euro_filter(&rmi4_data->finger_filter[finger].x,
-					    x, timestamp_ns);
-			y = one_euro_filter(&rmi4_data->finger_filter[finger].y,
-					    y, timestamp_ns);
+			/* Optional One Euro filter (off by default, see one_euro_enable) */
+			if (one_euro_enable) {
+				timestamp_ns = ktime_get_ns();
+				x = one_euro_filter(&rmi4_data->finger_filter[finger].x,
+						    x, timestamp_ns);
+				y = one_euro_filter(&rmi4_data->finger_filter[finger].y,
+						    y, timestamp_ns);
+			}
 
 			input_report_abs(rmi4_data->input_dev,
 					ABS_MT_POSITION_X, x);
@@ -1081,12 +1092,14 @@ static int synaptics_rmi4_f12_abs_report(struct synaptics_rmi4_data *rmi4_data,
 			if (rmi4_data->hw_if->board_data->y_flip)
 				y = rmi4_data->sensor_max_y - y;
 
-			/* Apply One Euro filter to reduce jitter */
-			timestamp_ns = ktime_get_ns();
-			x = one_euro_filter(&rmi4_data->finger_filter[finger].x,
-					    x, timestamp_ns);
-			y = one_euro_filter(&rmi4_data->finger_filter[finger].y,
-					    y, timestamp_ns);
+			/* Optional One Euro filter (off by default, see one_euro_enable) */
+			if (one_euro_enable) {
+				timestamp_ns = ktime_get_ns();
+				x = one_euro_filter(&rmi4_data->finger_filter[finger].x,
+						    x, timestamp_ns);
+				y = one_euro_filter(&rmi4_data->finger_filter[finger].y,
+						    y, timestamp_ns);
+			}
 
 			dev_dbg(rmi4_data->pdev->dev.parent, "%s: finger=%d x=%d y=%d ma=%d mi=%d\n",
 					__func__, finger, x, y, max(wx, wy), min(wx, wy));
@@ -2894,6 +2907,35 @@ exit:
 }
 EXPORT_SYMBOL(synaptics_rmi4_new_function);
 
+#ifdef CONFIG_PM
+/*
+ * Vendor (mtk_tpd) suspended touch from the display blank notifier. On
+ * mainline, follow the DSI panel instead (DT: panel = <&panel> on the touch
+ * node): power the sensor down while the panel is unprepared (screen off),
+ * so pocket touches cannot wake or act on the phone.
+ */
+static int synaptics_rmi4_panel_prepared(struct drm_panel_follower *f)
+{
+	struct synaptics_rmi4_data *d =
+		container_of(f, struct synaptics_rmi4_data, panel_follower);
+
+	return synaptics_rmi4_resume(&d->pdev->dev);
+}
+
+static int synaptics_rmi4_panel_unpreparing(struct drm_panel_follower *f)
+{
+	struct synaptics_rmi4_data *d =
+		container_of(f, struct synaptics_rmi4_data, panel_follower);
+
+	return synaptics_rmi4_suspend(&d->pdev->dev);
+}
+
+static const struct drm_panel_follower_funcs synaptics_rmi4_panel_follower_funcs = {
+	.panel_prepared = synaptics_rmi4_panel_prepared,
+	.panel_unpreparing = synaptics_rmi4_panel_unpreparing,
+};
+#endif
+
 static int synaptics_rmi4_probe(struct platform_device *pdev)
 {
 	int retval;
@@ -3021,6 +3063,18 @@ static int synaptics_rmi4_probe(struct platform_device *pdev)
 
 	/* register a handler to listen about interested input events */
 	rmi4_data->ignore_touch = false;
+
+#ifdef CONFIG_PM
+	if (drm_is_panel_follower(pdev->dev.parent)) {
+		rmi4_data->panel_follower.funcs = &synaptics_rmi4_panel_follower_funcs;
+		retval = devm_drm_panel_add_follower(pdev->dev.parent,
+						     &rmi4_data->panel_follower);
+		if (retval)
+			dev_warn(&pdev->dev, "panel follower not registered: %d\n", retval);
+		else
+			dev_info(&pdev->dev, "following DSI panel power state\n");
+	}
+#endif
 
 	for (attr_count = 0; attr_count < ARRAY_SIZE(attrs); attr_count++) {
 		retval = device_create_file(&rmi4_data->input_dev->dev,

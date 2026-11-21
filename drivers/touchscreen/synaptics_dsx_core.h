@@ -29,6 +29,7 @@
 #define SYNAPTICS_DSX_DRIVER_VERSION 0x2003
 
 #include <linux/version.h>
+#include <drm/drm_panel.h>
 #if defined(CONFIG_PM) && defined(CONFIG_FB)
 #include <linux/fb.h>
 #endif
@@ -344,6 +345,7 @@ struct finger_filter_state {
  * @irq_enable: pointer to irq enable function
  */
 struct synaptics_rmi4_data {
+	struct drm_panel_follower panel_follower; /* suspend with the display */
 	struct platform_device *pdev;
 	struct input_dev *input_dev;
 	const struct synaptics_dsx_hw_interface *hw_if;

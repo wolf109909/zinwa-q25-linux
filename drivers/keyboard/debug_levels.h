@@ -25,10 +25,12 @@
 #define DEBUG_LEVEL_RW              2
 #define DEBUG_LEVEL_LD              4
 
-//#define DEBUG_LEVEL                 DEBUG_LEVEL_OFF
-// #define DEBUG_LEVEL					DEBUG_LEVEL_FE
-// #define DEBUG_LEVEL                (DEBUG_LEVEL_LD)
-#define DEBUG_LEVEL			(DEBUG_LEVEL_FE | DEBUG_LEVEL_RW | DEBUG_LEVEL_LD)
+/*
+ * Off: the RW/LD levels log every scancode and keycode at pr_err, which systemd
+ * stores in the persistent journal (i.e. typed passwords). Enable only for
+ * short local debugging sessions.
+ */
+#define DEBUG_LEVEL			DEBUG_LEVEL_OFF
 
 #define DRIVER_NAME			"BBQX0KBD"
  
