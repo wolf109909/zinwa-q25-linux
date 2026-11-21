@@ -15,6 +15,7 @@ records what was fixed and what is still open.
 | ccmni | `ndo_siocdevprivate` was `ccmni_ioctl` cast to a different signature: the user pointer landed in `cmd` (private ioctls dead; kCFI trap if enabled) | Proper wrapper |
 | DPMAIF RX | BAT count reported to HW at PD time although the refill happened later and could fail → HW could DMA into a slot whose skb was already in the stack; a full skb list or failed refill made the next pass unmap/push the same skb twice or assert the modem | Room in the skb list is checked before a packet is consumed; once handed to the stack the PIT entry always advances; only really refilled BAT slots are reported; shortfall kept in `bat_deficit` and topped up from the blocking work |
 | port_net | Packets for a down ccmni queued without bound (IMS PDN before q25-imsd starts) | Cap at 512, drop beyond |
+| ccmni / port_net | Modem not READY (reset) mapped to TX_BUSY without stopping the queue → tight retry loop; each retry appended another MDT tag; ccmni-lan busy path set `skb->len` without the tail | Dropped like MD_NO_READY; tag trimmed on busy; `skb_trim` |
 | pinctrl (0030) | `mt6789_pull_type[]` 188 entries for 222 pins → OOB read on bias get/set of GPIO188–221 | Sized to the pin table |
 | synaptics_dsx | Chip-reported query sizes used as read length into fixed stack buffers; `num_of_intr_regs` uncapped | Clamped |
 | upm6722 | `devm_power_supply_register` + manual unregister (double free on remove/probe error) | Manual unregisters removed |
@@ -30,6 +31,7 @@ records what was fixed and what is still open.
 | MM bridge | Blocking writes on ModemManager's main loop: a stalled client froze MM | Non-blocking; stalled client is dropped |
 | MM bridge | Disposed modem could unlink the socket of its successor | Unlinks only its own inode |
 | Build | Default password = user name with sshd password auth on | Key-only sshd drop-in when `SSH_KEY` is given; warning otherwise |
+| Build | `pacman -U` of `out/packages` failed on duplicate targets when a package had been rebuilt | Newest build of each package only |
 | Build | NM keyfile shipped 0644 (ignored by NM); `pkill -f gpg-agent` killed host agents; `Q25_APN` lost through sudo; `__pycache__` copied into the image | Fixed |
 | Config | No lockup/hung-task detection, no KFENCE, no slab/list hardening, `NR_CPUS=512` | Soft/hard (buddy) lockup, hung task, WQ watchdog (all report-only), KFENCE, freelist + list hardening, `NR_CPUS=8` |
 
@@ -77,6 +79,13 @@ Drivers:
 - Remove/unbind lifetime bugs (only on rmmod): upm6922, st21nfc, aw36518,
   oca72xxx, q25_afe_pcm.
 - bbqX0kbd proc toggles are 0666 (left: userspace may rely on them).
+
+Fresh image (checked 2026-11-22 with a full `build-rootfs.sh` run into
+scratch dirs): every Q25 piece lands correctly, but **the image cannot be
+built as-is any more** — Arch Linux ARM moved phosh/phoc to 0.59.0 while
+`packages/phoc-q25` and `phosh-q25-keyboard` are pinned to 0.57.0
+(`depends=phosh=0.57.0`). The phone keeps 0.57 via IgnorePkg (now also on the
+phone). Needs a phoc-q25 + keyboard bump to 0.59 and an on-device Phosh test.
 
 Userspace:
 - Transmit guards (`/etc/dbus-1/system.d/90-q25-no-transmit.conf`,

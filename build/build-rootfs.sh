@@ -49,8 +49,20 @@ stage_bootstrap() {
 }
 
 stage_packages() {
-    local pkgs=("$OUT"/packages/*.pkg.tar.*)
-    [ -e "${pkgs[0]}" ] || { echo "no packages in $OUT/packages: run 'sudo build/build-packages.sh' first"; exit 1; }
+    local all=("$OUT"/packages/*.pkg.tar.*) pkgs=() f name ver
+    [ -e "${all[0]}" ] || { echo "no packages in $OUT/packages: run 'sudo build/build-packages.sh' first"; exit 1; }
+    # rebuilds leave older versions next to new ones and pacman -U rejects
+    # duplicate targets: install only the newest build of each package
+    declare -A best=() bestver=()
+    for f in "${all[@]}"; do
+        name=$(bsdtar -xOf "$f" .PKGINFO | sed -n 's/^pkgname = //p')
+        ver=$(bsdtar -xOf "$f" .PKGINFO | sed -n 's/^pkgver = //p')
+        if [ -z "${best[$name]:-}" ] || [ "$(vercmp "$ver" "${bestver[$name]}")" -gt 0 ]; then
+            best[$name]=$f
+            bestver[$name]=$ver
+        fi
+    done
+    pkgs=("${best[@]}")
     log "packages: ${pkgs[*]##*/}"
     # host pacman (like pacstrap): the staging dir is not a mountpoint, so
     # pacman inside arch-chroot cannot do its free-space check
