@@ -1738,6 +1738,8 @@ static struct i2c_driver oca72xxx_i2c_driver = {
 };
 
 extern void q25_unregister_audio_card(void);
+extern int q25_mt6358_accdet_register(void);
+extern void q25_mt6358_accdet_unregister(void);
 
 static int __init oca72xxx_pa_init(void)
 {
@@ -1745,9 +1747,15 @@ static int __init oca72xxx_pa_init(void)
 
 	OCA_LOGI("driver version: %s", OCA72XXX_DRIVER_VERSION);
 
+	/* MT6358 headset detection; optional, the card works without it */
+	ret = q25_mt6358_accdet_register();
+	if (ret)
+		OCA_LOGE("Unable to register accdet driver, ret= %d", ret);
+
 	ret = i2c_add_driver(&oca72xxx_i2c_driver);
 	if (ret < 0) {
 		OCA_LOGE("Unable to register driver, ret= %d", ret);
+		q25_mt6358_accdet_unregister();
 		return ret;
 	}
 	return 0;
@@ -1758,6 +1766,7 @@ static void __exit oca72xxx_pa_exit(void)
 	OCA_LOGI("enter");
 	q25_unregister_audio_card();
 	i2c_del_driver(&oca72xxx_i2c_driver);
+	q25_mt6358_accdet_unregister();
 }
 
 module_init(oca72xxx_pa_init);

@@ -5,8 +5,8 @@
 [ -s /var/lib/alsa/asound.state ] && exec alsactl restore ZinwaQ25Audio
 c="amixer -q -c ZinwaQ25Audio cset"
 $c name='LOL Mux' 'Playback'
-$c name='Lineout Volume' 18,18
-$c name='Headphone Volume' 18,18
+$c name='Lineout Volume' 8,8     # stock -2 dB (vendor PlaybackVolAna)
+$c name='Headphone Volume' 9,9   # stock -1 dB
 $c name='PGA Volume' 3,3
 $c name='Q25 Output Route' 'Speaker'
 $c name='Mic Type Mux' 'ACC'

@@ -22,9 +22,13 @@
 #include <linux/property.h>
 #include <linux/regmap.h>
 #include <linux/vmalloc.h>
+#include <linux/input.h>
+#include <sound/jack.h>
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 #include <sound/soc.h>
+
+#include "q25_mt6358_accdet.h"
 
 extern int oca72xxx_set_profile(int dev_index, char *profile);
 extern int oca72xxx_add_codec_controls(void *codec);
@@ -41,6 +45,7 @@ void q25_unregister_audio_card(void);
 #define AFE_CONN1			0x0024
 #define AFE_CONN2			0x0028
 #define AFE_CONN3			0x002c
+#define AFE_CONN_RS			0x0494	/* per-input >>1 when summed */
 #define AFE_CONN4			0x0030
 #define AFE_CONN5			0x0044
 #define AFE_CONN_24BIT			0x0048
@@ -126,6 +131,8 @@ struct q25_afe_priv {
 	struct snd_pcm_substream *substream[2];
 	struct snd_soc_component *mt6358_cmpnt;
 	int output_route; /* 0=Speaker, 1=Receiver, 2=Headphone, 3=Speaker+Headphone */
+	bool hp_on;       /* MT6358 HP drivers powered by q25_mt6358_hp_enable() */
+	int hp_gain;      /* user HP gain index restored on power-down */
 	bool spk_pa_enabled;
 	spinlock_t lock;
 };
@@ -144,8 +151,10 @@ static unsigned int q25_rate_to_memif_mode(unsigned int rate)
 	case 32000: return 8;
 	case 44100: return 9;
 	case 48000: return 10;
-	case 96000: return 11;
-	case 192000: return 12;
+	case 88200: return 11;
+	case 96000: return 12;	/* was 11 (= 88.2 kHz) */
+	case 176400: return 13;
+	case 192000: return 14;	/* was 12 (= 96 kHz) */
 	default: return 10;
 	}
 }
@@ -185,6 +194,7 @@ static void q25_afe_enable_clocks_and_pins(struct q25_afe_priv *afe)
 {
 	u32 val;
 	int i;
+
 
 	/* 1. Ungate INFRACFG_AO audio clocks:
 	 * MODULE_SW_CG_1_CLR (0x8c): bit 25 (infra_audio)
@@ -292,6 +302,40 @@ static void q25_afe_enable_clocks_and_pins(struct q25_afe_priv *afe)
 	val = readl(afe->base + AFE_MEMIF_CON0);
 	val &= ~(BIT(1) | BIT(2));
 	writel(val, afe->base + AFE_MEMIF_CON0);
+
+	/* 6. Clocks are up: only the two memif IRQs we use (DL1 = 0, VUL12 = 13)
+	 * may reach the CPU; the reset value routes every AFE source. */
+	writel(BIT(0) | BIT(13), afe->base + AFE_IRQ_MCU_EN);
+}
+
+/*
+ * DL1 -> ADDA interconnect. The speaker (LINEOUT L <- DAC R) and the earpiece
+ * (HS <- DAC L) are mono, so feed (L+R)/2 into the one DAC channel they use
+ * (both DL1 inputs summed, each shifted right by one via AFE_CONN_RS);
+ * otherwise the other channel is simply lost. Headphones get plain stereo.
+ */
+static void q25_afe_apply_dl_mix(struct q25_afe_priv *afe)
+{
+	u32 both = BIT(I_DL1_CH1) | BIT(I_DL1_CH2);
+	u32 rs = readl(afe->base + AFE_CONN_RS) & ~both;
+
+	switch (afe->output_route) {
+	case 0: /* Speaker: DAC R only */
+		writel(BIT(I_DL1_CH1), afe->base + AFE_CONN3);
+		writel(both, afe->base + AFE_CONN4);
+		rs |= both;
+		break;
+	case 1: /* Earpiece: DAC L only */
+		writel(both, afe->base + AFE_CONN3);
+		writel(BIT(I_DL1_CH2), afe->base + AFE_CONN4);
+		rs |= both;
+		break;
+	default: /* Headphone(s): stereo */
+		writel(BIT(I_DL1_CH1), afe->base + AFE_CONN3);
+		writel(BIT(I_DL1_CH2), afe->base + AFE_CONN4);
+		break;
+	}
+	writel(rs, afe->base + AFE_CONN_RS);
 }
 
 static void q25_afe_configure_adda_dl(struct q25_afe_priv *afe, unsigned int rate, bool is_24bit)
@@ -299,9 +343,7 @@ static void q25_afe_configure_adda_dl(struct q25_afe_priv *afe, unsigned int rat
 	unsigned int dl_src2_con0;
 	unsigned int dl_src2_con1 = 0xf74f0000U;
 
-	/* Route DL1_CH1 -> ADDA_DL_CH1 (AFE_CONN3 bit 5) and DL1_CH2 -> ADDA_DL_CH2 (AFE_CONN4 bit 6) */
-	writel(BIT(I_DL1_CH1), afe->base + AFE_CONN3);
-	writel(BIT(I_DL1_CH2), afe->base + AFE_CONN4);
+	q25_afe_apply_dl_mix(afe);
 
 	if (is_24bit)
 		writel(readl(afe->base + AFE_CONN_24BIT) | BIT(3) | BIT(4), afe->base + AFE_CONN_24BIT);
@@ -362,11 +404,13 @@ static const struct snd_pcm_hardware q25_afe_pcm_hardware = {
 	.info = SNDRV_PCM_INFO_MMAP |
 		SNDRV_PCM_INFO_INTERLEAVED |
 		SNDRV_PCM_INFO_RESUME |
-		SNDRV_PCM_INFO_MMAP_VALID,
+		SNDRV_PCM_INFO_MMAP_VALID |
+		/* report every appl_ptr update so .ack can push new data to SRAM */
+		SNDRV_PCM_INFO_SYNC_APPLPTR,
 	.formats = SNDRV_PCM_FMTBIT_S16_LE |
 		   SNDRV_PCM_FMTBIT_S24_LE |
 		   SNDRV_PCM_FMTBIT_S32_LE,
-	.rates = SNDRV_PCM_RATE_8000_192000,
+	.rates = SNDRV_PCM_RATE_8000_48000 | SNDRV_PCM_RATE_96000 | SNDRV_PCM_RATE_192000,
 	.rate_min = 8000,
 	.rate_max = 192000,
 	.channels_min = 1,
@@ -378,6 +422,171 @@ static const struct snd_pcm_hardware q25_afe_pcm_hardware = {
 	.periods_max = 16,
 };
 
+/* Routes that use the MT6358 HP drivers (Headphone, Speaker+Headphone). */
+static bool q25_route_uses_hp(struct q25_afe_priv *afe)
+{
+	return afe->output_route == 2 || afe->output_route == 3;
+}
+
+/*
+ * MT6358 headphone path, ported 1:1 from vendor mt6358.c (mtk_hp_enable /
+ * mtk_hp_disable and their ramp helpers) at mainline 7.3 register offsets:
+ * AUDDEC_ANA_CON0..15 = 0x2408..0x2426, ZCD_CON0/2 = 0x2488/0x248c,
+ * AUDNCP_CLKDIV_CON0..4 = 0x223a..0x2242, AFUNC_AUD_CON0 = 0x2296.
+ * The old hand-written sequence jumped straight to the final register
+ * values (no pull-down, aux-stage handover or ramps), leaving the HP stage
+ * noisy and popping.
+ */
+#define Q25_DL_GAIN_N_10DB	0x12
+#define Q25_DL_GAIN_MASK	0x0f9f
+
+static void q25_hp_pull_down(struct snd_soc_component *c, bool enable)
+{
+	int i;
+
+	if (enable) {
+		for (i = 0x0; i <= 0x6; i++) {
+			snd_soc_component_update_bits(c, 0x2410, 0x7, i); /* CON4 */
+			usleep_range(600, 700);
+		}
+	} else {
+		for (i = 0x6; i >= 0x1; i--) {
+			snd_soc_component_update_bits(c, 0x2410, 0x7, i);
+			usleep_range(600, 700);
+		}
+	}
+}
+
+static void q25_hp_main_output_ramp(struct snd_soc_component *c, bool up)
+{
+	int i, stage;
+
+	for (i = 0; i <= 7; i++) {
+		stage = up ? i : 7 - i;
+		snd_soc_component_update_bits(c, 0x240a, 0x7 << 8, stage << 8);
+		snd_soc_component_update_bits(c, 0x240a, 0x7 << 11, stage << 11);
+		usleep_range(100, 150);
+	}
+}
+
+static void q25_hp_aux_feedback_loop_gain_ramp(struct snd_soc_component *c, bool up)
+{
+	int i, stage;
+
+	for (i = 0; i <= 0xf; i++) {
+		stage = up ? i : 0xf - i;
+		snd_soc_component_update_bits(c, 0x241a, 0xf << 12, stage << 12);
+		usleep_range(100, 150);
+	}
+}
+
+/* gain index: 0 = +8 dB ... 0x12 = -10 dB (1 dB steps) */
+static void q25_hp_volume_ramp(struct snd_soc_component *c, int from, int to)
+{
+	int step = to > from ? 1 : -1, idx = from;
+
+	for (;;) {
+		snd_soc_component_update_bits(c, 0x248c, Q25_DL_GAIN_MASK, (idx << 7) | idx);
+		usleep_range(200, 300);
+		if (idx == to)
+			break;
+		idx += step;
+	}
+}
+
+static void q25_mt6358_hp_enable(struct q25_afe_priv *afe)
+{
+	struct snd_soc_component *c = afe->mt6358_cmpnt;
+	int target = snd_soc_component_read(c, 0x248c) & 0x1f;
+
+	if (target > Q25_DL_GAIN_N_10DB)
+		target = Q25_DL_GAIN_N_10DB;
+	afe->hp_gain = target;
+
+	q25_hp_pull_down(c, true);                           /* HPL/R to AVSS28 */
+	snd_soc_component_update_bits(c, 0x2410, 0x1 << 6, 0x1 << 6); /* HP CMFB gate rstb */
+	snd_soc_component_write(c, 0x2408, 0x3000);         /* HP short-ckt prot off */
+	snd_soc_component_write(c, 0x240c, 0xc000);         /* AU_REFN ESD */
+	snd_soc_component_write(c, 0x248c, (Q25_DL_GAIN_N_10DB << 7) | Q25_DL_GAIN_N_10DB);
+	snd_soc_component_write(c, 0x223c, 0x0001);         /* DA_600K_NCP_VA18 */
+	snd_soc_component_write(c, 0x223e, 0x002c);         /* NCP 604 kHz */
+	snd_soc_component_write(c, 0x223a, 0x0001);         /* RG_DIVCKS_CHG */
+	snd_soc_component_write(c, 0x2242, 0x0002);         /* NCP soft start 150 us */
+	snd_soc_component_write(c, 0x2240, 0x0000);         /* NCP on */
+	usleep_range(250, 270);
+	snd_soc_component_update_bits(c, 0x2424, 0x1055, 0x1055); /* cap-less LDOs */
+	snd_soc_component_write(c, 0x2426, 0x0001);         /* NV regulator */
+	usleep_range(100, 120);
+	snd_soc_component_update_bits(c, 0x2488, 0x1, 0x0); /* ZCD off (as mainline) */
+	snd_soc_component_write(c, 0x2408, 0x3000);
+	snd_soc_component_write(c, 0x2420, 0x0055);         /* IBIST */
+	snd_soc_component_update_bits(c, 0x241e, 0xff80, 0x4900); /* HP DR bias 6 uA */
+	snd_soc_component_write(c, 0x2420, 0x0055);
+	snd_soc_component_write(c, 0x240c, 0xc033);         /* HPP/N STB enhance */
+	snd_soc_component_write(c, 0x240a, 0x000c);         /* HP aux output stage */
+	snd_soc_component_write(c, 0x240a, 0x003c);         /* HP aux feedback loop */
+	snd_soc_component_write(c, 0x241a, 0x0c00);         /* HP aux CMFB loop */
+	snd_soc_component_write(c, 0x2408, 0x30c0);         /* HP driver bias */
+	snd_soc_component_write(c, 0x2408, 0x30f0);         /* HP driver core */
+	snd_soc_component_update_bits(c, 0x240a, 0x00ff, 0x00fc); /* short main->aux */
+	snd_soc_component_write(c, 0x241a, 0x0e00);         /* HP main CMFB on */
+	snd_soc_component_write(c, 0x241a, 0x0200);         /* HP aux CMFB off */
+	snd_soc_component_write(c, 0x241c, 0x0000);         /* CMFB AC mode, 6.5 pF */
+	snd_soc_component_write(c, 0x240a, 0x00ff);         /* HP main output stage */
+	q25_hp_main_output_ramp(c, true);
+	q25_hp_aux_feedback_loop_gain_ramp(c, true);
+	snd_soc_component_write(c, 0x240a, 0x3fcf);         /* HP aux feedback loop off */
+	q25_hp_volume_ramp(c, Q25_DL_GAIN_N_10DB, target);
+	snd_soc_component_write(c, 0x240a, 0x3fc3);         /* HP aux output stage off */
+	snd_soc_component_write(c, 0x240a, 0x3f03);         /* unshort main/aux */
+	usleep_range(100, 120);
+	snd_soc_component_update_bits(c, 0x2422, 0x1, 0x1); /* AUD_CLK */
+	snd_soc_component_update_bits(c, 0x2408, 0xf, 0xf); /* audio DAC L+R */
+	snd_soc_component_update_bits(c, 0x241a, 0x1, 0x1); /* DAC low-noise */
+	usleep_range(100, 120);
+	snd_soc_component_update_bits(c, 0x2408, 0x0f00, 0x0200); /* HPL mux = DAC */
+	snd_soc_component_update_bits(c, 0x2408, 0x0f00, 0x0a00); /* HPR mux = DAC */
+	snd_soc_component_update_bits(c, 0x2296, 0x0400, 0x0);    /* no L invert */
+	q25_hp_pull_down(c, false);
+	afe->hp_on = true;
+}
+
+static void q25_mt6358_hp_disable(struct q25_afe_priv *afe)
+{
+	struct snd_soc_component *c = afe->mt6358_cmpnt;
+	int cur = snd_soc_component_read(c, 0x248c) & 0x1f;
+
+	if (cur > Q25_DL_GAIN_N_10DB)
+		cur = Q25_DL_GAIN_N_10DB;
+
+	q25_hp_pull_down(c, true);
+	snd_soc_component_update_bits(c, 0x2408, 0x0f00, 0x0000); /* HP muxes open */
+	snd_soc_component_update_bits(c, 0x241a, 0x0001, 0x0000); /* DAC low-noise off */
+	snd_soc_component_update_bits(c, 0x2408, 0x000f, 0x0000); /* DACs off */
+	snd_soc_component_update_bits(c, 0x2422, 0x1, 0x0);       /* AUD_CLK off */
+	snd_soc_component_write(c, 0x240a, 0x3fc3);         /* short main->aux */
+	snd_soc_component_write(c, 0x240a, 0x3fcf);         /* aux output stage on */
+	q25_hp_volume_ramp(c, cur, Q25_DL_GAIN_N_10DB);
+	snd_soc_component_write(c, 0x240a, 0x3fff);         /* aux feedback loop on */
+	q25_hp_aux_feedback_loop_gain_ramp(c, false);
+	q25_hp_main_output_ramp(c, false);
+	snd_soc_component_update_bits(c, 0x240a, 0x3, 0x0); /* main output stage off */
+	snd_soc_component_write(c, 0x241a, 0x0e00);         /* aux CMFB on */
+	snd_soc_component_write(c, 0x241a, 0x0c00);         /* main CMFB off */
+	snd_soc_component_update_bits(c, 0x240a, 0x3 << 6, 0x0); /* unshort */
+	snd_soc_component_update_bits(c, 0x2408, 0x3 << 4, 0x0); /* driver core off */
+	snd_soc_component_update_bits(c, 0x2408, 0x3 << 6, 0x0); /* driver bias off */
+	snd_soc_component_write(c, 0x241a, 0x0000);         /* aux CMFB off */
+	snd_soc_component_update_bits(c, 0x240a, 0x3 << 4, 0x0); /* aux feedback off */
+	snd_soc_component_update_bits(c, 0x240a, 0x3 << 2, 0x0); /* aux output off */
+	/* restore the user's gain so the ALSA control keeps its value */
+	snd_soc_component_update_bits(c, 0x248c, Q25_DL_GAIN_MASK, (afe->hp_gain << 7) | afe->hp_gain);
+	snd_soc_component_update_bits(c, 0x240c, 0x1 << 14, 0x0); /* AU_REFN ESD back */
+	snd_soc_component_update_bits(c, 0x2410, 0x1 << 6, 0x0);  /* CMFB gate rstb */
+	q25_hp_pull_down(c, false);
+	afe->hp_on = false;
+}
+
 static void q25_mt6358_lineout_amp_set(struct q25_afe_priv *afe, bool enable)
 {
 	struct snd_soc_component *c = afe->mt6358_cmpnt;
@@ -387,6 +596,9 @@ static void q25_mt6358_lineout_amp_set(struct q25_afe_priv *afe, bool enable)
 
 	if (!c)
 		return;
+
+	if (afe->hp_on)
+		q25_mt6358_hp_disable(afe);
 
 	if (enable) {
 		/*
@@ -420,7 +632,8 @@ static void q25_mt6358_lineout_amp_set(struct q25_afe_priv *afe, bool enable)
 		snd_soc_component_write(c, 0x228a, 0x0001); /* AFE_DL_SRC2_CON0_L DL_2_SRC_ON=1 */
 
 		/* 3. Power on MT6358 NCP, cap-less LDOs, NV reg, IBIST, DAC L/R, and output buffers */
-		snd_soc_component_write(c, 0x240c, 0x4033); /* AUDDEC_ANA_CON2 AU_REFN + HPP/N STB */
+		/* AUDDEC_ANA_CON2: vendor mt_lo_event writes 0x4000 (AU_REFN ESD only); HP STB bits only for HP */
+		snd_soc_component_write(c, 0x240c, q25_route_uses_hp(afe) ? 0x4033 : 0x4000);
 		snd_soc_component_write(c, 0x223c, 0x0001); /* AUDNCP_CLKDIV_CON1 */
 		snd_soc_component_write(c, 0x223e, 0x002c); /* AUDNCP_CLKDIV_CON2 604kHz */
 		snd_soc_component_write(c, 0x223a, 0x0001); /* AUDNCP_CLKDIV_CON0 */
@@ -437,41 +650,71 @@ static void q25_mt6358_lineout_amp_set(struct q25_afe_priv *afe, bool enable)
 		snd_soc_component_update_bits(c, 0x2416, 0x1 << 8, 0x1 << 8); /* AUDDEC_ANA_CON7 LO STB enh */
 		snd_soc_component_write(c, 0x241a, 0x0000); /* AUDDEC_ANA_CON9 */
 		snd_soc_component_write(c, 0x241c, 0x0000); /* AUDDEC_ANA_CON10 */
-		snd_soc_component_update_bits(c, 0x2416, 0x3, 0x3); /* AUDDEC_ANA_CON7 LO bias + core */
-		snd_soc_component_write(c, 0x2414, 0x0093); /* AUDDEC_ANA_CON6 HS STB + bias + core */
-		snd_soc_component_write(c, 0x240a, 0x3f03); /* AUDDEC_ANA_CON1 HP main output stage */
-		snd_soc_component_update_bits(c, 0x2422, 0x1, 0x1); /* AUDDEC_ANA_CON13 AUD_CLK */
-		/* Enable Audio DAC L + DAC R + VA28_REFGEN + VCM_BUF + HP driver */
-		snd_soc_component_write(c, 0x2408, 0x30ff); /* AUDDEC_ANA_CON0 */
-		snd_soc_component_write(c, 0x241a, 0xf201); /* AUDDEC_ANA_CON9 low-noise + HP CMFB */
-		if (afe->output_route == 2) {
-			/* Headphone only: disable LOL/HS, enable HPL/HPR MUX -> DAC */
-			snd_soc_component_update_bits(c, 0x2416, 0x3 << 2, 0x0);
-			snd_soc_component_write(c, 0x2414, 0x0000);
-			snd_soc_component_write(c, 0x2408, 0x3aff);
-		} else if (afe->output_route == 3) {
-			/* Speaker + Headphone: enable LOL + HPL/HPR MUX -> DAC */
-			snd_soc_component_update_bits(c, 0x2416, 0x3 << 2, 0x2 << 2);
-			snd_soc_component_write(c, 0x2414, 0x009b);
-			snd_soc_component_write(c, 0x2408, 0x3aff);
-		} else {
-			/* Speaker (0) or Receiver (1): enable LOL + HS MUX -> DAC + HPL/HPR LoudSPK */
-			snd_soc_component_update_bits(c, 0x2416, 0x3 << 2, 0x2 << 2);
-			snd_soc_component_write(c, 0x2414, 0x009b);
-			snd_soc_component_write(c, 0x2408, 0x35ff);
+		if (!q25_route_uses_hp(afe)) {
+			/*
+			 * Speaker (0) / Receiver (1): the OCA7255 input is wired to LINEOUT L
+			 * (vendor mt6789-mt6366.c: Ext_Speaker_Amp <- "LINEOUT L"). Follow
+			 * vendor mt6358.c mt_lo_event() PRE_PMU: LO driver only, DAC R only,
+			 * DAC low-noise mode, LOL mux = 1 ("audio DAC R"; mainline/vendor enum
+			 * labels call this value "Mute"). Earpiece (HS) and HP drivers stay off:
+			 * powering them and selecting LOL input 2 added broadband hiss.
+			 */
+			if (afe->output_route == 1) {
+				/*
+				 * Earpiece: vendor mt6358.c mt_rcv_event() PRE_PMU. The
+				 * handset driver (HSP/HSN) is fed from DAC L; the speaker
+				 * PA is not involved. LO path off.
+				 */
+				snd_soc_component_update_bits(c, 0x2416, 0x3 << 2, 0x0); /* LOL mux open */
+				snd_soc_component_update_bits(c, 0x2416, 0x3, 0x0);      /* LO off */
+				snd_soc_component_update_bits(c, 0x2408, 0x0006, 0x0);   /* DAC R off */
+				snd_soc_component_write(c, 0x2296, 0xcfa1); /* AFUNC_AUD_CON0: scrambler on, invert L */
+				snd_soc_component_write(c, 0x2414, 0x0010); /* CON6: HS short-ckt prot off */
+				snd_soc_component_write(c, 0x2414, 0x0090); /* HS STB enhance */
+				snd_soc_component_write(c, 0x2414, 0x0092); /* HS driver bias */
+				snd_soc_component_write(c, 0x2414, 0x0093); /* HS driver core */
+				snd_soc_component_update_bits(c, 0x2422, 0x1, 0x1);       /* CON13 AUD_CLK */
+				snd_soc_component_update_bits(c, 0x2408, 0x0009, 0x0009); /* CON0 DAC L + VA28 */
+				snd_soc_component_write(c, 0x241a, 0x0001);               /* CON9 DAC low-noise */
+				snd_soc_component_write(c, 0x2414, 0x009b); /* HS mux = DAC L */
+				goto gains;
+			}
+			snd_soc_component_write(c, 0x2296, 0xcba1);  /* AFUNC_AUD_CON0: no L invert */
+			snd_soc_component_write(c, 0x2414, 0x0000);  /* CON6: earpiece driver off */
+			snd_soc_component_update_bits(c, 0x2408, 0x0009, 0x0); /* DAC L off */
+			snd_soc_component_update_bits(c, 0x2416, 0x1 << 1, 0x1 << 1); /* LO driver bias */
+			snd_soc_component_update_bits(c, 0x2416, 0x1, 0x1);           /* LO driver core */
+			snd_soc_component_update_bits(c, 0x2422, 0x1, 0x1);           /* CON13 AUD_CLK */
+			snd_soc_component_update_bits(c, 0x2408, 0x0006, 0x0006);     /* CON0 DAC R + VA28 */
+			snd_soc_component_write(c, 0x241a, 0x0001);                   /* CON9 DAC low-noise */
+			snd_soc_component_update_bits(c, 0x2416, 0x3 << 2, 0x1 << 2); /* LOL mux = DAC R */
+			goto gains;
 		}
-		snd_soc_component_update_bits(c, 0x240c, 0x00c0, 0x0000); /* AUDDEC_ANA_CON2 hp_pull_down=false */
+		/* Headphone (2) / Speaker+Headphone (3): vendor mtk_hp_enable() */
+		snd_soc_component_write(c, 0x2414, 0x0000);   /* earpiece driver off */
+		snd_soc_component_write(c, 0x2296, 0xcba1);   /* AFUNC_AUD_CON0: no L invert */
+		q25_mt6358_hp_enable(afe);
+		if (afe->output_route == 3) {
+			/* plus LINEOUT L (speaker PA input) from DAC R, as mt_lo_event */
+			snd_soc_component_update_bits(c, 0x2416, 0x1 << 1, 0x1 << 1);
+			snd_soc_component_update_bits(c, 0x2416, 0x1, 0x1);
+			snd_soc_component_update_bits(c, 0x2416, 0x3 << 2, 0x1 << 2);
+		} else {
+			snd_soc_component_update_bits(c, 0x2416, 0x3 << 2, 0x0);
+			snd_soc_component_update_bits(c, 0x2416, 0x3, 0x0);
+		}
+gains:
 		/* Ensure ZCD_CON1 (0x248a), ZCD_CON2 (0x248c), ZCD_CON3 (0x248e) gains are unmuted */
 		zcd_con1 = snd_soc_component_read(c, 0x248a);
-		if ((zcd_con1 & 0x1f) >= 0x12)
-			snd_soc_component_update_bits(c, 0x248a, 0x0f9f, (4 << 7) | 4); /* +4dB */
+		if ((zcd_con1 & 0x1f) > 0x12)
+			snd_soc_component_update_bits(c, 0x248a, 0x0f9f, (0x12 << 7) | 0x12); /* -10dB */
 		zcd_con2 = snd_soc_component_read(c, 0x248c);
-		if ((zcd_con2 & 0x1f) >= 0x12)
-			snd_soc_component_update_bits(c, 0x248c, 0x0f9f, (4 << 7) | 4); /* +4dB */
+		if ((zcd_con2 & 0x1f) > 0x12)
+			snd_soc_component_update_bits(c, 0x248c, 0x0f9f, (0x12 << 7) | 0x12); /* -10dB */
 		zcd_con3 = snd_soc_component_read(c, 0x248e);
-		if ((zcd_con3 & 0x1f) >= 0x12)
-			snd_soc_component_update_bits(c, 0x248e, 0x001f, 4); /* +4dB */
-		pr_info("q25-afe: mt6358 route=%u CON0=0x%x CON6=0x%x CON7=0x%x ZCD1=0x%x ZCD2=0x%x ZCD3=0x%x DL_SRC2=0x%x PAD_MON=0x%x\n",
+		if ((zcd_con3 & 0x1f) > 0x12)
+			snd_soc_component_update_bits(c, 0x248e, 0x001f, 0x12); /* -10dB */
+		pr_debug("q25-afe: mt6358 route=%u CON0=0x%x CON6=0x%x CON7=0x%x ZCD1=0x%x ZCD2=0x%x ZCD3=0x%x DL_SRC2=0x%x PAD_MON=0x%x\n",
 			afe->output_route,
 			snd_soc_component_read(c, 0x2408),
 			snd_soc_component_read(c, 0x2414),
@@ -575,7 +818,8 @@ static int q25_afe_pcm_hw_params(struct snd_soc_component *component,
 	unsigned int channels = params_channels(params);
 	snd_pcm_format_t format = params_format(params);
 	bool is_24bit = (format == SNDRV_PCM_FORMAT_S24_LE || format == SNDRV_PCM_FORMAT_S32_LE);
-	unsigned int hd_mode = (format == SNDRV_PCM_FORMAT_S32_LE) ? 1 : (format == SNDRV_PCM_FORMAT_S24_LE ? 3 : 0);
+	unsigned int hd_mode = is_24bit ? 1 : 0;
+	bool hd_align = (format == SNDRV_PCM_FORMAT_S32_LE);
 	unsigned int fs_mode = q25_rate_to_memif_mode(rate);
 	u32 val;
 
@@ -597,7 +841,7 @@ static int q25_afe_pcm_hw_params(struct snd_soc_component *component,
 		      (1U << 12) | /* DL1_PBUF_SIZE = 1 */
 		      ((channels == 1 ? 1U : 0U) << 8) |
 		      (1U << 5) | /* DL1_NORMAL_MODE = 1 */
-		      ((is_24bit ? 1U : 0U) << 4) | /* DL1_HALIGN */
+		      ((hd_align ? 1U : 0U) << 4) | /* DL1_HALIGN: S32 only */
 		      (hd_mode & 0x3U);
 		writel(val, afe->base + AFE_DL1_CON0);
 
@@ -625,7 +869,7 @@ static int q25_afe_pcm_hw_params(struct snd_soc_component *component,
 		val = ((fs_mode & 0xfU) << 24) |
 		      ((channels == 1 ? 1U : 0U) << 8) |
 		      (1U << 5) | /* VUL12_NORMAL_MODE = 1 */
-		      ((is_24bit ? 1U : 0U) << 4) |
+		      ((hd_align ? 1U : 0U) << 4) |
 		      (hd_mode & 0x3U);
 		writel(val, afe->base + AFE_VUL12_CON0);
 
@@ -666,8 +910,9 @@ static int q25_afe_pcm_prepare(struct snd_soc_component *component,
 			oca72xxx_set_profile(0, "Music");
 			afe->spk_pa_enabled = true;
 		} else if (afe->output_route == 1) {
-			oca72xxx_set_profile(0, "Receiver");
-			afe->spk_pa_enabled = true;
+			/* earpiece is the MT6358 HS output, not the speaker PA */
+			oca72xxx_set_profile(0, "Off");
+			afe->spk_pa_enabled = false;
 		} else {
 			oca72xxx_set_profile(0, "Off");
 			afe->spk_pa_enabled = false;
@@ -705,7 +950,7 @@ static int q25_afe_pcm_trigger(struct snd_soc_component *component,
 			       afe->base + AFE_IRQ_MCU_EN);
 			writel(readl(afe->base + AFE_IRQ_MCU_CON0) | BIT(0),
 			       afe->base + AFE_IRQ_MCU_CON0);
-			pr_info("q25-afe: START DL1: SPM_STA=0x%x/0x%x AUD_CON0=0x%x DAC_CON0=0x%x AGENT_ON=0x%x DL1_CON0=0x%x BASE=0x%x END=0x%x CUR=0x%x IRQ_EN=0x%x IRQ_CON0=0x%x IRQ_CNT0=0x%x IRQ_STA=0x%x\n",
+			pr_debug("q25-afe: START DL1: SPM_STA=0x%x/0x%x AUD_CON0=0x%x DAC_CON0=0x%x AGENT_ON=0x%x DL1_CON0=0x%x BASE=0x%x END=0x%x CUR=0x%x IRQ_EN=0x%x IRQ_CON0=0x%x IRQ_CNT0=0x%x IRQ_STA=0x%x\n",
 				afe->spm_base ? readl(afe->spm_base + 0x016c) : 0,
 				afe->spm_base ? readl(afe->spm_base + 0x0358) : 0,
 				readl(afe->base + AUDIO_TOP_CON0),
@@ -763,6 +1008,27 @@ static int q25_afe_pcm_trigger(struct snd_soc_component *component,
 	return 0;
 }
 
+/*
+ * The DL1 memif plays from AFE SRAM while userspace writes a DRAM shadow
+ * buffer. Copying only on the period IRQ let timer-scheduled writers
+ * (PipeWire writes shortly ahead of the hw pointer) miss the copy, so the
+ * hardware replayed stale SRAM: intermittent clicks. Push the shadow to
+ * SRAM whenever the application pointer advances.
+ */
+static int q25_afe_pcm_ack(struct snd_soc_component *component,
+			   struct snd_pcm_substream *substream)
+{
+	struct q25_afe_priv *afe = g_q25_afe;
+	struct snd_pcm_runtime *runtime = substream->runtime;
+
+	if (afe && substream->stream == SNDRV_PCM_STREAM_PLAYBACK &&
+	    afe->shadow_buf[SNDRV_PCM_STREAM_PLAYBACK] && runtime->dma_bytes)
+		memcpy_toio(afe->sram_base,
+			    afe->shadow_buf[SNDRV_PCM_STREAM_PLAYBACK],
+			    runtime->dma_bytes);
+	return 0;
+}
+
 static snd_pcm_uframes_t q25_afe_pcm_pointer(struct snd_soc_component *component,
 					     struct snd_pcm_substream *substream)
 {
@@ -779,6 +1045,10 @@ static snd_pcm_uframes_t q25_afe_pcm_pointer(struct snd_soc_component *component
 		cur = readl(afe->base + AFE_DL1_CUR);
 		base = readl(afe->base + AFE_DL1_BASE);
 	} else {
+		if (afe->shadow_buf[SNDRV_PCM_STREAM_CAPTURE])
+			memcpy_fromio(afe->shadow_buf[SNDRV_PCM_STREAM_CAPTURE],
+				      afe->sram_base + MT6789_VUL_SRAM_OFFSET,
+				      runtime->dma_bytes);
 		cur = readl(afe->base + AFE_VUL12_CUR);
 		base = readl(afe->base + AFE_VUL12_BASE);
 	}
@@ -831,13 +1101,14 @@ static int q25_output_route_set(struct snd_kcontrol *kcontrol,
 
 	g_q25_afe->output_route = val;
 	if (g_q25_afe->substream[SNDRV_PCM_STREAM_PLAYBACK]) {
+		q25_afe_apply_dl_mix(g_q25_afe);
 		q25_mt6358_lineout_amp_set(g_q25_afe, true);
 		if (val == 0 || val == 3) {
 			oca72xxx_set_profile(0, "Music");
 			g_q25_afe->spk_pa_enabled = true;
 		} else if (val == 1) {
-			oca72xxx_set_profile(0, "Receiver");
-			g_q25_afe->spk_pa_enabled = true;
+			oca72xxx_set_profile(0, "Off");
+			g_q25_afe->spk_pa_enabled = false;
 		} else {
 			oca72xxx_set_profile(0, "Off");
 			g_q25_afe->spk_pa_enabled = false;
@@ -862,6 +1133,7 @@ static const struct snd_soc_component_driver q25_afe_component = {
 	.prepare = q25_afe_pcm_prepare,
 	.trigger = q25_afe_pcm_trigger,
 	.pointer = q25_afe_pcm_pointer,
+	.ack = q25_afe_pcm_ack,
 	.mmap = q25_afe_pcm_mmap,
 	.legacy_dai_naming = 0,
 };
@@ -888,7 +1160,7 @@ static struct snd_soc_dai_driver q25_afe_dai_driver[] = {
 			.stream_name = "PCM Playback",
 			.channels_min = 1,
 			.channels_max = 2,
-			.rates = SNDRV_PCM_RATE_8000_192000,
+			.rates = SNDRV_PCM_RATE_8000_48000 | SNDRV_PCM_RATE_96000 | SNDRV_PCM_RATE_192000,
 			.formats = SNDRV_PCM_FMTBIT_S16_LE |
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
@@ -897,7 +1169,8 @@ static struct snd_soc_dai_driver q25_afe_dai_driver[] = {
 			.stream_name = "PCM Capture",
 			.channels_min = 1,
 			.channels_max = 2,
-			.rates = SNDRV_PCM_RATE_8000_192000,
+			.rates = SNDRV_PCM_RATE_8000 | SNDRV_PCM_RATE_16000 | SNDRV_PCM_RATE_32000 |
+				 SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_96000 | SNDRV_PCM_RATE_192000,
 			.formats = SNDRV_PCM_FMTBIT_S16_LE |
 				   SNDRV_PCM_FMTBIT_S24_LE |
 				   SNDRV_PCM_FMTBIT_S32_LE,
@@ -943,6 +1216,51 @@ SND_SOC_DAILINK_DEFS(q25_pri_dai,
 	DAILINK_COMP_ARRAY(COMP_CODEC("mt6358-sound", "mt6358-snd-codec-aif1")),
 	DAILINK_COMP_ARRAY(COMP_PLATFORM("q25-mt6789-afe")));
 
+/*
+ * Headset jack, driven by the MT6358 ACCDET driver (q25_mt6358_accdet.c).
+ * The card has no DAPM pins for it, so add plain jack kcontrols named
+ * "Headphone Jack" and "Headset Mic Jack" (what UCM JackControl expects).
+ */
+static struct snd_soc_jack q25_headset_jack;
+
+static void q25_headset_jack_init(struct snd_soc_card *card)
+{
+	struct snd_jack *jack;
+	int ret;
+
+	memset(&q25_headset_jack, 0, sizeof(q25_headset_jack));
+	ret = snd_soc_card_jack_new_pins(card, "Headset",
+					 SND_JACK_HEADSET | SND_JACK_BTN_0 |
+					 SND_JACK_BTN_1 | SND_JACK_BTN_2,
+					 &q25_headset_jack, NULL, 0);
+	if (ret) {
+		dev_warn(card->dev, "headset jack creation failed: %d\n", ret);
+		return;
+	}
+	jack = q25_headset_jack.jack;
+
+	ret = snd_jack_add_new_kctl(jack, "Headphone", SND_JACK_HEADPHONE);
+	if (!ret)
+		ret = snd_jack_add_new_kctl(jack, "Headset Mic", SND_JACK_MICROPHONE);
+	if (ret)
+		dev_warn(card->dev, "jack kcontrol creation failed: %d\n", ret);
+
+	snd_jack_set_key(jack, SND_JACK_BTN_0, KEY_PLAYPAUSE);
+	snd_jack_set_key(jack, SND_JACK_BTN_1, KEY_VOLUMEUP);
+	snd_jack_set_key(jack, SND_JACK_BTN_2, KEY_VOLUMEDOWN);
+
+	/* -ENODEV: no ACCDET DT node/driver yet; the card works without it */
+	ret = q25_mt6358_accdet_set_jack(&q25_headset_jack);
+	if (ret)
+		dev_info(card->dev, "headset detection inactive until ACCDET binds (%d)\n",
+			 ret);
+}
+
+static void q25_mt6358_oca72xxx_exit(struct snd_soc_pcm_runtime *rtd)
+{
+	q25_mt6358_accdet_set_jack(NULL);
+}
+
 static int q25_mt6358_oca72xxx_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_component *cmpnt = snd_soc_rtd_to_codec(rtd, 0)->component;
@@ -952,12 +1270,27 @@ static int q25_mt6358_oca72xxx_init(struct snd_soc_pcm_runtime *rtd)
 			g_q25_afe->mt6358_cmpnt = cmpnt;
 		/* Set MTKAIF_PROTOCOL_2_CLK_P2 (2) to match AFE 0x00010000 / 0x38 */
 		mt6358_set_mtkaif_protocol(cmpnt, 2);
-		/* Initialize Lineout, Headphone, and Handset analog PGA gains to +4dB (valid ALSA 14/18) */
-		snd_soc_component_write(cmpnt, 0x248a, (4 << 7) | 4);
-		snd_soc_component_write(cmpnt, 0x248c, (4 << 7) | 4);
-		snd_soc_component_write(cmpnt, 0x248e, 4);
+		/*
+		 * Stock analog gains (vendor /vendor/etc/audio_param/
+		 * PlaybackVolAna_AudioParam.xml, "Others"): speaker LO index 10
+		 * (-2 dB), headset index 9 (-1 dB), receiver index 0 (+8 dB).
+		 * Register index 0 = +8 dB ... 0x12 = -10 dB.
+		 */
+		snd_soc_component_write(cmpnt, 0x248a, (10 << 7) | 10);
+		snd_soc_component_write(cmpnt, 0x248c, (9 << 7) | 9);
+		snd_soc_component_write(cmpnt, 0x248e, 0);
 		oca72xxx_add_codec_controls(cmpnt);
 	}
+	/*
+	 * Hard caps (ALSA value = dB + 10): stock runs the speaker line-out at
+	 * -2 dB into the OCA7255; +8 dB overdrove the speaker (audible distress,
+	 * hot smell). Keep any userspace from exceeding the stock gains.
+	 */
+	if (snd_soc_limit_volume(rtd->card, "Lineout Volume", 8))
+		dev_warn(rtd->card->dev, "failed to cap Lineout Volume\n");
+	if (snd_soc_limit_volume(rtd->card, "Headphone Volume", 9))
+		dev_warn(rtd->card->dev, "failed to cap Headphone Volume\n");
+	q25_headset_jack_init(rtd->card);
 	return 0;
 }
 
@@ -966,6 +1299,7 @@ static struct snd_soc_dai_link q25_dai_links[] = {
 		.name = "MT6789-MT6358-OCA72XXX",
 		.stream_name = "Multimedia",
 		.init = q25_mt6358_oca72xxx_init,
+		.exit = q25_mt6358_oca72xxx_exit,
 		SND_SOC_DAILINK_REG(q25_pri_dai),
 	},
 };
