@@ -1790,7 +1790,7 @@ static int synaptics_rmi4_f12_init(struct synaptics_rmi4_data *rmi4_data,
 	retval = synaptics_rmi4_reg_read(rmi4_data,
 			fhandler->full_addr.query_base + 5,
 			query_5.data,
-			size_of_query_5);
+			min_t(unsigned char, size_of_query_5, sizeof(query_5.data)));
 	if (retval < 0)
 		return retval;
 
@@ -1878,7 +1878,7 @@ static int synaptics_rmi4_f12_init(struct synaptics_rmi4_data *rmi4_data,
 	retval = synaptics_rmi4_reg_read(rmi4_data,
 			fhandler->full_addr.query_base + 8,
 			query_8.data,
-			size_of_query8);
+			min_t(unsigned char, size_of_query8, sizeof(query_8.data)));
 	if (retval < 0)
 		return retval;
 
@@ -2285,7 +2285,9 @@ rescan_pdt:
 	}
 
 flash_prog_mode:
-	rmi4_data->num_of_intr_regs = (intr_count + 7) / 8;
+	/* sizes come from the chip: never index past intr_mask[]/data[] */
+	rmi4_data->num_of_intr_regs = min_t(unsigned int, (intr_count + 7) / 8,
+					    MAX_INTR_REGISTERS);
 	dev_dbg(rmi4_data->pdev->dev.parent,
 			"%s: Number of interrupt registers = %d\n",
 			__func__, rmi4_data->num_of_intr_regs);

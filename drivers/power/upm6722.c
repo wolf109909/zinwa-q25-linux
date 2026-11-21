@@ -2722,7 +2722,6 @@ static int upm6722_charger_probe(struct i2c_client *client,
 
 err_register_mtk_charger:
 err_2:
-    power_supply_unregister(upm->fc2_psy);
 err_1:
     mutex_destroy(&upm->i2c_rw_lock);
     mutex_destroy(&upm->data_lock);
@@ -2796,7 +2795,6 @@ static void upm6722_charger_remove(struct i2c_client *client)
     struct upm6722 *upm = i2c_get_clientdata(client);
 
     upm6722_enable_adc(upm, false);
-    power_supply_unregister(upm->fc2_psy);
     mutex_destroy(&upm->data_lock);
     mutex_destroy(&upm->irq_complete);
 }
@@ -2806,7 +2804,6 @@ static int upm6722_charger_remove(struct i2c_client *client)
     struct upm6722 *upm = i2c_get_clientdata(client);
 
     upm6722_enable_adc(upm, false);
-    power_supply_unregister(upm->fc2_psy);
     mutex_destroy(&upm->data_lock);
     mutex_destroy(&upm->irq_complete);
 

@@ -756,7 +756,7 @@ static int bbq20kbd_probe(struct i2c_client *client,
     }
     
     /*add by hodafone begin*/
-	fwu_proc_entry = proc_create(PROC_NAME, 0777, NULL,&firmware_upgrade_proc_ops);
+	fwu_proc_entry = proc_create(PROC_NAME, 0600, NULL,&firmware_upgrade_proc_ops);
 	/*add by hodafone end*/
     
     power_enable(client,1);   
