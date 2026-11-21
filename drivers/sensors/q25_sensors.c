@@ -52,9 +52,10 @@ struct q25_sensors_ctx {
 	struct q25_i2c_bb bus_als; /* GPIO148 (SCL), GPIO149 (SDA) */
 	struct platform_device *pdev;
 	struct iio_mount_matrix accel_mount_matrix;
-	u32 last_als0;
 	u32 last_als1;
-	u16 last_ps0;
+	s32 last_ir3;
+	u16 last_dark2;
+	u16 last_ps;
 };
 
 static struct q25_sensors_ctx *g_q25_sensors;
@@ -269,10 +270,16 @@ static void q25_sensors_hw_init(struct q25_sensors_ctx *ctx)
 	q25_i2c_write_reg(&ctx->bus_imu, 0x18, 0x20, 0x57); /* CTRL_REG1: 100Hz, XYZ en */
 	q25_i2c_write_reg(&ctx->bus_imu, 0x18, 0x23, 0x88); /* CTRL_REG4: BDU=1, HR=1 (+/-2g) */
 
-	/* 2. Initialize MEMSIC MMC5603NJ (0x30): Auto_SR_en + Continuous 50Hz */
-	q25_i2c_write_reg(&ctx->bus_imu, 0x30, 0x1c, 50);   /* ODR = 50Hz */
-	q25_i2c_write_reg(&ctx->bus_imu, 0x30, 0x1b, 0xa0); /* CTRL0: Cmm_freq_en | Auto_SR_en */
-	q25_i2c_write_reg(&ctx->bus_imu, 0x30, 0x1d, 0x10); /* CTRL2: Cmm_en = 1 */
+	/*
+	 * 2. MEMSIC MMC5603NJ (0x30), single-shot mode. Register map: 0x1A ODR,
+	 * 0x1B Internal Control 0, 0x1C Internal Control 1, 0x1D Internal
+	 * Control 2. The previous code wrote "ODR = 50" to 0x1C, which set
+	 * Y/Z inhibit + the self-test current and pinned Y/Z at full scale.
+	 */
+	q25_i2c_write_reg(&ctx->bus_imu, 0x30, 0x1d, 0x00); /* CTRL2: continuous mode off */
+	q25_i2c_write_reg(&ctx->bus_imu, 0x30, 0x1c, 0x00); /* CTRL1: BW=6.6ms, no inhibit/self-test */
+	q25_i2c_write_reg(&ctx->bus_imu, 0x30, 0x1b, 0x08); /* CTRL0: Do_Set (clear residual magnetization) */
+	usleep_range(1000, 2000);
 
 	/* 3. Initialize TYHX HX32062SE (0x2b): ALS + PS active */
 	q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x4c, 0x0f);
@@ -367,7 +374,7 @@ static int mmc5603_read_raw(struct iio_dev *indio_dev,
 {
 	struct q25_sensors_ctx *ctx = g_q25_sensors;
 	u8 buf[6];
-	int ret;
+	int ret, i;
 
 	if (!ctx)
 		return -ENODEV;
@@ -377,8 +384,17 @@ static int mmc5603_read_raw(struct iio_dev *indio_dev,
 		mutex_lock(&ctx->lock);
 		q25_sensors_configure_pins(ctx);
 		q25_i2c_write_reg(&ctx->bus_imu, 0x30, 0x1b, 0x21); /* Take_meas_M | Auto_SR_en */
-		usleep_range(6000, 8000);
-		ret = q25_i2c_read_regs(&ctx->bus_imu, 0x30, 0x00, buf, 6);
+		/* BW=00: ~6.6 ms per measurement (+SET/RESET); wait for Meas_m_done (Status1 bit 6) */
+		ret = -ETIMEDOUT;
+		for (i = 0; i < 10; i++) {
+			usleep_range(5000, 6000);
+			if (q25_i2c_read_regs(&ctx->bus_imu, 0x30, 0x18, buf, 1) == 0 && (buf[0] & BIT(6))) {
+				ret = 0;
+				break;
+			}
+		}
+		if (!ret)
+			ret = q25_i2c_read_regs(&ctx->bus_imu, 0x30, 0x00, buf, 6);
 		mutex_unlock(&ctx->lock);
 		if (ret < 0)
 			return ret;
@@ -397,6 +413,33 @@ static const struct iio_info mmc5603_iio_info = {
 	.read_raw = mmc5603_read_raw,
 };
 
+/*
+ * Stock orientation: the stock SCP sensor-hub firmware (scp_a partition,
+ * tinysys-scp-RV55_A) carries a built-in sensor dts with
+ * { name = "mmc5603", slave_addr = 0x30, direction = 7 }. MTK direction 7 in
+ * its hwmsen/coordinate table (identical copy in that firmware) is
+ * sign {-1,-1,-1}, map {1,0,2}, i.e. Android X = -chip Y, Y = -chip X,
+ * Z = -chip Z. Expose that as the IIO mount matrix (rows = device axes).
+ */
+static const struct iio_mount_matrix mmc5603_mount_matrix = {
+	.rotation = {
+		"0", "-1", "0",
+		"-1", "0", "0",
+		"0", "0", "-1",
+	},
+};
+
+static const struct iio_mount_matrix *mmc5603_get_mount_matrix(
+	struct iio_dev *indio_dev, const struct iio_chan_spec *chan)
+{
+	return &mmc5603_mount_matrix;
+}
+
+static const struct iio_chan_spec_ext_info mmc5603_ext_info[] = {
+	IIO_MOUNT_MATRIX(IIO_SHARED_BY_TYPE, mmc5603_get_mount_matrix),
+	{ }
+};
+
 #define MMC5603_MAGN_CHANNEL(axis, idx) { \
 	.type = IIO_MAGN, \
 	.modified = 1, \
@@ -404,6 +447,7 @@ static const struct iio_info mmc5603_iio_info = {
 	.address = (idx), \
 	.info_mask_separate = BIT(IIO_CHAN_INFO_RAW), \
 	.info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE), \
+	.ext_info = mmc5603_ext_info, \
 }
 
 static const struct iio_chan_spec mmc5603_channels[] = {
@@ -414,92 +458,140 @@ static const struct iio_chan_spec mmc5603_channels[] = {
 
 /* -------------------------------------------------------------------------
  * 3. TYHX HX32062SE Ambient Light (ALS) & Proximity (PS) IIO Device
+ *
+ * Data paths follow the stock SCP sensor-hub driver (hx32062se in the
+ * scp_a tinysys image; no source is available):
+ *   - reg 0x83 |= 0x02 latches the data registers, &= ~0x02 releases them;
+ *   - ALS: 9 bytes from 0x01: als1 = 24-bit LE (0x01..0x03), ir3 = signed
+ *     24-bit LE (0x04..0x06) >> 3, dark2 = 16-bit LE (0x07..0x08)
+ *     (logged by the vendor as "als1_lp_data / als2_lp_data / als3_lp_data");
+ *   - PS: the value the vendor compares against ps_threshold_high/low
+ *     (3800/3300 in the stock SCP dts) is the 16-bit LE word at 0x69..0x6a.
+ *
+ * No lux is reported: the vendor lux path depends on run-time AGC gain,
+ * light-type coefficient selection and per-part dark offsets read from the
+ * sensor's own efuse, implemented only in that SCP firmware binary. Only the
+ * raw channels are exposed; userspace must not treat them as lux.
  * ------------------------------------------------------------------------- */
+enum {
+	HX32062SE_ALS1,
+	HX32062SE_IR3,
+	HX32062SE_DARK2,
+};
+
+static int hx32062se_latch(struct q25_sensors_ctx *ctx, bool on)
+{
+	u8 v;
+	int ret;
+
+	ret = q25_i2c_read_regs(&ctx->bus_als, 0x2b, 0x83, &v, 1);
+	if (ret < 0)
+		return ret;
+	v = on ? (v | 0x02) : (v & ~0x02);
+	return q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x83, v);
+}
+
 static int hx32062se_read_raw(struct iio_dev *indio_dev,
 			      struct iio_chan_spec const *chan,
 			      int *val, int *val2, long mask)
 {
 	struct q25_sensors_ctx *ctx = g_q25_sensors;
-	u8 buf[10];
-	u32 als0, als1;
-	u16 ps0;
+	u8 buf[9], ps[2];
+	u32 als1, ir_raw;
+	s32 ir3;
+	u16 dark2, psv;
 	int ret;
 
 	if (!ctx)
 		return -ENODEV;
-
-	switch (mask) {
-	case IIO_CHAN_INFO_RAW:
-	case IIO_CHAN_INFO_PROCESSED:
-		mutex_lock(&ctx->lock);
-		q25_sensors_configure_pins(ctx);
-		q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x83, 0x02);
-		ret = q25_i2c_read_regs(&ctx->bus_als, 0x2b, 0x01, buf, 6);
-		if (ret == 0)
-			ret = q25_i2c_read_regs(&ctx->bus_als, 0x2b, 0x0d, buf + 6, 3);
-		q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x83, 0x00);
-		if (ret == 0) {
-			als0 = (buf[0] | (buf[1] << 8) | (buf[2] << 16)) >> 6;
-			als1 = (buf[3] | (buf[4] << 8) | (buf[5] << 16)) >> 6;
-			ps0 = buf[6] | (buf[7] << 8);
-			if (als0 != 0 || ps0 != 0) {
-				ctx->last_als0 = als0;
-				ctx->last_als1 = als1;
-				ctx->last_ps0 = ps0;
-				/* Trigger next conversion cycle */
-				q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x4c, 0x0f);
-				q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x1a, 0x01);
-				q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x1a, 0x05);
-				q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x4c, 0x00);
-			}
-		}
-		als0 = ctx->last_als0;
-		als1 = ctx->last_als1;
-		ps0 = ctx->last_ps0;
-		mutex_unlock(&ctx->lock);
-		if (ret < 0)
-			return ret;
-
-		if (chan->type == IIO_LIGHT) {
-			/* Convert 18-bit ALS counts (baseline ~46800) to lux estimate */
-			*val = (als0 > 46800U) ? (int)((als0 - 46800U) / 15U) : (int)(als0 / 600U);
-			return IIO_VAL_INT;
-		} else if (chan->type == IIO_INTENSITY) {
-			*val = (int)(chan->address == 0 ? als0 : als1);
-			return IIO_VAL_INT;
-		} else if (chan->type == IIO_PROXIMITY) {
-			*val = (int)ps0;
-			return IIO_VAL_INT;
-		}
+	if (mask != IIO_CHAN_INFO_RAW)
 		return -EINVAL;
+
+	mutex_lock(&ctx->lock);
+	q25_sensors_configure_pins(ctx);
+	ret = hx32062se_latch(ctx, true);
+	if (ret == 0)
+		ret = q25_i2c_read_regs(&ctx->bus_als, 0x2b, 0x01, buf, sizeof(buf));
+	if (ret == 0)
+		ret = q25_i2c_read_regs(&ctx->bus_als, 0x2b, 0x69, ps, sizeof(ps));
+	hx32062se_latch(ctx, false);
+	if (ret == 0) {
+		als1 = buf[0] | (buf[1] << 8) | (buf[2] << 16);
+		ir_raw = buf[3] | (buf[4] << 8) | (buf[5] << 16);
+		ir3 = sign_extend32(ir_raw, 23) >> 3;
+		dark2 = buf[6] | (buf[7] << 8);
+		psv = ps[0] | (ps[1] << 8);
+		if (als1 != 0 || psv != 0) {
+			ctx->last_als1 = als1;
+			ctx->last_ir3 = ir3;
+			ctx->last_dark2 = dark2;
+			ctx->last_ps = psv;
+			/* Trigger next conversion cycle */
+			q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x4c, 0x0f);
+			q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x1a, 0x01);
+			q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x1a, 0x05);
+			q25_i2c_write_reg(&ctx->bus_als, 0x2b, 0x4c, 0x00);
+		}
+	}
+	als1 = ctx->last_als1;
+	ir3 = ctx->last_ir3;
+	dark2 = ctx->last_dark2;
+	psv = ctx->last_ps;
+	mutex_unlock(&ctx->lock);
+	if (ret < 0)
+		return ret;
+
+	switch (chan->type) {
+	case IIO_INTENSITY:
+		switch (chan->address) {
+		case HX32062SE_ALS1:
+			*val = als1;
+			break;
+		case HX32062SE_IR3:
+			*val = ir3;
+			break;
+		default:
+			*val = dark2;
+			break;
+		}
+		return IIO_VAL_INT;
+	case IIO_PROXIMITY:
+		*val = psv;
+		return IIO_VAL_INT;
 	default:
 		return -EINVAL;
 	}
 }
 
+static int hx32062se_read_label(struct iio_dev *indio_dev,
+				struct iio_chan_spec const *chan, char *label)
+{
+	static const char * const names[] = { "als1", "ir3", "dark2" };
+
+	if (chan->type == IIO_INTENSITY && chan->address < ARRAY_SIZE(names))
+		return sysfs_emit(label, "%s\n", names[chan->address]);
+	if (chan->type == IIO_PROXIMITY)
+		return sysfs_emit(label, "ps\n");
+	return -EINVAL;
+}
+
 static const struct iio_info hx32062se_iio_info = {
 	.read_raw = hx32062se_read_raw,
+	.read_label = hx32062se_read_label,
 };
 
+#define HX32062SE_INTENSITY_CHANNEL(idx) { \
+	.type = IIO_INTENSITY, \
+	.indexed = 1, \
+	.channel = (idx), \
+	.address = (idx), \
+	.info_mask_separate = BIT(IIO_CHAN_INFO_RAW), \
+}
+
 static const struct iio_chan_spec hx32062se_channels[] = {
-	{
-		.type = IIO_LIGHT,
-		.info_mask_separate = BIT(IIO_CHAN_INFO_PROCESSED) | BIT(IIO_CHAN_INFO_RAW),
-	},
-	{
-		.type = IIO_INTENSITY,
-		.indexed = 1,
-		.channel = 0,
-		.address = 0,
-		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
-	},
-	{
-		.type = IIO_INTENSITY,
-		.indexed = 1,
-		.channel = 1,
-		.address = 1,
-		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
-	},
+	HX32062SE_INTENSITY_CHANNEL(HX32062SE_ALS1),
+	HX32062SE_INTENSITY_CHANNEL(HX32062SE_IR3),
+	HX32062SE_INTENSITY_CHANNEL(HX32062SE_DARK2),
 	{
 		.type = IIO_PROXIMITY,
 		.info_mask_separate = BIT(IIO_CHAN_INFO_RAW),
