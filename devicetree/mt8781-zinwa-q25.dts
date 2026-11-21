@@ -298,6 +298,114 @@
 		#thermal-sensor-cells = <0>;
 		io-channels = <&pmic_adc MT6358_AUXADC_BAT_TEMP>;
 		io-channel-names = "sensor-channel";
+		/*
+		 * <millicelsius millivolts>: vendor 10 kOhm NTC (fg_temp_table,
+		 * BAT_NTC_10) on a 24 kOhm pull-up to vbif28 (2.8 V):
+		 * mV = 2800 * R / (24000 + R). 65..85 degC extrapolated (B=3472).
+		 * An open/unbiased pin reads ~0 mV and still maps to 85 degC.
+		 */
+		temperature-lookup-table = <
+			(-40000) 2494
+			(-35000) 2410
+			(-30000) 2311
+			(-25000) 2198
+			(-20000) 2071
+			(-15000) 1935
+			(-10000) 1790
+			(-5000) 1639
+			      0 1488
+			   5000 1340
+			  10000 1197
+			  15000 1062
+			  20000  938
+			  25000  824
+			  30000  720
+			  35000  629
+			  40000  548
+			  45000  476
+			  50000  414
+			  55000  359
+			  60000  312
+			  65000  272
+			  70000  238
+			  75000  208
+			  80000  182
+			  85000  160
+		>;
+	};
+
+	/*
+	 * Battery data from the stock mtk_gauge node (vendor-dtb/stock-merged.dts):
+	 *  - charge-full-design: g_Q_MAX[T1 = 25 degC][battery_id 0] = 2939 mAh
+	 *  - OCV table: battery0_profile_t1 (25 degC; t2/10 degC is identical),
+	 *    {mAh*10, OCV*10 mV, R, R_chg} rows resampled to 1 % steps of
+	 *    g_Q_MAX (0 % lands at 3.401 V ~ SHUTDOWN_GAUGE0_VOLTAGE 3.4 V)
+	 *  - internal resistance: median t1 R column (147 mOhm) + R_FG_VALUE
+	 *    (1 mOhm) + FG_METER_RESISTANCE (7 mOhm); used only to estimate
+	 *    OCV from VBAT under load
+	 *  - voltage-max: mtk charger battery_cv 4.44 V; voltage-min:
+	 *    SHUTDOWN_GAUGE0_VOLTAGE 3.4 V
+	 */
+	battery: battery {
+		compatible = "simple-battery";
+		device-chemistry = "lithium-ion";
+		charge-full-design-microamp-hours = <2939000>;
+		voltage-min-design-microvolt = <3400000>;
+		voltage-max-design-microvolt = <4440000>;
+		factory-internal-resistance-micro-ohms = <155000>;
+		ocv-capacity-celsius = <25>;
+		ocv-capacity-table-0 = <4393000 100 4379285 99 4368447 98 4357671 97
+			4346895 96 4336118 95 4324464 94 4312708 93
+			4300952 92 4289196 91 4277440 90 4265684 89
+			4253928 88 4242172 87 4230416 86 4219355 85
+			4207904 84 4196802 83 4185392 82 4174250 81
+			4162880 80 4151697 79 4140921 78 4129612 77
+			4118368 76 4107592 75 4096815 74 4085588 73
+			4074263 72 4063897 71 4054100 70 4043934 69
+			4032459 68 4020052 67 4008296 66 3996828 65
+			3986320 64 3976276 63 3965499 62 3954930 61
+			3944947 60 3934337 59 3924686 58 3915869 57
+			3907052 56 3898320 55 3890483 54 3882690 53
+			3875832 52 3868974 51 3862117 50 3856222 49
+			3851287 48 3845466 47 3840490 46 3834710 45
+			3829693 44 3824795 43 3820717 42 3815998 41
+			3811880 40 3807202 39 3803043 38 3799124 37
+			3795205 36 3791287 35 3788026 34 3784449 33
+			3781148 32 3777612 31 3774270 30 3770775 29
+			3767392 28 3764453 27 3761514 26 3758100 25
+			3754636 24 3751697 23 3748344 22 3744425 21
+			3740880 20 3737235 19 3732337 18 3726814 17
+			3720248 16 3714370 15 3708241 14 3701152 13
+			3693947 12 3689619 11 3687660 10 3685701 9
+			3683741 8 3681564 7 3677291 6 3668838 5
+			3651224 4 3614561 3 3563494 2 3495897 1
+			3401233 0
+		>;
+	};
+
+	/*
+	 * MT6366 FGADC coulomb counter (drivers/power/q25_mt6358_gauge.c),
+	 * registers the "battery" power supply. Sense resistor and CAR tune
+	 * from the stock mtk_gauge node: R_FG_VALUE = <1> (mOhm),
+	 * CAR_TUNE_VALUE = <101> (x10 -> 1010 per mille).
+	 */
+	fuel_gauge: fuel-gauge {
+		compatible = "zinwa,q25-mt6358-gauge";
+		mediatek,pmic = <&pmic>;
+		monitored-battery = <&battery>;
+		io-channels = <&pmic_adc MT6358_AUXADC_BATADC>;
+		io-channel-names = "vbat";
+		zinwa,fg-rsense-micro-ohms = <1000>;
+		zinwa,fg-car-tune-permille = <1010>;
+	};
+
+	/* SoC AUXADC (vendor auxadc@11001000); used by the modem (md-channel) */
+	auxadc: adc@11001000 {
+		compatible = "mediatek,mt6789-auxadc", "mediatek,mt6765-auxadc";
+		reg = <0 0x11001000 0 0x1000>;
+		clocks = <&infracfg_ao CLK_IFRAO_AUXADC>;
+		clock-names = "main";
+		#io-channel-cells = <1>;
 	};
 
 	thermal-zones {
@@ -466,6 +574,14 @@
 			debounce-interval = <15>;
 			wakeup-source;
 		};
+
+		/* vendor kp@10010000 hw-init-map[1] = KEY_MUTE on KPD_KCOL1 (GPIO 67) */
+		key-mute {
+			label = "Mute";
+			gpios = <&pio 67 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>;
+			linux,code = <KEY_MUTE>;
+			debounce-interval = <15>;
+		};
 	};
 
 	/* Zinwa Q25 Keyboard & Optical Trackpad Power Sequencing / Firmware Control */
@@ -531,15 +647,11 @@
 				                           MT6397_BUCK_MODE_FORCE_PWM>;
 			};
 
-			mt6366_vpa_reg: vpa {
-				regulator-name = "vpa";
-				regulator-min-microvolt = <500000>;
-				regulator-max-microvolt = <3650000>;
-				regulator-ramp-delay = <50000>;
-				regulator-enable-ramp-delay = <250>;
-				regulator-allowed-modes = <MT6397_BUCK_MODE_AUTO
-				                           MT6397_BUCK_MODE_FORCE_PWM>;
-			};
+			/*
+			 * vpa: owned by the modem (SIM / RF PA supply). No DT node, as in
+			 * the vendor DT: with constraints, regulator late cleanup switched
+			 * it off ~31 s after boot underneath the running modem.
+			 */
 
 			mt6366_vproc11_reg: vproc11 {
 				regulator-name = "vproc11";
@@ -616,12 +728,11 @@
 				regulator-always-on;
 			};
 
-			mt6366_vsim1_reg: vsim1 {
-				regulator-name = "vsim1";
-				regulator-min-microvolt = <1700000>;
-				regulator-max-microvolt = <3100000>;
-				regulator-enable-ramp-delay = <540>;
-			};
+			/*
+			 * vsim1: owned by the modem (SIM / RF PA supply). No DT node, as in
+			 * the vendor DT: with constraints, regulator late cleanup switched
+			 * it off ~31 s after boot underneath the running modem.
+			 */
 
 			mt6366_vibr_reg: vibr {
 				regulator-name = "vibr";
@@ -774,6 +885,13 @@
 				regulator-min-microvolt = <2800000>;
 				regulator-max-microvolt = <2800000>;
 				regulator-enable-ramp-delay = <270>;
+				/*
+				 * Pull-up supply of the battery NTC divider
+				 * (vendor RBAT_PULL_UP_VOLT). Without it
+				 * BAT_TEMP collapses and battery-thermal trips.
+				 */
+				regulator-always-on;
+				regulator-boot-on;
 			};
 
 			mt6366_vsram_proc12_reg: vsram-proc12 {
@@ -844,7 +962,7 @@
 
 			mt6366_vmc_reg: vmc {
 				regulator-name = "vmc";
-				regulator-min-microvolt = <2900000>;
+				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <3300000>;
 				regulator-enable-ramp-delay = <60>;
 				regulator-boot-on;
@@ -869,12 +987,12 @@
 				regulator-always-on;
 			};
 
-			mt6366_vsim2_reg: vsim2 {
-				regulator-name = "vsim2";
-				regulator-min-microvolt = <1700000>;
-				regulator-max-microvolt = <3100000>;
-				regulator-enable-ramp-delay = <540>;
-			};
+			/*
+			 * vsim2: owned by the modem (SIM / RF PA supply). No DT node, as in
+			 * the vendor DT: with constraints, regulator late cleanup switched
+			 * it off ~31 s after boot underneath the running modem.
+			 */
+
 		};
 
 		mt6358_rtc: rtc {
@@ -890,6 +1008,23 @@
 			compatible = "mediatek,mt6358-sound";
 			Avdd-supply = <&mt6366_vaud28_reg>;
 			mediatek,dmic-mode = <0>;
+		};
+
+		/*
+		 * Headset jack detection (PMIC ACCDET, EINT0, ACC mode); values
+		 * from the stock DT accdet node. Driven by q25_mt6358_accdet.c
+		 * in the out-of-tree audio module.
+		 */
+		accdet: accdet {
+			compatible = "mediatek,mt6358-accdet";
+			accdet-mic-vol = <6>;
+			accdet-mic-mode = <1>;
+			headset-eint-level-pol = <4>;
+			headset-mode-setting = <0x500 0x500 0x01 0x1f0 0x800 0x800 0x20 0x44
+						0x00 0x00 0x0e 0x00 0x00 0x00 0x00 0x00>;
+			headset-three-key-threshold = <0 0x50 0xdc 0x190>;
+			io-channels = <&pmic_adc MT6358_AUXADC_ACCDET>;
+			io-channel-names = "pmic_accdet";
 		};
 
 		mt6358_keys: keys {
@@ -1024,7 +1159,7 @@
 	sd-uhs-ddr50;
 
 	cd-debounce-delay-ms = <0>;
-	cd-gpios = <&pio 7 GPIO_ACTIVE_HIGH>;
+	cd-gpios = <&pio 7 GPIO_ACTIVE_LOW>;
 
 	vmmc-supply = <&mt6366_vmch_reg>;
 	vqmmc-supply = <&mt6366_vmc_reg>;
@@ -1114,6 +1249,7 @@
 	synaptics: touchscreen@67 {
 		compatible = "mediatek,cap_touch_synaptics", "synaptics,dsx-i2c";
 		reg = <0x67>;
+		panel = <&panel>;	/* drm panel follower: sleep with the display */
 		boot_mode = <&chosen>;
 		synaptics,irq-gpio = <&pio 9 GPIO_ACTIVE_HIGH>;
 		synaptics,irq-on-state = <0>;
@@ -1268,7 +1404,7 @@
 	mmc1_pins_default: mmc1-pins-default-state {
 		pins-clk {
 			pinmux = <PINMUX_GPIO71__FUNC_MSDC1_CLK>;
-			drive-strength = <3>;
+			drive-strength = <8>; /* vendor MTK_DRIVE_8mA (enum 3) */
 			bias-pull-down = <MTK_PUPD_SET_R1R0_10>;
 		};
 
@@ -1279,7 +1415,7 @@
 			         <PINMUX_GPIO76__FUNC_MSDC1_DAT3>,
 			         <PINMUX_GPIO72__FUNC_MSDC1_CMD>;
 			input-enable;
-			drive-strength = <3>;
+			drive-strength = <8>; /* vendor MTK_DRIVE_8mA (enum 3) */
 			bias-pull-up = <MTK_PUPD_SET_R1R0_01>;
 		};
 	};
@@ -1351,26 +1487,31 @@
 	consys_pins_default: consys_default {
 	};
 
+	/* vendor gps_l1_lna@0 (GPIO25) / gps_l5_lna@0 (GPIO87): LNAs off */
 	gpslna_pins_init: gpslna@0 {
 		pins_cmd_dat {
-			pinmux = <PINMUX_GPIO94__FUNC_GPIO94>;
-			slew-rate = <0>;
-			bias-disable;
+			pinmux = <PINMUX_GPIO25__FUNC_GPIO25>;
+			slew-rate = <1>;
+			output-low;
+		};
+		pins_l5 {
+			pinmux = <PINMUX_GPIO87__FUNC_GPIO87>;
+			slew-rate = <1>;
 			output-low;
 		};
 	};
 
-	gpslna_pins_oh: gpslna@1 {
+	gpslna_pins_oh: gpslna@1 {	/* vendor gps_l1_lna@2 */
 		pins_cmd_dat {
-			pinmux = <PINMUX_GPIO94__FUNC_GPIO94>;
+			pinmux = <PINMUX_GPIO25__FUNC_GPIO25>;
 			slew-rate = <1>;
 			output-high;
 		};
 	};
 
-	gpslna_pins_ol: gpslna@2 {
+	gpslna_pins_ol: gpslna@2 {	/* vendor gps_l1_lna@0 */
 		pins_cmd_dat {
-			pinmux = <PINMUX_GPIO94__FUNC_GPIO94>;
+			pinmux = <PINMUX_GPIO25__FUNC_GPIO25>;
 			slew-rate = <1>;
 			output-low;
 		};
@@ -1456,7 +1597,7 @@
 
 		md_auxadc: md_auxadc {
 			compatible = "mediatek,md_auxadc";
-			io-channels = <&pmic_adc 2>;
+			io-channels = <&auxadc 2>;	/* SoC AUXADC ch2, as vendor */
 			io-channel-names = "md-channel";
 		};
 
