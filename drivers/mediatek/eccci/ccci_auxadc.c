@@ -55,21 +55,25 @@ static int ccci_get_adc_info(struct device *dev)
 	}
 	adc_num = md_channel->channel->channel;
 
-	ret = iio_read_channel_raw(md_channel, &val);
+	ret = iio_read_channel_processed(md_channel, &mV);
 	if (ret < 0) {
 		iio_channel_release(md_channel);
-		CCCI_ERROR_LOG(-1, TAG, "iio_read_channel_raw fail");
-		goto Fail;
-	}
-	adc_val = val;
-
-	ret = iio_read_channel_processed(md_channel, &mV);
-	iio_channel_release(md_channel);
-	if (ret < 0) {
 		CCCI_ERROR_LOG(-1, TAG, "iio_read_channel_processed fail");
 		goto Fail;
 	}
 	adc_mV = mV;
+
+	/*
+	 * Mainline mt6577-auxadc (SoC AUXADC, as used by the vendor for
+	 * md-channel) only exposes processed values. Derive the 12-bit code with
+	 * its own scaling (1500 mV full range) when no raw value is offered.
+	 */
+	ret = iio_read_channel_raw(md_channel, &val);
+	if (ret < 0)
+		val = DIV_ROUND_CLOSEST(mV * 4096, 1500);
+	iio_channel_release(md_channel);
+	adc_val = val;
+	ret = 0;
 
 	CCCI_NORMAL_LOG(0, TAG, "md_ch = %d, raw_val = %d[%dmV]\n",
 		adc_num, val, mV);
