@@ -1,0 +1,23 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] pinctrl: mediatek: mt6789: size pull_type to all 222 pins
+
+mt6789_pull_type[] had 188 entries but the SoC data describes 222 pins
+(GPIO188-221 are virtual EINT pins). mtk_pinconf_bias_{set,get}_combo()
+indexes it by pin number, so bias get/set on those pins (debugfs
+pinconf-pins, gpiod bias requests) read past the array. Size it from
+mtk_pins_mt6789; the extra entries are zero.
+
+---
+diff --git a/drivers/pinctrl/mediatek/pinctrl-mt6789.c b/drivers/pinctrl/mediatek/pinctrl-mt6789.c
+index b71f6b48b..011ee97ea 100644
+--- a/drivers/pinctrl/mediatek/pinctrl-mt6789.c
++++ b/drivers/pinctrl/mediatek/pinctrl-mt6789.c
+@@ -1133,7 +1133,7 @@ static const struct mtk_pin_field_calc mt6789_pin_rsel_range[] = {
+ 	PIN_FIELD_BASE(149, 149, 6, 0x0130, 0x10, 21, 3),
+ };
+ 
+-static const unsigned int mt6789_pull_type[] = {
++static const unsigned int mt6789_pull_type[ARRAY_SIZE(mtk_pins_mt6789)] = {
+ 	1 /* 0 */, 1 /* 1 */, 1 /* 2 */, 1 /* 3 */, 1 /* 4 */,
+ 	1 /* 5 */, 1 /* 6 */, 1 /* 7 */, 1 /* 8 */, 1 /* 9 */,
+ 	1 /* 10 */, 1 /* 11 */, 1 /* 12 */, 1 /* 13 */, 1 /* 14 */,
