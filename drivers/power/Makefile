@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: GPL-2.0
-# Zinwa Q25 Power Supply & Charger Drivers (UPM6922 primary charger + UPM6722 charge pump)
+# Zinwa Q25 Power Supply & Charger Drivers (UPM6922 primary charger + UPM6722 charge pump + MT6366 fuel gauge)
 
 ifneq ($(KERNELRELEASE),)
 ccflags-y += -I$(src)/../include
 obj-m += upm6922_charger.o
 obj-m += upm6722.o
+obj-m += q25_mt6358_gauge.o
 else
 KDIR ?= /lib/modules/$(shell uname -r)/build
 

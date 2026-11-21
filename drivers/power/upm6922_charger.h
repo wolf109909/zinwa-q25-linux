@@ -405,7 +405,7 @@
 #define PHY_MODE_BC11_SET 1
 #define PHY_MODE_BC11_CLR 2
 
-static bool dbg_log_en = true;
+static bool dbg_log_en; /* per-property debug spam; enable via module param */
 module_param(dbg_log_en, bool, 0644);
 #define upm6922_info(fmt, ...) \
 	do { \
