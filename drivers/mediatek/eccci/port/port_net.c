@@ -462,7 +462,14 @@ static void ccmni_queue_recv_skb(struct port_t *port, struct sk_buff *skb)
 	} else {
 		port_ch_dump(port, 1, skb, skb->len);
 		spin_lock_irqsave(&port->port_rx_list.lock, flags);
-			__skb_queue_tail(&port->port_rx_list, skb);
+		/* Q25: a PDN the modem keeps up on a down interface (IMS before
+		 * q25-imsd starts) must not queue packets without bound */
+		if (skb_queue_len(&port->port_rx_list) >= 512) {
+			spin_unlock_irqrestore(&port->port_rx_list.lock, flags);
+			dev_kfree_skb_any(skb);
+			return;
+		}
+		__skb_queue_tail(&port->port_rx_list, skb);
 		spin_unlock_irqrestore(&port->port_rx_list.lock, flags);
 	}
 }

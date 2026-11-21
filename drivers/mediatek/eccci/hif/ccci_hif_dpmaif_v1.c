@@ -1928,6 +1928,28 @@ static int dpmaif_check_rel_cnt(struct dpmaif_rx_queue *rxq)
 }
 #endif
 
+/*
+ * Q25: refill rxq->bat_deficit released BAT slots. Returns how many slots got
+ * a new buffer (the caller reports exactly that many to the hardware); the
+ * rest stays in bat_deficit for the next pass.
+ */
+static unsigned int dpmaif_refill_bat(struct dpmaif_rx_queue *rxq, int blocking)
+{
+	struct dpmaif_bat_request *bat_req = &rxq->bat_req;
+	unsigned short wr_bak = bat_req->bat_wr_idx;
+	unsigned int got;
+
+	if (!rxq->bat_deficit)
+		return 0;
+	dpmaif_alloc_rx_buf(bat_req, rxq->index, rxq->bat_deficit, blocking);
+	got = (bat_req->bat_wr_idx + bat_req->bat_size_cnt - wr_bak) %
+		bat_req->bat_size_cnt;
+	if (got > rxq->bat_deficit)
+		got = rxq->bat_deficit;
+	rxq->bat_deficit -= got;
+	return got;
+}
+
 static int dpmaif_rx_start(struct dpmaif_rx_queue *rxq, unsigned short pit_cnt,
 		int blocking, unsigned long time_limit)
 {
@@ -1994,6 +2016,17 @@ static int dpmaif_rx_start(struct dpmaif_rx_queue *rxq, unsigned short pit_cnt,
 #ifdef HW_FRG_FEATURE_ENABLE
 				if (pkt_inf_t->buffer_type != PKT_BUF_FRAG) {
 #endif
+					/*
+					 * Q25: dpmaif_send_skb_to_net() must not fail once the
+					 * buffer was unmapped and pushed, or the retry would redo
+					 * both on the same skb. This thread is the only producer,
+					 * so checking for room up front is enough.
+					 */
+					if (rxq->skb_list.skb_list.qlen >=
+					    rxq->skb_list.max_len) {
+						ret = LOW_MEMORY_SKB;
+						break;
+					}
 					/* skb->data: add to skb ptr */
 					/* && record ptr. */
 					rxq->skb_idx = pkt_inf_t->buffer_id;
@@ -2006,9 +2039,8 @@ static int dpmaif_rx_start(struct dpmaif_rx_queue *rxq, unsigned short pit_cnt,
 #if defined(_97_REORDER_BAT_PAGE_TABLE_)
 					/*ret return BAT cnt*/
 					notify_hw.bat_cnt += ret;
-#else
-					notify_hw.bat_cnt++;
 #endif
+					/* non-97: counted when the slot is really refilled below */
 
 #ifdef HW_FRG_FEATURE_ENABLE
 				} else if (rxq->skb_idx < 0) {
@@ -2059,22 +2091,23 @@ static int dpmaif_rx_start(struct dpmaif_rx_queue *rxq, unsigned short pit_cnt,
 					/* && data had rx. */
 					unsigned int done_skb_idx = rxq->skb_idx;
 					struct dpmaif_bat_request *bat_req = &rxq->bat_req;
-					unsigned short bat_rel_rd_bak;
 
 					ret = dpmaif_send_skb_to_net(rxq,
 						done_skb_idx);
 					if (ret < 0)
-						break;
-					/* Now that cur_skb->skb is NULL, reallocate BAT slot */
+						break;	/* cannot happen: room checked above */
+					/*
+					 * The skb belongs to the stack now: this PIT entry is
+					 * consumed whatever happens next, and its BAT slot is
+					 * released. Refill it (plus earlier shortfalls); only
+					 * slots that really got a buffer are reported to HW.
+					 */
 					bat_req->bat_rd_idx = drv1_dpmaif_dl_get_bat_ridx(rxq->index);
-					bat_rel_rd_bak = bat_req->bat_rel_rd_idx;
 					bat_req->bat_rel_rd_idx = ringbuf_get_next_idx(bat_req->bat_size_cnt,
 						done_skb_idx, 1);
-					ret = dpmaif_alloc_rx_buf(&rxq->bat_req, rxq->index, 1, blocking);
-					if (ret < 0) {
-						bat_req->bat_rel_rd_idx = bat_rel_rd_bak;
-						break;
-					}
+					rxq->bat_deficit++;
+					notify_hw.bat_cnt += dpmaif_refill_bat(rxq, blocking);
+					ret = 0;
 					recv_skb_cnt++;
 					if ((recv_skb_cnt&0x7) == 0) {
 						NOTIFY_RX_PUSH(rxq);
@@ -2221,6 +2254,17 @@ static int dpmaif_rx_data_collect(struct hif_dpmaif_ctrl *hif_ctrl,
 	int ret = ALL_CLEAR, real_cnt = 0;
 	unsigned int L2RISAR0;
 	unsigned long time_limit = jiffies + 2;
+
+	/* Q25: top up slots a previous pass could not refill, so the hardware
+	 * never starves for buffers while no new packets can arrive */
+	if (rxq->bat_deficit) {
+		unsigned int got = dpmaif_refill_bat(rxq, blocking);
+
+		if (got)
+			drv1_dpmaif_dl_add_bat_cnt(rxq->index, got);
+		if (rxq->bat_deficit)
+			return LOW_MEMORY;	/* retried from the (blocking) work */
+	}
 
 	cnt = dpmaifq_poll_rx_pit(rxq);
 	if (cnt) {
@@ -4324,6 +4368,7 @@ static int dpmaif_stop_rxq(struct dpmaif_rx_queue *rxq)
 	rxq->bat_req.bat_rd_idx = 0;
 	rxq->bat_req.bat_rel_rd_idx = 0;
 	rxq->bat_req.bat_wr_idx = 0;
+	rxq->bat_deficit = 0;
 #ifdef HW_FRG_FEATURE_ENABLE
 	rxq->bat_frag.bat_rd_idx = 0;
 	rxq->bat_frag.bat_rel_rd_idx = 0;

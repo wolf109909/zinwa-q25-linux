@@ -1038,13 +1038,21 @@ static int ccmni_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	return 0;
 }
 
+/* ndo_siocdevprivate has a different signature: casting ccmni_ioctl to it put
+ * the user pointer into "cmd" (all private ioctls were dead, and a kCFI trap) */
+static int ccmni_siocdevprivate(struct net_device *dev, struct ifreq *ifr,
+				void __user *data, int cmd)
+{
+	return ccmni_ioctl(dev, ifr, cmd);
+}
+
 static const struct net_device_ops ccmni_netdev_ops = {
 	.ndo_open		= ccmni_open,
 	.ndo_stop		= ccmni_close,
 	.ndo_start_xmit	= ccmni_start_xmit,
 	.ndo_tx_timeout	= ccmni_tx_timeout,
 	.ndo_eth_ioctl   = ccmni_ioctl,
-	.ndo_siocdevprivate = (int (*)(struct net_device *, struct ifreq *, void __user *, int))ccmni_ioctl,
+	.ndo_siocdevprivate = ccmni_siocdevprivate,
 	.ndo_change_mtu = ccmni_change_mtu,
 	.ndo_select_queue = ccmni_select_queue,
 };

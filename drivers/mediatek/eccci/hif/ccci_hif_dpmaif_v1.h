@@ -258,6 +258,8 @@ struct dpmaif_rx_queue {
 
 	struct ccci_skb_queue skb_list;
 	unsigned int pit_dp;
+	/* BAT slots released to the stack but not refilled yet (allocation failed) */
+	unsigned int bat_deficit;
 };
 
 /****************************************************************************
