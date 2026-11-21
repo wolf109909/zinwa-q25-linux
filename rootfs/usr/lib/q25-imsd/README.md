@@ -22,10 +22,24 @@ How it works (3GPP TS 24.229 / 24.341 / 33.203):
 
 Identities are derived from the IMSI (the SIM has no ISIM).
 
-Phase A limits: drives the modem through ModemManager's debug command API
-(`ModemManager --debug`); received SMS go to `/var/lib/q25-imsd/sms.jsonl` + a
-desktop notification; sending via `q25-imsd.py send <number> <text>`.
-Phase B: move bearer/AKA/SMS hand-off into the ModemManager plugin so Chatty
-works natively and MM runs without --debug.
+Integration (phase B):
 
-Tests: `python3 test_smspdu.py`.
+- ModemManager plugin `mtk-ccci` (`packages/modemmanager-q25`, pkgrel 5) owns the
+  only AT port (ttyC0; the other CCCI ttys don't speak AT). Its IMS bridge
+  (`mm-ims-bridge-mtk-ccci.c`) serves the root-only socket `/run/q25-ims-bridge.sock`:
+  `AT` passthrough on MM's serialized port, `+EIF`/IMS URC forwarding, `REG 0|1`,
+  `MT <smsc> <tpdu>` (received SMS -> `mm_iface_modem_messaging_take_part`, so
+  Chatty sees normal SMS incl. multipart and delivery reports) and `MO <id> <tpdu>`
+  (`MMSmsMtkIms.send` routes SMS over IMS while registered, else AT +CMGS).
+  The plugin also keeps an `ims` entry in the modem APN table. No `--debug`.
+- `q25-imsd.service` (BindsTo ModemManager, Restart=always). The IMS bearer's
+  +EIF id is kept in `/run/q25-imsd.pdn`; stale xfrm state is flushed at start.
+- The SMS centre is answered (RP-ACK) only after MM took the message, so a
+  failed hand-off makes the network retry. MO completes on the SMSC's RP-ACK.
+
+Earlier experiments left transmit guards on test phones
+(`/etc/dbus-1/system.d/90-q25-no-transmit.conf`,
+`/etc/polkit-1/rules.d/00-q25-no-transmit.rules`); they must not block
+`Messaging`. They are not part of the image.
+
+Tests: `python3 tests/test_q25_imsd_smspdu.py`.

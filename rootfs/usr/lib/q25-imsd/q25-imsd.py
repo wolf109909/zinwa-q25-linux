@@ -34,6 +34,7 @@ CTL = "/run/q25-imsd.sock"
 STATE_DIR = "/var/lib/q25-imsd"
 LOG_PREFIX = "q25-imsd"
 RT_TABLE = 1403
+PDN_STATE = "/run/q25-imsd.pdn"   # modem +EIF id of our IMS bearer (tmpfs: gone at boot)
 USER = "max"
 
 
@@ -49,18 +50,69 @@ def sh(*cmd, check=True):
 
 
 # ---------------------------------------------------------------- modem (AT)
-class Modem:
-    lock = threading.Lock()
+BRIDGE = "/run/q25-ims-bridge.sock"
 
-    def at(self, cmd, timeout=30):
-        with self.lock:
-            r = subprocess.run(["mmcli", "-m", "any", f"--command={cmd}", f"--timeout={timeout}"],
-                               capture_output=True, text=True)
-        out = (r.stdout + r.stderr).strip()
-        if r.returncode or "error" in out.lower() and "response:" not in out:
-            raise RuntimeError(f"{cmd}: {out}")
-        m = re.search(r"response: '(.*)'", out, re.S)
-        return m.group(1) if m else ""
+
+class Modem:
+    """AT + URC access through the Q25 ModemManager plugin bridge."""
+
+    def __init__(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.connect(BRIDGE)
+        self.wlock = threading.Lock()
+        self.next_id = 0
+        self.waiters = {}            # id -> [Event, (ok, text)]
+        self.urc_handlers = []
+        self.mo_handler = None
+        self.mtres = queue.Queue()
+        self.alive = True
+        threading.Thread(target=self._reader, daemon=True).start()
+
+    def send_line(self, line):
+        with self.wlock:
+            self.sock.sendall(line.encode() + b"\n")
+
+    def _reader(self):
+        f = self.sock.makefile("r", encoding="utf-8", errors="replace", newline="\n")
+        for line in f:
+            line = line.rstrip("\n")
+            kind, _, rest = line.partition(" ")
+            if kind == "ATRES":
+                rid, _, rest = rest.partition(" ")
+                status, _, text = rest.partition(" ")
+                w = self.waiters.get(rid)
+                if w:
+                    w[1] = (status == "OK", text.replace("\\n", "\n"))
+                    w[0].set()
+            elif kind == "URC":
+                for fn in self.urc_handlers:
+                    try:
+                        fn(rest)
+                    except Exception as e:
+                        log("URC handler error:", repr(e))
+            elif kind == "MO" and self.mo_handler:
+                rid, _, hexpdu = rest.partition(" ")
+                self.mo_handler(rid, bytes.fromhex(hexpdu))
+            elif kind == "MTRES":
+                self.mtres.put(rest)
+        self.alive = False
+        log("ModemManager bridge closed; exiting for a clean restart")
+        os._exit(3)
+
+    def at(self, cmd, timeout=90):
+        self.next_id += 1
+        rid = str(self.next_id)
+        w = [threading.Event(), None]
+        self.waiters[rid] = w
+        self.send_line(f"AT {rid} {cmd}")
+        if not w[0].wait(timeout + 5):
+            self.waiters.pop(rid, None)
+            raise RuntimeError(f"{cmd}: no answer from ModemManager")
+        self.waiters.pop(rid, None)
+        ok, text = w[1]
+        if not ok:
+            raise RuntimeError(f"{cmd}: {text}")
+        return text
 
     def imsi(self):
         return re.search(r"\d{15}", self.at("AT+CIMI")).group(0)
@@ -106,6 +158,13 @@ class Pdn:
         self.m = modem
         self.ifname = self.addr = None
         self.pcscf = []
+        self.eif = queue.Queue()
+        modem.urc_handlers.append(self._on_urc)
+
+    def _on_urc(self, line):
+        m = re.search(r"\+EIF: (\d+), (ifup|ifdown)(?:, (\d+))?", line)
+        if m:
+            self.eif.put((int(m.group(1)), m.group(2), m.group(3)))
 
     def contrdp(self):
         for line in self.m.at("AT+CGCONTRDP").split("+CGCONTRDP:"):
@@ -125,21 +184,25 @@ class Pdn:
                       'authtype=0;carrier_enabled=1;max_conns=0;max_conns_time=0;wait_time=0;'
                       'bearer_bitmask=0;inactive_timer=0"')
             self.m.at("AT+EAPNLOCK=0")
-            since = time.time() - 1
+            while not self.eif.empty():
+                self.eif.get_nowait()
             self.m.at('AT+EAPNACT=1,"ims","ims",0', timeout=90)
             eif = None
-            for _ in range(20):
-                j = sh("journalctl", "-u", "ModemManager", "-o", "cat", "--no-pager",
-                       "--since", f"@{int(since)}", check=False)
-                m = re.findall(r"\+EIF: (\d+), ifup, 2", j)
-                if m:
-                    eif = int(m[-1])
+            end = time.time() + 20
+            while time.time() < end:
+                try:
+                    i, ev, typ = self.eif.get(timeout=1)
+                except queue.Empty:
+                    continue
+                if ev == "ifup" and typ == "2":
+                    eif = i
                     break
-                time.sleep(1)
             if eif is None:
                 raise RuntimeError("no +EIF for the IMS PDN")
             self.m.at(f'AT+EIF={eif},"ifst","up",3')
             self.ifname = f"ccmni{eif % 100}"
+            with open(PDN_STATE, "w") as f:
+                f.write(str(eif))
             self.pcscf = self.contrdp()
         if not self.ifname:
             self.ifname = self._find_if()
@@ -159,16 +222,12 @@ class Pdn:
         log(f"IMS PDN on {self.ifname}, P-CSCF {self.pcscf}")
 
     def _find_if(self):
-        for n in range(21):
-            out = sh("ip", "-6", "addr", "show", "dev", f"ccmni{n}", check=False)
-            if "proto kernel_ra" in out and "240e" in out:
-                return f"ccmni{n}"
-        # fall back to the most recent +EIF from the journal
-        j = sh("journalctl", "-u", "ModemManager", "-o", "cat", "--no-pager", check=False)
-        m = re.findall(r"\+EIF: (\d+), ifup, 2", j)
-        if m:
-            return f"ccmni{int(m[-1]) % 100}"
-        raise RuntimeError("cannot find IMS ccmni interface")
+        """IMS bearer already up (daemon restart): use the interface we recorded."""
+        try:
+            return f"ccmni{int(open(PDN_STATE).read().strip()) % 100}"
+        except (OSError, ValueError):
+            raise RuntimeError("IMS bearer is up but its interface is unknown; "
+                               "restart ModemManager to reset the bearer")
 
 
 # ---------------------------------------------------------------- IPsec
@@ -287,6 +346,8 @@ class Ims:
         self.sock_c = self.sock_s = None
         self.concat = {}
         self.work = queue.Queue()
+        self.mo_wait = {}            # RP-MR -> [Event, (ok, cause)]
+        self.mr_lock = threading.Lock()
         self.seen = {}               # (call-id, cseq) -> time, to drop retransmissions
         os.makedirs(STATE_DIR, exist_ok=True)
 
@@ -392,6 +453,7 @@ class Ims:
             raise RuntimeError(f"protected REGISTER: {r and r['start']}")
         self.ipsec.flush_old(keep=1)
         self.registered = True
+        self.m.send_line("REG 1")
         self.assoc = [re.sub(r"[<>]", "", x.strip()) for v in hall(r, "p-associated-uri") for x in v.split(",")]
         self.service_route = [x.strip() for v in hall(r, "service-route") for x in v.split(",")]
         exp = None
@@ -459,7 +521,11 @@ class Ims:
                 return
             ctype = (h(req, "content-type") or "").lower()
             if "vnd.3gpp.sms" in ctype:
-                self.work.put((self.on_sms_rp, (req,)))
+                body = req["body"]
+                if body and body[0] & 0x07 in (smspdu.RP_ACK_N_MS, smspdu.RP_ERROR_N_MS):
+                    self.on_sms_rp(req)          # never blocks: just wakes the MO waiter
+                else:
+                    self.work.put((self.on_sms_rp, (req,)))
             else:
                 log("MESSAGE with content-type", ctype)
         elif meth in ("OPTIONS", "NOTIFY"):
@@ -470,14 +536,37 @@ class Ims:
     def on_sms_rp(self, req):
         rp = smspdu.decode_rp(req["body"])
         if rp["type"] == smspdu.RP_DATA_N_MS:
-            d = smspdu.decode_deliver(rp["tpdu"])
+            handed = self.hand_to_mm(rp["oa"], rp["tpdu"])
+            # acknowledge to the SMSC only once the message is safely with ModemManager
+            # (or stored locally as a fallback), so a failure makes the network retry
+            if not handed:
+                self.deliver(smspdu.decode_deliver(rp["tpdu"]))
             self._send_rp(smspdu.rp_ack_ms_n(rp["mr"]), in_reply_to=h(req, "call-id"),
-                          to=re.search(r"<([^>]+)>", h(req, "from")).group(1))
-            self.deliver(d)
-        elif rp["type"] == smspdu.RP_ACK_N_MS:
-            log(f"RP-ACK for MR {rp['mr']}: SMS accepted by the SMSC")
-        elif rp["type"] == smspdu.RP_ERROR_N_MS:
-            log(f"RP-ERROR for MR {rp['mr']}: cause {rp.get('cause')}")
+                          to=re.search(r"<([^>]+)>", h(req, "from")).group(1), wait=False)
+        elif rp["type"] in (smspdu.RP_ACK_N_MS, smspdu.RP_ERROR_N_MS):
+            ok = rp["type"] == smspdu.RP_ACK_N_MS
+            log(f"{'RP-ACK' if ok else 'RP-ERROR'} for MR {rp['mr']}"
+                + ("" if ok else f": cause {rp.get('cause')}"))
+            w = self.mo_wait.get(rp["mr"])
+            if w:
+                w[1] = (ok, rp.get("cause"))
+                w[0].set()
+        else:
+            log(f"unhandled RP message type {rp['type']}")
+
+    def hand_to_mm(self, smsc, tpdu):
+        while not self.m.mtres.empty():
+            self.m.mtres.get_nowait()
+        self.m.send_line(f"MT {smsc or '-'} {tpdu.hex()}")
+        try:
+            res = self.m.mtres.get(timeout=10)
+        except queue.Empty:
+            res = "ERR timeout"
+        if res.startswith("OK"):
+            log("SMS part handed to ModemManager")
+            return True
+        log("ModemManager did not take the SMS:", res)
+        return False
 
     def deliver(self, d):
         if d["concat"]:
@@ -503,8 +592,9 @@ class Ims:
             log("notification timed out")
 
     # -------- outgoing
-    def _send_rp(self, body, to, in_reply_to=None):
-        self.cseq += 1
+    def _send_rp(self, body, to, in_reply_to=None, wait=True):
+        with self.mr_lock:
+            self.cseq += 1
         a = self.pdn.addr
         from_uri = next((u for u in self.assoc if u.startswith("sip:")), self.impu)
         lines = [f"MESSAGE {to} SIP/2.0",
@@ -526,6 +616,9 @@ class Ims:
         ev = threading.Event()
         self.pending[b] = [ev, None]
         self.sock_c.sendto(raw, (self.pcscf, self.pc_s))
+        if not wait:
+            self.pending.pop(b, None)
+            return None
         end, r = time.time() + 15, None
         while time.time() < end:
             ev.wait(max(0.0, end - time.time()))
@@ -536,15 +629,45 @@ class Ims:
         self.pending.pop(b, None)
         return r
 
+    def send_tpdu(self, tpdu):
+        """RP-DATA(SMS-SUBMIT) to the SMSC; True once the SMSC answers RP-ACK."""
+        if not self.registered:
+            return False, "not registered"
+        with self.mr_lock:
+            self.mr = (self.mr + 1) & 0xFF
+            mr = self.mr
+        w = [threading.Event(), None]
+        self.mo_wait[mr] = w
+        try:
+            sc = f"sip:{self.smsc}@{self.domain};user=phone"
+            r = self._send_rp(smspdu.rp_data_ms_n(mr, self.smsc, tpdu), to=sc)
+            if not r or r["code"] >= 300:
+                return False, r["start"] if r else "no SIP answer"
+            if not w[0].wait(30):
+                return False, "no RP-ACK from SMSC"
+            ok, cause = w[1]
+            return ok, "" if ok else f"RP cause {cause}"
+        finally:
+            self.mo_wait.pop(mr, None)
+
+    def on_mo(self, rid, tpdu):
+        def job():
+            try:
+                ok, why = self.send_tpdu(tpdu)
+            except Exception as e:
+                ok, why = False, repr(e)
+            log(f"MO {rid}: {'accepted by SMSC' if ok else 'failed: ' + why}")
+            self.m.send_line(f"MORES {rid} OK" if ok else f"MORES {rid} ERR {why}")
+        threading.Thread(target=job, daemon=True).start()
+
     def send_sms(self, number, text):
         if not self.registered:
             raise RuntimeError("not registered")
         sc = f"sip:{self.smsc}@{self.domain};user=phone"
         results = []
         for tpdu in smspdu.encode_submit(number, text):
-            self.mr = (self.mr + 1) & 0xFF
-            r = self._send_rp(smspdu.rp_data_ms_n(self.mr, self.smsc, tpdu), to=sc)
-            results.append(r["start"] if r else "timeout")
+            ok, why = self.send_tpdu(tpdu)
+            results.append("RP-ACK" if ok else why)
         log(f"SMS to {mask_num(number)}: {results}")
         return results
 
@@ -574,10 +697,16 @@ class Ims:
         return [mask_num(x.replace(self.imsi, self.imsi[:5] + "********" + self.imsi[-2:])) for x in xs]
 
     def run(self):
+        # q25-imsd is the only IPsec user: drop SAs/policies left by a previous instance
+        self.ipsec.flush_all()
+        sh("ip", "xfrm", "policy", "flush", check=False)
+        sh("ip", "xfrm", "state", "flush", check=False)
         threading.Thread(target=self.ctl_loop, daemon=True).start()
         # the receiver must run before REGISTER: responses are matched there
         threading.Thread(target=self.rx_loop, daemon=True).start()
         threading.Thread(target=self.worker_loop, daemon=True).start()
+        self.m.mo_handler = self.on_mo
+        self.m.send_line("REG 0")
         backoff = 10
         while True:
             try:
@@ -587,6 +716,10 @@ class Ims:
                 log("re-registering")
             except Exception as e:
                 self.registered = False
+                try:
+                    self.m.send_line("REG 0")
+                except OSError:
+                    pass
                 log("registration failed:", repr(e), f"; retry in {backoff}s")
                 time.sleep(backoff)
                 backoff = min(backoff * 2, 600)

@@ -1,3 +1,5 @@
+import os, sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "rootfs", "usr", "lib", "q25-imsd"))
 import smspdu as P
 # 1) round trip SMS-SUBMIT -> decode as if DELIVER (same UD layout), GSM7 single
 t = P.encode_submit("+8613800138000", "Your code is 123456")[0]

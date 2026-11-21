@@ -1,0 +1,18 @@
+[Unit]
+Description=Q25 IMS client (SMS over IP)
+Documentation=file:///usr/lib/q25-imsd/README.md
+After=ModemManager.service
+BindsTo=ModemManager.service
+PartOf=ModemManager.service
+
+[Service]
+Type=simple
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /usr/lib/q25-imsd/q25-imsd.py run
+Restart=always
+RestartSec=5
+# needs NET_ADMIN (xfrm, routes) and the root-only ModemManager bridge socket
+User=root
+
+[Install]
+WantedBy=multi-user.target
