@@ -15,10 +15,11 @@ cd "$(dirname "$KSRC")"
 tar xf "linux-$VER.tar.xz"
 [ "linux-$VER" = "$(basename "$KSRC")" ] || mv "linux-$VER" "$KSRC"
 cd "$KSRC"
-# order matters: SoC series 0001-0023, BORE, then the Q25 7.3 fixes (0024)
+# order matters: SoC series 0001-0023, BORE, then the Q25 7.3 fixes (0024+)
 for p in "$REPO"/patches/mt6789-soc/00{01..23}-*.patch \
          "$REPO"/patches/cachyos-7.3/*.patch \
-         "$REPO"/patches/mt6789-soc/0024-*.patch; do
+         "$REPO"/patches/mt6789-soc/00{24..99}-*.patch; do
+    [ -e "$p" ] || continue
     echo "  -> $(basename "$p")"
     patch -Np1 --quiet -i "$p"
 done

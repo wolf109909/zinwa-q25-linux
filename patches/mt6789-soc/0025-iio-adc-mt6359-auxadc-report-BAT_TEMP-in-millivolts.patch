@@ -1,0 +1,29 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] iio: adc: mt6359-auxadc: report BAT_TEMP in millivolts
+
+The Q25 port converted the BAT_TEMP NTC divider voltage with an invented
+linear formula, 25 + (850 - mV) / 18 degC. It roughly matches the real NTC
+curve near room temperature but reports ~72 degC at 0 V, so a lost NTC
+bias produced false critical-temperature shutdowns. Return the divider
+voltage in mV and convert it with the vendor 10k NTC table in DT
+(generic-adc-thermal temperature-lookup-table).
+---
+--- a/drivers/iio/adc/mt6359-auxadc.c
++++ b/drivers/iio/adc/mt6359-auxadc.c
+@@ -834,10 +834,12 @@
+ 			*val = 25000 + ((750 - v_mv) * 1000) / 4;
+ 			break;
+ 		case PMIC_AUXADC_CHAN_BAT_TEMP:
+-			v_mv = div_s64((s64)(*val) * desc->r_ratio.numerator * cinfo->vref_mV,
+-				       (s64)desc->r_ratio.denominator << chan->scan_type.realbits);
+-			*val = 25000 + ((850 - v_mv) * 1000) / 18;
+-			break;
++			/*
++			 * BAT_TEMP is the battery NTC divider voltage, not a
++			 * temperature: report millivolts and let the consumer
++			 * (generic-adc-thermal lookup table) convert it.
++			 */
++			fallthrough;
+ 		default:
+ 			*val = div_s64((s64)(*val) * desc->r_ratio.numerator * cinfo->vref_mV,
+ 				       (s64)desc->r_ratio.denominator << chan->scan_type.realbits);
