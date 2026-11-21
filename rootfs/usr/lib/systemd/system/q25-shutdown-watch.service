@@ -1,0 +1,15 @@
+[Unit]
+Description=Q25 shutdown hang diagnostics (pstore)
+DefaultDependencies=no
+After=local-fs.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+# stopped early in shutdown; the watcher must outlive this unit
+ExecStop=/bin/sh -c 'setsid /usr/lib/q25/q25-shutdown-watch >/dev/null 2>&1 &'
+KillMode=none
+
+[Install]
+WantedBy=multi-user.target

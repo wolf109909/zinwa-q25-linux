@@ -1,0 +1,26 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0
+# Shutdown hang diagnostics: if a unit stays "deactivating" for >20 s, log it and
+# dump blocked tasks (sysrq w). The console log is kept in pstore (console-ramoops)
+# and readable after the next boot under /sys/fs/pstore.
+n=0
+while [ $n -lt 60 ]; do
+    sleep 10
+    n=$((n + 1))
+    stuck=$(systemctl list-units --state=deactivating --no-legend --plain 2>/dev/null | awk '{print $1}' | tr '\n' ' ')
+    if [ -n "$stuck" ]; then
+        c=$((c + 1))
+        if [ "$c" -ge 2 ]; then
+            echo "q25-shutdown-watch: stuck stopping: $stuck" > /dev/kmsg
+            for u in $stuck; do
+                for p in $(systemctl show -p MainPID --value "$u") $(cat /sys/fs/cgroup/system.slice/"$u"/cgroup.procs 2>/dev/null); do
+                    [ "$p" -gt 0 ] 2>/dev/null && echo "q25-shutdown-watch: $u pid $p $(cat /proc/$p/comm 2>/dev/null) state $(awk '{print $3}' /proc/$p/stat 2>/dev/null) wchan $(cat /proc/$p/wchan 2>/dev/null)" > /dev/kmsg
+                done
+            done
+            echo w > /proc/sysrq-trigger
+            c=0
+        fi
+    else
+        c=0
+    fi
+done

@@ -165,7 +165,7 @@ EOC
         NetworkManager.service bluetooth.service sshd.service systemd-timesyncd.service \
         systemd-resolved.service keyd.service q25-firstboot.service q25-usb-gadget.service \
         q25-android.service ModemManager.service q25-connsys.service q25-bt-vhci.service \
-        phosh.service q25-boot-ok.service q25-imsd.service snapper-timeline.timer snapper-cleanup.timer >/dev/null
+        phosh.service q25-boot-ok.service q25-imsd.service q25-shutdown-watch.service snapper-timeline.timer snapper-cleanup.timer >/dev/null
     in_root systemctl set-default graphical.target >/dev/null
     in_root systemctl mask systemd-networkd.service systemd-networkd-wait-online.service >/dev/null 2>&1 || true
     ln -sf /run/systemd/resolve/stub-resolv.conf "$ROOT/etc/resolv.conf"

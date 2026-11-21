@@ -628,12 +628,24 @@ static netdev_tx_t ccmni_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		return NETDEV_TX_OK;
 	}
 
+	/*
+	 * The modem writes an MDT tag at the head of RX buffers; a forwarded RX
+	 * packet carries it back on TX. A locally built skb can inherit a stale
+	 * pattern from a reused head, and linearized packets (e.g. IPsec ESP,
+	 * since ccmni has no NETIF_F_SG) have no tailroom: the old unchecked
+	 * memcpy past the tail plus skb->len += count overran skb_shared_info and
+	 * corrupted slab memory. Only append when it really fits, via skb_put().
+	 */
 	tag = (struct md_tag_packet *)skb->head;
 	if (tag->guard_pattern == MDT_TAG_PATTERN) {
 		if (ccmni->md_id == MD_SYS1) {
 			count = sizeof(tag->info);
-			memcpy(skb_tail_pointer(skb), &(tag->info), count);
-			skb->len += count;
+			if (!skb_is_nonlinear(skb) && skb_tailroom(skb) >= count) {
+				memcpy(skb_put(skb, count), &(tag->info), count);
+			} else {
+				net_warn_ratelimited("%s: stale MDT tag ignored (tailroom %d, nonlinear %d)\n",
+						     dev->name, skb_tailroom(skb), skb_is_nonlinear(skb));
+			}
 		} else {
 			CCMNI_DBG_MSG(ccmni->md_id,
 				"%s: MD%d not support MDT tag\n",
