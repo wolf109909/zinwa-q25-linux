@@ -1,0 +1,20 @@
+From: Claude <noreply@anthropic.com>
+Subject: [PATCH] mfd: mt6358: fix AUD/MISC top interrupt status bits
+
+MT6358/MT6366 TOP_INT_STATUS0 reports the audio group on bit 7 and MISC on
+bit 8 (bit 6 is unused), as in the MediaTek BSP. Mainline numbered them 6
+and 7, so an enabled audio interrupt (ACCDET) raised "MISC", whose status
+register is empty: nothing was cleared and the PMIC IRQ stormed at ~20k/s.
+---
+--- a/include/linux/mfd/mt6358/core.h
++++ b/include/linux/mfd/mt6358/core.h
+@@ -32,7 +32,8 @@
+ 	MT6358_SCK_TOP,
+ 	MT6358_BM_TOP,
+ 	MT6358_HK_TOP,
+-	MT6358_AUD_TOP,
++	/* bit 6 is unused: AUD is bit 7, MISC bit 8 (MediaTek MT6358/MT6366 BSP) */
++	MT6358_AUD_TOP = 7,
+ 	MT6358_MISC_TOP,
+ };
+ 
