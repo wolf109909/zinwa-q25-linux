@@ -1,6 +1,6 @@
 --- a/src/plugins/meson.build
 +++ b/src/plugins/meson.build
-@@ -1120,6 +1120,19 @@
+@@ -1120,6 +1120,20 @@
  
    plugins_udev_rules += files('netprisma/77-mm-netprisma-port-types.rules')
  endif
@@ -12,6 +12,7 @@
 +      'mtk-ccci/mm-plugin-mtk-ccci.c',
 +      'mtk-ccci/mm-modem-helpers-mtk-ccci.c',
 +      'mtk-ccci/mm-ims-observer-mtk-ccci.c',
++      'mtk-ccci/mm-ims-bridge-mtk-ccci.c',
 +    ),
 +    'include_directories': plugins_incs,
 +    'c_args': '-DMM_MODULE_NAME="mtk-ccci"',

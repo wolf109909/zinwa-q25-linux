@@ -10,13 +10,15 @@
 #include "mm-bearer-list.h"
 #include "mm-iface-modem.h"
 #include "mm-iface-modem-3gpp.h"
+#include "mm-iface-modem-messaging.h"
 #include "mm-log-object.h"
 #include "mm-modem-helpers.h"
 #include "mm-modem-helpers-mtk-ccci.h"
 #include "mm-ims-observer-mtk-ccci.h"
+#include "mm-ims-bridge-mtk-ccci.h"
 
 typedef struct {
-    MMBaseModemAtCommand commands[9];
+    MMBaseModemAtCommand commands[10];
     gchar *set_apn;
     gchar *initial_apn;
     GError *error;
@@ -70,6 +72,11 @@ configure_apn (MMBaseModem *modem, const gchar *apn,
         { "+EAPNLOCK=1", 10, FALSE, mm_base_modem_response_processor_no_result_continue },
         { "+EAPNSET=\"\",1,\"\",\"\"", 10, FALSE, mm_base_modem_response_processor_no_result_continue },
         { NULL, 10, FALSE, mm_base_modem_response_processor_no_result_continue },
+        /* IMS APN, activated by q25-imsd (SMS over IP). Without it a reconnect
+         * would drop the entry the IMS bearer was created from. */
+        { "+EAPNSET=\"ims\",2,\"type=ims;protocol=IPV4V6;roaming_protocol=IPV4V6;"
+          "authtype=0;carrier_enabled=1;max_conns=0;max_conns_time=0;wait_time=0;"
+          "bearer_bitmask=0;inactive_timer=0\"", 10, FALSE, mm_base_modem_response_processor_no_result_continue },
         { "+EAPNLOCK=0", 10, FALSE, mm_base_modem_response_processor_no_result_continue },
         { "+ECNCFG=1,,,1,1,1", 10, FALSE, mm_base_modem_response_processor_no_result_continue },
         { NULL, 10, FALSE, mm_base_modem_response_processor_no_result_continue },
@@ -87,7 +94,7 @@ configure_apn (MMBaseModem *modem, const gchar *apn,
         "bearer_bitmask=0;inactive_timer=0\"", apn);
     ctx->initial_apn = g_strdup_printf ("+EIAAPN=\"%s\",0,\"IPV4V6\",\"IPV4V6\",0,\"\",\"\"", apn);
     ctx->commands[3].command = ctx->set_apn;
-    ctx->commands[6].command = ctx->initial_apn;
+    ctx->commands[7].command = ctx->initial_apn;
     g_task_set_task_data (task, ctx, (GDestroyNotify) apn_setup_free);
     mm_base_modem_at_sequence (modem, ctx->commands, NULL, NULL,
                                (GAsyncReadyCallback) apn_sequence_ready, task);
@@ -451,13 +458,16 @@ struct _MMBroadbandModemMtkCcci {
     /* EIAAPN has no read form; retain only settings acknowledged this session. */
     MMBearerProperties *initial_eps_settings;
     MMMtkCcciImsObserver ims_observer;
+    MMMtkCcciImsBridge *ims_bridge;
 };
 static void iface_modem_init (MMIfaceModemInterface *iface);
 static void iface_modem_3gpp_init (MMIfaceModem3gppInterface *iface);
+static void iface_modem_messaging_init (MMIfaceModemMessagingInterface *iface);
 G_DEFINE_TYPE_EXTENDED (MMBroadbandModemMtkCcci, mm_broadband_modem_mtk_ccci,
                         MM_TYPE_BROADBAND_MODEM, 0,
                         G_IMPLEMENT_INTERFACE (MM_TYPE_IFACE_MODEM, iface_modem_init)
-                        G_IMPLEMENT_INTERFACE (MM_TYPE_IFACE_MODEM_3GPP, iface_modem_3gpp_init))
+                        G_IMPLEMENT_INTERFACE (MM_TYPE_IFACE_MODEM_3GPP, iface_modem_3gpp_init)
+                        G_IMPLEMENT_INTERFACE (MM_TYPE_IFACE_MODEM_MESSAGING, iface_modem_messaging_init))
 
 static void
 initialization_complete (GTask *task, GError *error)
@@ -739,11 +749,20 @@ eif_received (MMPortSerialAt *port, GMatchInfo *match, MMBroadbandModem *self)
     g_autoptr(MMBearerList) list = NULL;
     MMMtkCcciEif eif;
 
+    mm_mtk_ccci_ims_bridge_urc (MM_BROADBAND_MODEM_MTK_CCCI (self)->ims_bridge, line);
     if (!mm_mtk_ccci_parse_eif (line, &eif))
         return;
     g_object_get (self, MM_IFACE_MODEM_BEARER_LIST, &list, NULL);
     if (list)
         mm_bearer_list_foreach (list, (MMBearerListForeachFunc) bearer_process_eif, &eif);
+}
+
+static void
+ims_urc_received (MMPortSerialAt *port, GMatchInfo *match, MMBroadbandModem *self)
+{
+    g_autofree gchar *line = g_match_info_fetch (match, 0);
+
+    mm_mtk_ccci_ims_bridge_urc (MM_BROADBAND_MODEM_MTK_CCCI (self)->ims_bridge, line);
 }
 
 static void
@@ -758,6 +777,26 @@ setup_ports (MMBroadbandModem *self)
     if (primary)
         mm_port_serial_at_add_unsolicited_msg_handler (primary, regex,
                                                        (MMPortSerialAtUnsolicitedMsgFn) eif_received, self, NULL);
+    /* IMS state indications for q25-imsd (not consumed by MM itself) */
+    if (primary) {
+        g_autoptr(GRegex) ims = g_regex_new ("\\r\\n\\+(CIREGU|EIMSREGINFO|EIMSPDN|EIMSCALLMODE|EIMSVOICE):[^\\r\\n]*\\r\\n",
+                                             G_REGEX_RAW | G_REGEX_OPTIMIZE, 0, NULL);
+        mm_port_serial_at_add_unsolicited_msg_handler (primary, ims,
+                                                       (MMPortSerialAtUnsolicitedMsgFn) ims_urc_received, self, NULL);
+    }
+}
+
+static MMBaseSms *
+messaging_create_sms (MMIfaceModemMessaging *self)
+{
+    return mm_sms_mtk_ims_new (MM_BASE_MODEM (self));
+}
+
+static void
+iface_modem_messaging_init (MMIfaceModemMessagingInterface *iface)
+{
+    /* Everything else is inherited from MMBroadbandModem (AT messaging). */
+    iface->create_sms = messaging_create_sms;
 }
 
 static void
@@ -783,12 +822,18 @@ static void
 mm_broadband_modem_mtk_ccci_init (MMBroadbandModemMtkCcci *self)
 {
     mm_mtk_ccci_ims_observer_init (&self->ims_observer, MM_BASE_MODEM (self));
+    self->ims_bridge = mm_mtk_ccci_ims_bridge_new (MM_BASE_MODEM (self));
+    g_object_set_data (G_OBJECT (self), MM_MTK_CCCI_IMS_BRIDGE_KEY, self->ims_bridge);
 }
 
 static void
 modem_dispose (GObject *object)
 {
-    mm_mtk_ccci_ims_observer_dispose (&MM_BROADBAND_MODEM_MTK_CCCI (object)->ims_observer);
+    MMBroadbandModemMtkCcci *self = MM_BROADBAND_MODEM_MTK_CCCI (object);
+
+    g_object_set_data (object, MM_MTK_CCCI_IMS_BRIDGE_KEY, NULL);
+    g_clear_pointer (&self->ims_bridge, mm_mtk_ccci_ims_bridge_free);
+    mm_mtk_ccci_ims_observer_dispose (&self->ims_observer);
     G_OBJECT_CLASS (mm_broadband_modem_mtk_ccci_parent_class)->dispose (object);
 }
 
