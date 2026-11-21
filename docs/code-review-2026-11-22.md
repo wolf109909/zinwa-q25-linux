@@ -1,0 +1,99 @@
+# Q25 code review — 2026-11-22
+
+Overnight review of the whole port, with emphasis on code inherited from the
+earlier agent: kernel patches + DT + config, the ported vendor drivers
+(memory safety / lifetime), userspace + build + the ModemManager plugin, and
+the GPU stack. Findings were checked against the code before acting; this file
+records what was fixed and what is still open.
+
+## Fixed
+
+| Area | Finding | Fix |
+|---|---|---|
+| Kernel modules on the phone | 405 in-tree modules were from an older kernel config. No MODVERSIONS, so they still loaded; after #45 enabled XFRM (`struct net` grew) `tun.ko` wrote at wrong offsets → oops in `tun_chr_close` at the same address every boot, 5-minute shutdown hangs, slab corruption | Whole module tree reinstalled; `build/deploy-kernel.sh` now always ships boot_a + the complete module tree together. Shutdown: 5 min → ~1 s |
+| ccmni | Stale MDT tag (`0x46464646`) in a reused skb head → `memcpy` past the tail on TX; only bites with IPsec ESP (no SG, zero tailroom) | Bounded append (commit 3ce28cc) |
+| ccmni | `ndo_siocdevprivate` was `ccmni_ioctl` cast to a different signature: the user pointer landed in `cmd` (private ioctls dead; kCFI trap if enabled) | Proper wrapper |
+| DPMAIF RX | BAT count reported to HW at PD time although the refill happened later and could fail → HW could DMA into a slot whose skb was already in the stack; a full skb list or failed refill made the next pass unmap/push the same skb twice or assert the modem | Room in the skb list is checked before a packet is consumed; once handed to the stack the PIT entry always advances; only really refilled BAT slots are reported; shortfall kept in `bat_deficit` and topped up from the blocking work |
+| port_net | Packets for a down ccmni queued without bound (IMS PDN before q25-imsd starts) | Cap at 512, drop beyond |
+| pinctrl (0030) | `mt6789_pull_type[]` 188 entries for 222 pins → OOB read on bias get/set of GPIO188–221 | Sized to the pin table |
+| synaptics_dsx | Chip-reported query sizes used as read length into fixed stack buffers; `num_of_intr_regs` uncapped | Clamped |
+| upm6722 | `devm_power_supply_register` + manual unregister (double free on remove/probe error) | Manual unregisters removed |
+| q20_keyboard | Firmware-upgrade proc file 0777 | 0600 |
+| q25-imsd | LAN devices could inject SMS: sockets on the global IMS address accepted any source | Only the P-CSCF is accepted; requests only on ESP-protected ports |
+| q25-imsd | IK on the `ip xfrm` command line (visible in /proc, logged on error) | `ip -batch -` on stdin, keys redacted from errors |
+| q25-imsd | Flushed **all** system xfrm state at start | Removes only its own SAs (recorded in /run) |
+| q25-imsd | Reader thread could die silently (bad hex) → daemon alive but deaf | Exits for a clean restart; pending-dict race fixed |
+| q25-imsd | Hardcoded user `max`; sms.jsonl world-readable and unbounded; concat parts never expire | Desktop user lookup; 0600 + rotation; parts expire after 24 h |
+| q25-imsd | No deregistration (stale contacts for up to 1 h after each restart) | SIGTERM → REGISTER Expires: 0 (answers the S-CSCF re-challenge), verified 200 OK |
+| q25-imsd | Security-Server parameters merged across offers, alg/ealg unchecked | Per-offer parsing, supported offer chosen, all echoed in Security-Verify |
+| q25-imsd | Wrote the ims APN while the plugin did the same (CME 5843 race) | Left to the plugin |
+| MM bridge | Blocking writes on ModemManager's main loop: a stalled client froze MM | Non-blocking; stalled client is dropped |
+| MM bridge | Disposed modem could unlink the socket of its successor | Unlinks only its own inode |
+| Build | Default password = user name with sshd password auth on | Key-only sshd drop-in when `SSH_KEY` is given; warning otherwise |
+| Build | NM keyfile shipped 0644 (ignored by NM); `pkill -f gpg-agent` killed host agents; `Q25_APN` lost through sudo; `__pycache__` copied into the image | Fixed |
+| Config | No lockup/hung-task detection, no KFENCE, no slab/list hardening, `NR_CPUS=512` | Soft/hard (buddy) lockup, hung task, WQ watchdog (all report-only), KFENCE, freelist + list hardening, `NR_CPUS=8` |
+
+## SMS robustness (verified on the network)
+
+Re-registration as a transaction (60 s test interval, several cycles, SA count
+constant at 4), P-CSCF failover (primary blocked with nftables → registered via
+the backup in 2 s), bearer loss / address change reaction, SIP over TCP,
+AKA resync path, clean deregistration, spoofed packets dropped. Suspend is
+disabled system-wide (`AllowSuspend=no`), so no suspend handling yet.
+
+## Open — needs a decision or a careful session
+
+Kernel (from `0024`, earlier agent):
+1. **head.S ignores the bootloader DTB** and pokes two physical addresses
+   before the MMU is up. Kernel and LK DTB disagree on memory size,
+   reservations, kaslr/rng seed. Moving to the LK-passed DTB (or an overlay)
+   is a boot-chain change: do it with the phone on the desk.
+2. **Generic arm64 code patched**: TOPRGU watchdog armed in `setup_arch` via a
+   borrowed `FIX_TEXT_POKE0` (never cleared → text patching later replaces a
+   live device PTE without break-before-make) and a lockless pmsg writer in
+   `printk_sprint`. `MEDIATEK_WATCHDOG` + ramoops already cover both; remove.
+3. genpd core special-cases two out-of-tree compatibles (`power_on=false`);
+   should be `dev_pm_domain_attach_by_id()` in those drivers.
+4. DISP domain always-on without taking its clocks; works only thanks to
+   `clk_ignore_unused` + `pd_ignore_unused` + `CLK_IGNORE_UNUSED` on all MM
+   gates. Multimedia clock controllers (img/ipe/vdec/venc/cam, mfgcfg) have no
+   `power-domains` → reading them with the domain off can hang the bus.
+5. DSI handoff path skips `phy_power_on` but poweroff calls `phy_power_off`
+   (count goes negative); mmsys routes through the PQ chain while the declared
+   path is OVL0→RDMA0→DSI0; several shared DRM/mutex changes apply to every
+   SoC; `mfg_pll_sel` got mfg_ref_sel's update bit.
+6. auxadc `PROCESSED` returns m°C on voltage channels (ABI); arch timer flag
+   LEVEL_LOW vs stock LEVEL_HIGH.
+
+Drivers:
+- oca72xxx firmware parsers trust file offsets/counts (needs a crafted file);
+  `ocarw` leaks `reg_lock` on I2C failure.
+- synaptics: DRM panel follower outlives `rmi4_data` on unbind; irq_work
+  not cancelled.
+- Wi-Fi: remain-on-channel/mgmt-tx cookie mismatch with 7.3 cfg80211 (breaks
+  GAS/ANQP/P2P); GRO list flush removed.
+- ccmni busy-loops while the modem resets (`-ENODEV` → TX_BUSY without
+  stopping the queue).
+- Remove/unbind lifetime bugs (only on rmmod): upm6922, st21nfc, aw36518,
+  oca72xxx, q25_afe_pcm.
+- bbqX0kbd proc toggles are 0666 (left: userspace may rely on them).
+
+Userspace:
+- Transmit guards (`/etc/dbus-1/system.d/90-q25-no-transmit.conf`,
+  `/etc/polkit-1/rules.d/00-q25-no-transmit.rules`) exist only on this phone;
+  they now block only voice/USSD. Decide: ship or drop.
+- Hand-installed `webjetd` (TUN user) and old smoke-test binaries in
+  `/usr/local` are not part of the image.
+- `mm-ims-observer-mtk-ccci.c` (+ test) is superseded by q25-imsd.
+
+## GPU
+
+Mali-G57 MC2 is Valhall **v9, job-manager**. Panfrost GLES 3.1 / GL 3.1 is
+the only driver and it performs well: glmark2-es2-wayland 720×720 = **916**
+(terrain 36 fps, refract 80, desktop blur 182), DVFS scales 390→1100 MHz,
+~36 °C peak, no faults. **No Vulkan path exists**: PanVK supports v6/7 and
+v10+, not v9 (hard "Mali-G57 not supported", even with
+`PAN_I_WANT_A_BROKEN_VULKAN_DRIVER`), so no Zink either; Panthor is CSF-only.
+Worthwhile: keep Mesa current; `setcap cap_sys_nice+ep` on phoc for a
+high-priority GPU context; optionally trim the 36-point OPP table. No hardware
+video decode on mainline for MT6789 (vendor-only VCU protocol).
