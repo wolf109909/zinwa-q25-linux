@@ -74,7 +74,7 @@ class PhoshDefaults(unittest.TestCase):
                      "usr/lib/systemd/system/phosh.service", "etc/phosh/home.ui"):
             self.assertFalse((overlay / path).exists(), path)
         for path in overlay.rglob("*"):
-            if path.is_file() and not path.is_symlink():
+            if path.is_file() and not path.is_symlink() and "__pycache__" not in path.parts:
                 self.assertNotIn("KWIN_", path.read_text(), str(path))
 
     def test_stock_login_and_display(self):

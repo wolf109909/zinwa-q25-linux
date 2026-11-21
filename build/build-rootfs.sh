@@ -30,6 +30,10 @@ ROOT=${ROOT:-$HOME_DIR/q25-work/rootfs}
 OUT=${OUT:-$REPO/out}
 KSTAGE=${KSTAGE:-$HOME_DIR/q25-work/kstage}
 Q25_USER=${Q25_USER:-alarm}
+if [ -z "${Q25_PASSWORD:-}" ]; then
+    echo "warning: Q25_PASSWORD not set: the initial password is the user name ($Q25_USER)." >&2
+    echo "         sshd accepts it only if SSH_KEY is unset; change it after first boot." >&2
+fi
 Q25_PASSWORD=${Q25_PASSWORD:-$Q25_USER}
 
 [ "$(id -u)" = 0 ] || { echo "run as root (sudo)"; exit 1; }
@@ -57,7 +61,11 @@ stage_packages() {
 stage_overlay() {
     log "overlay: rootfs/ tree"
     cp -a --no-preserve=ownership "$REPO/rootfs/." "$ROOT/"
+    # bytecode left by running tests in the work tree is not part of the image
+    find "$REPO/rootfs" -name __pycache__ -type d -printf '%P\n' | while read -r d; do rm -rf "${ROOT:?}/$d"; done
     chmod 0440 "$ROOT/etc/sudoers.d/"* 2>/dev/null || true
+    # NetworkManager ignores keyfiles readable by group/others
+    chmod 0600 "$ROOT/etc/NetworkManager/system-connections/"*.nmconnection 2>/dev/null || true
 
     log "overlay: Q25 native helpers (src/)"
     local CC="${CROSS_COMPILE:-aarch64-linux-gnu-}gcc"
@@ -133,6 +141,11 @@ stage_configure() {
             install -m600 "$SSH_KEY" "$h/.ssh/authorized_keys"
         done
         in_root chown -R "$Q25_USER:$Q25_USER" "/home/$Q25_USER/.ssh"
+        # with a key in place, never accept the (possibly default) password over the network
+        install -Dm644 /dev/stdin "$ROOT/etc/ssh/sshd_config.d/10-q25-keys-only.conf" <<EOC
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+EOC
     fi
     sed -i "s/^User=.*/User=$Q25_USER/" "$ROOT/etc/systemd/system/phosh.service.d/q25.conf"
     if [ -n "${Q25_APN:-}" ]; then
@@ -174,7 +187,8 @@ EOC
     in_root pacman-key --init >/dev/null 2>&1 || true
     in_root pacman-key --populate archlinuxarm >/dev/null 2>&1 || true
     configure_archlinuxcn_keyring
-    in_root bash -c 'pkill -f gpg-agent' 2>/dev/null || true
+    # only the keyring's agent: pkill -f inside arch-chroot also hits the build host's agents
+    in_root gpgconf --homedir /etc/pacman.d/gnupg --kill gpg-agent 2>/dev/null || true
     rm -rf "$ROOT/var/cache/pacman/pkg/"*
 }
 
