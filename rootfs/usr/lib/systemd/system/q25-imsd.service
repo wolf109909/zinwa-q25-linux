@@ -13,6 +13,11 @@ Restart=always
 RestartSec=5
 # needs NET_ADMIN (xfrm, routes) and the root-only ModemManager bridge socket
 User=root
+UMask=0077
+StateDirectory=q25-imsd
+StateDirectoryMode=0700
+# SIGTERM deregisters from the IMS core (bounded to 3 s) before the SAs go away
+TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target

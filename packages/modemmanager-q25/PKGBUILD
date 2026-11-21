@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 pkgname=modemmanager-q25
 pkgver=1.24.2
-pkgrel=5
+pkgrel=6
 pkgdesc='MediaTek CCCI AT/ccmni plugin for the Zinwa Q25 (ModemManager 1.24.2 ABI)'
 arch=('aarch64')
 url='https://gitlab.freedesktop.org/mobile-broadband/ModemManager'
@@ -64,7 +64,7 @@ sha256sums=(
     'ec5e8a6a32b58ec9ec7cae06e80f32ae2a6a8f81f2c6704ddd8e1fbf39f0cb4b'
     '1502c7c238ca0ebaf08c471f3089e730583afc72e9e7e32ace3e2d938644fe6a'
     '7502440068e28cb417e877eff3a0ec129bcd5e9e111b6dfd359f4db4af863b4e'
-    '7d42ff91d9d1c4fb3915c2bc5d26db80a4e2a7a60a859e79e67b446f022a2766'
+    '31038413c2828beeaaf7defe5a548d5c71cf9d90ca2532de1da8d2ac4e056947'
     '48af0bd6aed1dce8f29cd8d94f739dcf8f8b2dc751d30bae5e52e7234750005f'
     '83367fe01e97622a6a23503e09481b68d271a3e3ef05d20c89721f41c5cebf2a'
     '8fff072d68fabd3304b6d7d6efa2a1a69655ca12c966b1eeed06af37fa31c1d5'

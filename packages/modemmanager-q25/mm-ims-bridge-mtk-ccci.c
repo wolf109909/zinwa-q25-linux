@@ -35,7 +35,11 @@ struct _MMMtkCcciImsBridge {
     GSocketConnection *conn;
     GDataInputStream  *in;
     GOutputStream     *out;
+    GSocket           *sock;       /* client socket, written non-blocking */
     GCancellable      *cancel;
+    guint              drop_idle;  /* deferred drop after a failed write */
+    dev_t              path_dev;   /* identity of the socket file we bound, so that */
+    ino_t              path_ino;   /* we never unlink a newer instance's socket     */
     gboolean           registered;
     guint              next_mo;
     GHashTable        *mo;         /* id -> GTask */
@@ -50,21 +54,50 @@ bridge_of (gpointer modem)
 static void
 send_line (MMMtkCcciImsBridge *b, const gchar *fmt, ...) G_GNUC_PRINTF (2, 3);
 
+static void drop_client (MMMtkCcciImsBridge *b);
+
+static gboolean
+drop_client_idle (MMMtkCcciImsBridge *b)
+{
+    b->drop_idle = 0;
+    drop_client (b);
+    return G_SOURCE_REMOVE;
+}
+
+/* Runs on ModemManager's main loop, so it must never block: a client that stops
+ * reading fills the socket buffer and is then disconnected instead of freezing MM. */
 static void
 send_line (MMMtkCcciImsBridge *b, const gchar *fmt, ...)
 {
     g_autofree gchar *line = NULL;
     g_autoptr(GError) error = NULL;
+    gsize len, done = 0;
     va_list ap;
 
-    if (!b->out)
+    if (!b->out || !b->sock)
         return;
     va_start (ap, fmt);
     line = g_strdup_vprintf (fmt, ap);
     va_end (ap);
-    if (!g_output_stream_write_all (b->out, line, strlen (line), NULL, NULL, &error) ||
-        !g_output_stream_write_all (b->out, "\n", 1, NULL, NULL, &error))
-        mm_obj_dbg (b->modem, "ims bridge: write failed: %s", error->message);
+    len = strlen (line);
+    line = g_realloc (line, len + 2);
+    line[len++] = '\n';
+    line[len] = '\0';
+    while (done < len) {
+        gssize n = g_socket_send_with_blocking (b->sock, line + done, len - done, FALSE, NULL, &error);
+        if (n <= 0)
+            break;
+        done += (gsize) n;
+    }
+    if (done < len) {
+        mm_obj_warn (b->modem, "ims bridge: client not reading (%s); disconnecting it",
+                     error ? error->message : "short write");
+        /* a partial line would desync the protocol: stop writing, drop it from idle
+         * (callers may be in the middle of using b->mo) */
+        b->out = NULL;
+        if (!b->drop_idle)
+            b->drop_idle = g_idle_add ((GSourceFunc) drop_client_idle, b);
+    }
 }
 
 static void
@@ -89,6 +122,7 @@ drop_client (MMMtkCcciImsBridge *b)
     }
     g_clear_object (&b->in);
     b->out = NULL;
+    b->sock = NULL;
     if (b->conn) {
         g_io_stream_close (G_IO_STREAM (b->conn), NULL, NULL);
         g_clear_object (&b->conn);
@@ -311,12 +345,17 @@ read_next (MMMtkCcciImsBridge *b)
 static gboolean
 on_incoming (GSocketService *service, GSocketConnection *conn, GObject *source, MMMtkCcciImsBridge *b)
 {
+    if (b->drop_idle) {         /* that drop was meant for the previous client */
+        g_source_remove (b->drop_idle);
+        b->drop_idle = 0;
+    }
     drop_client (b);
     b->conn = g_object_ref (conn);
     b->cancel = g_cancellable_new ();
     b->in = g_data_input_stream_new (g_io_stream_get_input_stream (G_IO_STREAM (conn)));
     g_data_input_stream_set_newline_type (b->in, G_DATA_STREAM_NEWLINE_TYPE_LF);
     b->out = g_io_stream_get_output_stream (G_IO_STREAM (conn));
+    b->sock = g_socket_connection_get_socket (conn);
     mm_obj_msg (b->modem, "ims bridge: client connected");
     read_next (b);
     return TRUE;
@@ -354,6 +393,14 @@ mm_mtk_ccci_ims_bridge_new (MMBaseModem *modem)
     }
     if (chmod (MM_MTK_CCCI_IMS_BRIDGE_PATH, 0600) < 0)
         mm_obj_warn (modem, "ims bridge: chmod failed: %s", g_strerror (errno));
+    {
+        struct stat st;
+
+        if (stat (MM_MTK_CCCI_IMS_BRIDGE_PATH, &st) == 0) {
+            b->path_dev = st.st_dev;
+            b->path_ino = st.st_ino;
+        }
+    }
     g_signal_connect (b->service, "incoming", G_CALLBACK (on_incoming), b);
     g_socket_service_start (b->service);
     return b;
@@ -362,14 +409,23 @@ mm_mtk_ccci_ims_bridge_new (MMBaseModem *modem)
 void
 mm_mtk_ccci_ims_bridge_free (MMMtkCcciImsBridge *b)
 {
+    struct stat st;
+
     if (!b)
         return;
+    if (b->drop_idle) {
+        g_source_remove (b->drop_idle);
+        b->drop_idle = 0;
+    }
     drop_client (b);
     if (b->service) {
         g_socket_service_stop (b->service);
         g_socket_listener_close (G_SOCKET_LISTENER (b->service));
         g_clear_object (&b->service);
-        unlink (MM_MTK_CCCI_IMS_BRIDGE_PATH);
+        /* a re-probed modem may already own the path: only remove our own socket */
+        if (stat (MM_MTK_CCCI_IMS_BRIDGE_PATH, &st) == 0 &&
+            st.st_dev == b->path_dev && st.st_ino == b->path_ino)
+            unlink (MM_MTK_CCCI_IMS_BRIDGE_PATH);
     }
     g_hash_table_unref (b->mo);
     g_free (b);
