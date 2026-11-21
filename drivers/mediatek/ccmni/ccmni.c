@@ -552,6 +552,7 @@ static netdev_tx_t ccmni_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	int mac_len = 0;
 	struct md_tag_packet *tag = NULL;
 	unsigned int count = 0;
+	unsigned int tag_added = 0;
 	struct ethhdr *eth = NULL;
 	__be16 type = 0;
 	struct iphdr *iph = NULL;
@@ -642,6 +643,7 @@ static netdev_tx_t ccmni_start_xmit(struct sk_buff *skb, struct net_device *dev)
 			count = sizeof(tag->info);
 			if (!skb_is_nonlinear(skb) && skb_tailroom(skb) >= count) {
 				memcpy(skb_put(skb, count), &(tag->info), count);
+				tag_added = count;
 			} else {
 				net_warn_ratelimited("%s: stale MDT tag ignored (tailroom %d, nonlinear %d)\n",
 						     dev->name, skb_tailroom(skb), skb_is_nonlinear(skb));
@@ -702,6 +704,9 @@ static netdev_tx_t ccmni_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	return NETDEV_TX_OK;
 
 tx_busy:
+	/* the stack retries this skb: drop the tag, or every retry appends another */
+	if (tag_added)
+		skb_trim(skb, skb->len - tag_added);
 	if (unlikely(!(ctlb->ccci_ops->md_ability & MODEM_CAP_TXBUSY_STOP))) {
 		if ((ccmni->tx_busy_cnt[is_ack]++) % 100 == 0)
 			CCMNI_DBG_MSG(ccmni->md_id,
@@ -716,7 +721,7 @@ tx_busy:
 		skb_push(skb, mac_len);
 		skb_reset_mac_header(skb);
 		if (skb->len > skb_len)
-			skb->len = skb_len;
+			skb_trim(skb, skb_len);	/* not skb->len =: tail must follow */
 	}
 	return NETDEV_TX_BUSY;
 }

@@ -283,7 +283,10 @@ int ccmni_send_pkt(int md_id, int ccmni_idx, void *data, int is_ack)
 		/* undo header, in next retry,
 		 * we'll reserve header again
 		 */
-		ret = CCMNI_ERR_TX_BUSY;
+		/* Q25: modem not READY (reset/EE) is not "busy": the queue is not
+		 * stopped, so TX_BUSY made the stack retry in a tight loop for
+		 * the whole reset. Drop instead, like CCMNI_ERR_MD_NO_READY. */
+		ret = (ret == -ENODEV) ? CCMNI_ERR_MD_NO_READY : CCMNI_ERR_TX_BUSY;
 	} else {
 		ret = CCMNI_ERR_TX_OK;
 	}
