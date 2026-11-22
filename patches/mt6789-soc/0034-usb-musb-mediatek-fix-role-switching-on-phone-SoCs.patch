@@ -1,18 +1,26 @@
 From: Zinwa Q25 port <noreply@anthropic.com>
-Subject: [PATCH] usb: musb: mediatek: fix role switching on phone SoCs
+Subject: [PATCH] usb: musb: mediatek: role switching for forced-signal phone PHYs
 
-With forced PHY session signals (no VBUS sensing) the controller only becomes
-the A-device after a session end with IDDIG low: produce that transition when
-switching to host. When leaving host, report the root-port disconnect and
-reset DEVCTL. Keep the controller runtime-active while switching and restart
-it as a peripheral (musb_start + soft-connect).
+Phone SoCs (MT6789) force the PHY's VBUS/session/ID signals instead of
+sensing them. The MUSB controller only starts a session on a valid edge that
+follows a session end long enough to be registered, so the role switch now
+follows the vendor driver: signals invalid, wait 50 ms, restart the
+controller for the new role, then the role's signal pattern.
 
-Known issue: after a host session the controller still does not come back as
-a peripheral until reboot; the Zinwa Q25 DT therefore uses sink/device only.
+- device: vendor-style restart (SWRST, write-1-to-clear interrupt flush, ep0
+  enables, ENSUSPEND|HSENAB|SOFTCONN) before the signals go valid;
+- host: report the root-port disconnect when leaving host mode;
+- the PHY stays powered: role changes no longer use phy_power_on/off, whose
+  reference count did not follow the role (the PHY is already powered at
+  init), so most of those calls never reached the hardware;
+- runtime PM is held while switching.
+
+Verified on the Zinwa Q25 with repeated none/device/host role cycles: USB
+device networking comes back after host mode (it did not before).
 
 ---
 diff --git a/drivers/usb/musb/mediatek.c b/drivers/usb/musb/mediatek.c
-index c6cbe718b..37ff77493 100644
+index c6cbe718b..8a67efc3e 100644
 --- a/drivers/usb/musb/mediatek.c
 +++ b/drivers/usb/musb/mediatek.c
 @@ -8,15 +8,18 @@
@@ -34,7 +42,7 @@ index c6cbe718b..37ff77493 100644
  
  #define USB_L1INTS		0x00a0
  #define USB_L1INTM		0x00a4
-@@ -63,6 +66,26 @@ static int mtk_musb_clks_get(struct mtk_glue *glue)
+@@ -63,55 +66,127 @@ static int mtk_musb_clks_get(struct mtk_glue *glue)
  	return devm_clk_bulk_get(dev, MTK_MUSB_CLKS_NUM, glue->clks);
  }
  
@@ -58,81 +66,136 @@ index c6cbe718b..37ff77493 100644
 +	musb_writeb(musb->mregs, MUSB_DEVCTL, 0);
 +}
 +
++#define MTK_MUSB_SWRST			0x74	/* vendor register */
++/* how long the PHY reports a session end before a new session (measured: >= tens of ms) */
++#define MTK_MUSB_SESSEND_MS		50
++#define MTK_MUSB_SWRST_SWRST		BIT(1)
++#define MTK_MUSB_SWRST_DISUSBRESET	BIT(0)
++
++/* Controller restart for peripheral mode, as the vendor musb_start() does. */
++static void mtk_musb_restart_peripheral(struct musb *musb)
++{
++	void __iomem *mbase = musb->mregs;
++	u8 power;
++
++	musb_writew(mbase, MTK_MUSB_SWRST, musb_readw(mbase, MTK_MUSB_SWRST) |
++		    MTK_MUSB_SWRST_SWRST | MTK_MUSB_SWRST_DISUSBRESET);
++
++	/*
++	 * Disable and flush interrupts. The MediaTek MUSB interrupt status
++	 * registers are write-1-to-clear: stale host-mode events would
++	 * otherwise survive into the peripheral session.
++	 */
++	musb_writeb(mbase, MUSB_INTRUSBE, 0);
++	musb_writew(mbase, MUSB_INTRTXE, 0);
++	musb_writew(mbase, MUSB_INTRRXE, 0);
++	musb_writew(mbase, MUSB_INTRRX, 0xffff);
++	musb_writew(mbase, MUSB_INTRTX, 0xffff);
++	musb_writeb(mbase, MUSB_INTRUSB, 0xef);
++
++	musb_set_state(musb, OTG_STATE_B_IDLE);
++	MUSB_DEV_MODE(musb);
++	musb->is_active = 0;
++
++	/* ep0 only; the gadget enables the others when configured */
++	musb->intrtxe = 0x1;
++	musb->intrrxe = 0;
++	musb_writew(mbase, MUSB_INTRTXE, musb->intrtxe);
++	musb_writew(mbase, MUSB_INTRRXE, musb->intrrxe);
++	musb_writeb(mbase, MUSB_INTRUSBE, 0xf7);
++	musb_writeb(mbase, MUSB_TESTMODE, 0);
++
++	power = MUSB_POWER_ENSUSPEND | MUSB_POWER_HSENAB;
++	if (musb->softconnect)
++		power |= MUSB_POWER_SOFTCONN;
++	musb_writeb(mbase, MUSB_POWER, power);
++}
++
  static int mtk_otg_switch_set(struct mtk_glue *glue, enum usb_role role)
  {
  	struct musb *musb = glue->musb;
-@@ -72,16 +95,42 @@ static int mtk_otg_switch_set(struct mtk_glue *glue, enum usb_role role)
+-	u8 devctl = readb(musb->mregs + MUSB_DEVCTL);
+-	enum usb_role new_role;
++	u8 devctl;
+ 
  	if (role == glue->role)
  		return 0;
- 
++	if (role != USB_ROLE_NONE && role != USB_ROLE_DEVICE &&
++	    role != USB_ROLE_HOST) {
++		dev_err(glue->dev, "Invalid State\n");
++		return -EINVAL;
++	}
++
 +	/*
-+	 * MUSB runtime PM and its OTG state are otherwise only driven from
-+	 * interrupts; after a host session the controller sits suspended in
-+	 * a_wait_bcon and never sees the next peripheral session. Keep it
-+	 * awake while switching and restart it like the vendor driver does.
++	 * Phone SoCs force the PHY's VBUS/session/ID signals (no sensing).
++	 * The controller only starts a session on a valid edge that follows
++	 * a session end long enough to be registered, so every role change
++	 * goes through the vendor sequence: signals invalid, wait, restart the
++	 * controller for the new role, then the role's signal pattern. The
++	 * PHY stays powered; role changes never use phy_power_on/off (their
++	 * reference count does not track the role).
 +	 */
 +	pm_runtime_get_sync(musb->controller);
 +
-+	if (glue->role == USB_ROLE_HOST) {
++	if (glue->role == USB_ROLE_HOST)
 +		mtk_musb_host_teardown(musb);
-+		devctl = readb(musb->mregs + MUSB_DEVCTL);
-+	}
 +
++	devctl = musb_readb(musb->mregs, MUSB_DEVCTL) & ~MUSB_DEVCTL_SESSION;
++	musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
++	phy_set_mode(glue->phy, PHY_MODE_INVALID);
+ 
  	switch (role) {
  	case USB_ROLE_HOST:
- 		musb->xceiv->otg->state = OTG_STATE_A_WAIT_VRISE;
- 		glue->phy_mode = PHY_MODE_USB_HOST;
- 		new_role = USB_ROLE_HOST;
+-		musb->xceiv->otg->state = OTG_STATE_A_WAIT_VRISE;
+-		glue->phy_mode = PHY_MODE_USB_HOST;
+-		new_role = USB_ROLE_HOST;
 -		if (glue->role == USB_ROLE_NONE)
 -			phy_power_on(glue->phy);
-+
-+		/*
-+		 * The controller only becomes the A-device when a session
-+		 * starts after a session end with IDDIG low. With the PHY's
-+		 * forced VBUS/session signals (no VBUS sensing on this path),
-+		 * that transition has to be produced explicitly: signals
-+		 * invalid (PHY off), IDDIG low, then session + signals valid.
-+		 */
-+		devctl &= ~MUSB_DEVCTL_SESSION;
-+		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
-+		if (glue->role != USB_ROLE_NONE)
-+			phy_power_off(glue->phy);
-+		phy_set_mode(glue->phy, PHY_MODE_USB_HOST);
-+		usleep_range(5000, 6000);
- 
- 		devctl |= MUSB_DEVCTL_SESSION;
+-
+-		devctl |= MUSB_DEVCTL_SESSION;
++		msleep(MTK_MUSB_SESSEND_MS);
++		musb_set_state(musb, OTG_STATE_A_WAIT_VRISE);
++		devctl = musb_readb(musb->mregs, MUSB_DEVCTL) | MUSB_DEVCTL_SESSION;
  		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
-+		phy_power_on(glue->phy);
++		phy_set_mode(glue->phy, PHY_MODE_USB_HOST);
  		MUSB_HST_MODE(musb);
++		glue->phy_mode = PHY_MODE_USB_HOST;
  		break;
  	case USB_ROLE_DEVICE:
-@@ -92,8 +141,15 @@ static int mtk_otg_switch_set(struct mtk_glue *glue, enum usb_role role)
- 		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
- 		if (glue->role == USB_ROLE_NONE)
- 			phy_power_on(glue->phy);
+-		musb->xceiv->otg->state = OTG_STATE_B_IDLE;
++		msleep(MTK_MUSB_SESSEND_MS);
++		mtk_musb_restart_peripheral(musb);
 +		phy_set_mode(glue->phy, PHY_MODE_USB_DEVICE);
- 
+ 		glue->phy_mode = PHY_MODE_USB_DEVICE;
+-		new_role = USB_ROLE_DEVICE;
+-		devctl &= ~MUSB_DEVCTL_SESSION;
+-		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
+-		if (glue->role == USB_ROLE_NONE)
+-			phy_power_on(glue->phy);
+-
+-		MUSB_DEV_MODE(musb);
+ 		break;
+-	case USB_ROLE_NONE:
+-		glue->phy_mode = PHY_MODE_USB_OTG;
+-		new_role = USB_ROLE_NONE;
+-		devctl &= ~MUSB_DEVCTL_SESSION;
+-		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
+-		if (glue->role != USB_ROLE_NONE)
+-			phy_power_off(glue->phy);
+-
++	default:	/* USB_ROLE_NONE: stay invalid */
 +		musb_set_state(musb, OTG_STATE_B_IDLE);
- 		MUSB_DEV_MODE(musb);
-+		musb_start(musb);
-+		if (musb->softconnect)
-+			musb_writeb(musb->mregs, MUSB_POWER,
-+				    musb_readb(musb->mregs, MUSB_POWER) |
-+				    MUSB_POWER_SOFTCONN);
++		glue->phy_mode = PHY_MODE_INVALID;
  		break;
- 	case USB_ROLE_NONE:
- 		glue->phy_mode = PHY_MODE_USB_OTG;
-@@ -106,12 +162,15 @@ static int mtk_otg_switch_set(struct mtk_glue *glue, enum usb_role role)
- 		break;
- 	default:
- 		dev_err(glue->dev, "Invalid State\n");
-+		pm_runtime_put_autosuspend(musb->controller);
- 		return -EINVAL;
+-	default:
+-		dev_err(glue->dev, "Invalid State\n");
+-		return -EINVAL;
  	}
  
- 	glue->role = new_role;
- 	phy_set_mode(glue->phy, glue->phy_mode);
- 
+-	glue->role = new_role;
+-	phy_set_mode(glue->phy, glue->phy_mode);
+-
++	glue->role = role;
 +	pm_runtime_mark_last_busy(musb->controller);
 +	pm_runtime_put_autosuspend(musb->controller);
  	return 0;

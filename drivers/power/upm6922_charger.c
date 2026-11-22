@@ -100,6 +100,7 @@ struct upm6922 {
     struct power_supply *psy;
 
     struct regulator_dev *otg_rdev;
+    bool otg_on;		/* VBUS is our own OTG boost: no BC1.2 */
     struct power_supply *inform_psy;
     
     struct iio_channel *iio_adcs;
@@ -1291,6 +1292,15 @@ static int upm6922_chg_set_usbsw(struct upm6922 *upm,
 					       PHY_MODE_BC11_CLR;
 
 	upm6922_info("usbsw=%d\n", usbsw);
+	/*
+	 * The vendor PHY driver implements the BC1.1 "USB switch" as a PHY
+	 * submode. Mainline's tphy ignores submodes and would apply the mode
+	 * (USB device) instead, flipping the PHY to device mode even during an
+	 * OTG host session. BC1.2 runs on this chip's own D+/D- pins, so do
+	 * not touch the PHY at all.
+	 */
+	if (!IS_ENABLED(CONFIG_TCPC_CLASS))
+		return 0;
 	phy = phy_get(upm->dev, "usb2-phy");
 	if (IS_ERR_OR_NULL(phy)) {
 		upm6922_err("failed to get usb2-phy\n");
@@ -1490,7 +1500,17 @@ static irqreturn_t upm6922_irq_handler(int irq, void *data)
         upm6922_set_input_volt_limit(upm, upm->upd->vlim);
     }
 
-    /* No TCPC on mainline: VBUS edges stand in for its attach/detach events. */
+    /*
+     * No vendor TCPC on mainline: VBUS edges stand in for its attach/detach
+     * events. VBUS produced by our own OTG boost (or reported as OTG) is
+     * not a charger attach: never run BC1.2 on it, it drives D+/D- while
+     * the phone is the USB host.
+     */
+    if (READ_ONCE(upm->otg_on) ||
+        ((reg_val & REG08_VBUS_STAT_MASK) >> REG08_VBUS_STAT_SHIFT) == REG08_VBUS_TYPE_OTG) {
+        upm6922_info("vbus from OTG boost, skip attach\n");
+        return IRQ_HANDLED;
+    }
     if (!IS_ENABLED(CONFIG_TCPC_CLASS) && prev_va != upm->vbus_attach) {
         upm6922_chg_attach_pre_process(upm, ATTACH_TRIG_TYPEC,
                 upm->vbus_attach ? ATTACH_TYPE_TYPEC : ATTACH_TYPE_NONE);
@@ -2605,14 +2625,17 @@ static int upm6922_enable_vbus(struct regulator_dev *rdev)
 {
     struct upm6922 *upm = rdev_get_drvdata(rdev);
 
+    WRITE_ONCE(upm->otg_on, true);
     return upm6922_enable_otg(upm);
 }
 
 static int upm6922_disable_vbus(struct regulator_dev *rdev)
 {
     struct upm6922 *upm = rdev_get_drvdata(rdev);
+    int ret = upm6922_disable_otg(upm);
 
-    return upm6922_disable_otg(upm);
+    WRITE_ONCE(upm->otg_on, false);
+    return ret;
 }
 
 static int upm6922_is_enabled_vbus(struct regulator_dev *rdev)
