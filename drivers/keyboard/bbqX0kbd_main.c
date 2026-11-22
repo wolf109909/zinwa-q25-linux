@@ -227,8 +227,13 @@ static void q25_apply_torch(struct bbqX0kbd_data *kbd, uint8_t state)
 {
 	if (!kbd || kbd->torch_en_gpio < 0 || kbd->torch_mode_gpio < 0)
 		return;
-	if (state > 2)
-		state = 2;
+	/*
+	 * 1 = torch (mode GPIO low). Mode high is the flash current, which the
+	 * vendor only ever pulses for a camera flash (<= 1.6 s); holding it
+	 * would overheat the LED, so it is not offered as a torch level.
+	 */
+	if (state > 1)
+		state = 1;
 	kbd->torch_state = state;
 	if (state == 0) {
 		gpio_set_value(kbd->torch_en_gpio, 0);
@@ -1447,7 +1452,7 @@ static int bbqX0kbd_probe(struct i2c_client *client, const struct i2c_device_id 
 			gpio_direction_output(bbqX0kbd_data->torch_en_gpio, 0);
 			gpio_direction_output(bbqX0kbd_data->torch_mode_gpio, 0);
 			bbqX0kbd_data->torch_led.name = "q25:white:torch";
-			bbqX0kbd_data->torch_led.max_brightness = 2;
+			bbqX0kbd_data->torch_led.max_brightness = 1;
 			bbqX0kbd_data->torch_led.brightness = 0;
 			bbqX0kbd_data->torch_led.brightness_set_blocking = q25_torch_led_set_blocking;
 			bbqX0kbd_data->torch_led.brightness_get = q25_torch_led_get;
@@ -1558,7 +1563,7 @@ static int bbqX0kbd_resume(struct device *dev)
 		if (bbqX0kbd_data->power_vdd_gpio >= 0) {
 			gpio_set_value(bbqX0kbd_data->power_vdd_gpio, 1);
 		}
-		mdelay(400);
+		msleep(400);
 		
 		bbqX0kbd_resume_register_init(client);
 		

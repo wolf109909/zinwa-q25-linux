@@ -91,6 +91,8 @@ struct upm6922 {
     struct delayed_work psy_dwork;
     struct delayed_work prob_dwork;
     struct delayed_work monitor_dwork;
+    struct delayed_work temp_dwork;	/* battery temperature charge gate */
+    bool temp_inhibit;
     struct wakeup_source *monitor_ws;
 
     int psy_usb_type;
@@ -1725,6 +1727,58 @@ static void upm6922_inform_psy_dwork_handler(struct work_struct *work)
     }
 }
 
+/*
+ * Battery temperature charge gate. The vendor kernel's mtk_charger stopped
+ * charging below -5 C and at 55 C (resume at 1 C / below 53 C); this port has
+ * no mtk_charger, so nothing else does it. The thresholds are a little
+ * tighter because the battery NTC reading here is not compensated for the
+ * charge current's IR drop (vendor mtk_battery.c does that, ~1-2.5 C at 3 A).
+ * Units: 0.1 C, as the battery power supply reports.
+ */
+static int chg_temp_hot_stop = 530;
+static int chg_temp_hot_resume = 500;
+static int chg_temp_cold_stop = -30;
+static int chg_temp_cold_resume = 20;
+module_param(chg_temp_hot_stop, int, 0644);
+module_param(chg_temp_hot_resume, int, 0644);
+module_param(chg_temp_cold_stop, int, 0644);
+module_param(chg_temp_cold_resume, int, 0644);
+
+#define UPM6922_TEMP_POLL_MS	10000
+
+static void upm6922_temp_dwork_handler(struct work_struct *work)
+{
+    struct upm6922 *upm = container_of(work, struct upm6922, temp_dwork.work);
+    union power_supply_propval val;
+    struct power_supply *bat;
+    int t, ret;
+
+    bat = power_supply_get_by_name("battery");
+    if (!bat)
+        goto out;
+    ret = power_supply_get_property(bat, POWER_SUPPLY_PROP_TEMP, &val);
+    power_supply_put(bat);
+    if (ret)
+        goto out;
+    t = val.intval;
+
+    if (!upm->temp_inhibit &&
+        (t >= chg_temp_hot_stop || t <= chg_temp_cold_stop)) {
+        upm->temp_inhibit = true;
+        upm6922_disable_charger(upm);
+        dev_warn(upm->dev, "battery %d.%d C: charging paused\n", t / 10, abs(t % 10));
+        power_supply_changed(upm->psy);
+    } else if (upm->temp_inhibit &&
+               t < chg_temp_hot_resume && t > chg_temp_cold_resume) {
+        upm->temp_inhibit = false;
+        upm6922_enable_charger(upm);
+        dev_info(upm->dev, "battery %d.%d C: charging resumed\n", t / 10, abs(t % 10));
+        power_supply_changed(upm->psy);
+    }
+out:
+    schedule_delayed_work(&upm->temp_dwork, msecs_to_jiffies(UPM6922_TEMP_POLL_MS));
+}
+
 static void upm6922_monitor_dwork_handler(struct work_struct *work)
 {
     struct upm6922 *upm = container_of(work, struct upm6922,
@@ -2740,6 +2794,7 @@ static int upm6922_charger_probe(struct i2c_client *client,
 
     upm->monitor_ws = wakeup_source_register(upm->dev, "upm6922_monitor_ws");
     INIT_DELAYED_WORK(&upm->monitor_dwork, upm6922_monitor_dwork_handler);
+    INIT_DELAYED_WORK(&upm->temp_dwork, upm6922_temp_dwork_handler);
     
     upm->wq = create_singlethread_workqueue(dev_name(upm->dev));
 	if (!upm->wq) {
@@ -2797,6 +2852,7 @@ static int upm6922_charger_probe(struct i2c_client *client,
     }
 
     mod_delayed_work(system_wq, &upm->prob_dwork, msecs_to_jiffies(2*1000));
+    schedule_delayed_work(&upm->temp_dwork, msecs_to_jiffies(5*1000));
     //schedule_delayed_work(&upm->monitor_dwork, msecs_to_jiffies(10*1000));
 
     enable_irq_wake(upm->client->irq);
@@ -2822,6 +2878,7 @@ static void upm6922_charger_remove(struct i2c_client *client)
 {
     struct upm6922 *upm = i2c_get_clientdata(client);
 
+    cancel_delayed_work_sync(&upm->temp_dwork);
     sysfs_remove_group(&upm->dev->kobj, &upm6922_attr_group);
     mutex_destroy(&upm->i2c_rw_lock);
     mutex_destroy(&upm->adc_lock);
@@ -2831,6 +2888,7 @@ static int upm6922_charger_remove(struct i2c_client *client)
 {
     struct upm6922 *upm = i2c_get_clientdata(client);
 
+    cancel_delayed_work_sync(&upm->temp_dwork);
     sysfs_remove_group(&upm->dev->kobj, &upm6922_attr_group);
     mutex_destroy(&upm->i2c_rw_lock);
     mutex_destroy(&upm->adc_lock);

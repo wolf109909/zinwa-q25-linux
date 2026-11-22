@@ -90,7 +90,7 @@ int _gate_ic_backlight_set(unsigned int brightness)
 	
 	if (gate_client->last_brightness == 0 && brightness != 0) {
         gate_client->last_brightness = brightness;
-        mdelay(300);
+        msleep(300);
         _gate_ic_Power_on();
     }
     

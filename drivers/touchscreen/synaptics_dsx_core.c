@@ -106,18 +106,19 @@ ctp {
  * Adjust via sysfs if touch feels too jittery or too laggy.
  */
 /*
- * Off by default: the vendor (LineageOS) driver reports raw coordinates with
- * no smoothing (fuzz 0), and this filter adds drag lag/wobble. It works in
- * raw sensor units (0..sensor_max), not pixels. Enable for experiments with
- * one_euro_enable=1.
+ * Off by default (user preference: it adds a little drag lag). The factory
+ * Hodafone build runs this filter always, with min_cutoff 1.0 Hz, beta 7.0,
+ * d_cutoff 1.0 Hz and a 1-unit deadzone; those are the defaults below, so
+ * one_euro_enable=1 gives the stock feel. Values are in raw sensor units
+ * (0..sensor_max), scaled by FILTER_PRECISION_SCALE.
  */
 static bool one_euro_enable;
 module_param(one_euro_enable, bool, 0644);
-MODULE_PARM_DESC(one_euro_enable, "Enable the One Euro coordinate filter (default off, like vendor)");
-static int one_euro_min_cutoff = 5000;	/* 5.0 Hz - base cutoff frequency */
-static int one_euro_beta = 20000;	/* 20.0 - speed coefficient */
-static int one_euro_d_cutoff = 5000;	/* 5.0 Hz - derivative filter cutoff */
-static int one_euro_deadzone = 0;	/* 0 = disabled for responsive scrolling */
+MODULE_PARM_DESC(one_euro_enable, "Enable the One Euro coordinate filter (stock firmware: on)");
+static int one_euro_min_cutoff = 1000;	/* 1.0 Hz */
+static int one_euro_beta = 7000;	/* 7.0 */
+static int one_euro_d_cutoff = 1000;	/* 1.0 Hz */
+static int one_euro_deadzone = 1000;	/* 1 unit, as stock */
 
 module_param(one_euro_min_cutoff, int, 0644);
 MODULE_PARM_DESC(one_euro_min_cutoff,
