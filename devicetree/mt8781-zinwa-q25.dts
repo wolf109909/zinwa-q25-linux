@@ -532,14 +532,6 @@
 		};
 	};
 
-	sensors {
-		compatible = "zinwa,q25-sensors";
-		/* UNCALIBRATED: stock DT has no accelerometer direction metadata. */
-		mount-matrix = "1", "0", "0",
-		               "0", "1", "0",
-		               "0", "0", "1";
-	};
-
 	/* Zinwa Q25 RGB Notification LEDs */
 	leds {
 		compatible = "gpio-leds";
@@ -1241,6 +1233,44 @@
 	};
 };
 
+/*
+ * I2C1 / I2C9: the stock firmware reads these sensors from the SCP sensor hub
+ * (pins left in SCP_SCL0/SDA0 and SCP_SCL2/SDA2 mode by LK); mainline drives
+ * them from the AP I2C controllers on the same pins instead.
+ */
+&i2c1 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c1_pins>;
+	status = "okay";
+
+	accelerometer@18 {
+		compatible = "silan,sc7a20";
+		reg = <0x18>;
+		/* UNCALIBRATED: stock DT has no accelerometer direction metadata. */
+		mount-matrix = "1", "0", "0",
+		               "0", "1", "0",
+		               "0", "0", "1";
+	};
+
+	magnetometer@30 {
+		compatible = "memsic,mmc5603";
+		reg = <0x30>;
+	};
+};
+
+&i2c9 {
+	clock-frequency = <400000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c9_pins>;
+	status = "okay";
+
+	light-sensor@2b {
+		compatible = "tyhx,hx32062se";
+		reg = <0x2b>;
+	};
+};
+
 /* I2C0: Synaptics S2716B 720x720 Capacitive Touchscreen */
 &i2c0 {
 	clock-frequency = <400000>;
@@ -1401,6 +1431,22 @@
 };
 
 &pio {
+	i2c1_pins: i2c1-default-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO132__FUNC_SCL1>,
+			         <PINMUX_GPIO133__FUNC_SDA1>;
+			bias-pull-up;
+		};
+	};
+
+	i2c9_pins: i2c9-default-pins {
+		pins-bus {
+			pinmux = <PINMUX_GPIO148__FUNC_SCL9>,
+			         <PINMUX_GPIO149__FUNC_SDA9>;
+			bias-pull-up;
+		};
+	};
+
 	mmc1_pins_default: mmc1-pins-default-state {
 		pins-clk {
 			pinmux = <PINMUX_GPIO71__FUNC_MSDC1_CLK>;

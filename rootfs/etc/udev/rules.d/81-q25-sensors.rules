@@ -1,0 +1,9 @@
+# Zinwa Q25 sensors for iio-sensor-proxy (runs after 80-iio-sensor-proxy.rules).
+#
+# SC7A20 (mainline st_accel): its interrupt line is not wired in the DT, so it
+# has no IIO trigger and the buffered driver cannot start. Poll it instead.
+SUBSYSTEM=="iio", ACTION=="add|change", ATTR{name}=="sc7a20", ENV{IIO_SENSOR_PROXY_TYPE}="iio-poll-accel"
+# HX32062SE proximity: measured ~75 uncovered, 3600-4600 with a palm over the
+# earpiece. The stock SCP thresholds (3800 near / 3300 far) use hysteresis that
+# iio-sensor-proxy lacks; at 3800 a covered sensor flickered back to "far".
+SUBSYSTEM=="iio", ACTION=="add|change", ATTR{name}=="hx32062se", ENV{PROXIMITY_NEAR_LEVEL}="1500"

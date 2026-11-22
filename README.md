@@ -54,7 +54,7 @@ zinwa-q25-linux/
 │       ├── aw36518.c         # -> aw36518.ko (mediatek,aw36518)
 │       └── flashlight-gpio-v4l2.c # -> flashlight-gpio-v4l2.ko (mediatek,flashlightgpio)
 │   └── sensors/              # Onboard IIO sensors (SC7A20 accel, MMC5603NJ mag, HX32062SE ALS/PS)
-│       └── q25_sensors.c     # -> q25_sensors.ko (3 IIO devices: sc7a20, mmc5603nj, hx32062se)
+│       └── q25_sensors.c     # -> q25_sensors.ko (I2C IIO: mmc5603nj, hx32062se; sc7a20 = mainline st_accel)
 ├── firmware/
 │   └── ocs72xxx_cf.bin       # Extracted Orient-Chip OCA7255 Smart PA ACF firmware (Music/Receiver/Off profiles)
 ├── patches/
@@ -149,7 +149,7 @@ All 11 hardware kernel modules from the vendor `5.10` kernel (`LineageOS/android
 | `flashlight-gpio-v4l2.ko` | I2C / GPIO | `mediatek,flashlightgpio` | Pinctrl/GPIO V4L2 camera flash / torch subdev driver; plus direct GPIO 154 (`q25:white:torch` / `/proc/q20_torch`) & MT6358 `vibr` haptics (`/proc/q20_vibrator`) integrated in `bbqX0kbd.ko`. |
 | `wmt_drv.ko`, `wlan_drv_gen4m_6789.ko`, `bt_drv_connac1x.ko`, `btif_drv.ko`, `connadp.ko`, `connfem.ko`, `wmt_chrdev_wifi.ko` | `0x18000000` (`CONNSYS`) | `mediatek,mt6789-consys` | Forward-ported MediaTek CONNSYS Combo (`MT6631` A-die), Dual-Band 802.11a/b/g/n/ac Wi-Fi (`wlan0`, `wlan1`, `p2p0`, `ap0`), and Bluetooth 5.4 (`hci0` via `q25-bt-vhci` + `q25-wmt-init`). |
 | `ccci_md_all.ko`, `ccci_dpmaif.ko`, `ccci_ccif.ko`, `ccci_cldma.ko`, `ccci_util_lib.ko`, `ccmni.ko`, `conn_md_drv.ko`, `ccci_auxadc.ko`, `ccci_rtc.ko` | `0x10209000` (`DPMAIF`/`CCIF`) | `mediatek,mddriver` | Forward-ported MediaTek ECCCI / DPMAIF / CCMNI 4G LTE Cellular Modem stack (`ccmni0`..`ccmni20`, `/dev/ttyC0`, non-linear SKB SMEM UL DMA fix, DL BAT ring fix, and standalone Bionic property/wakelock shim `libprop_preload.so` + `q25-modem-init`). |
-| `q25_sensors.ko` | SCP I2C0 (`GPIO132/133`) & I2C5 (`GPIO148/149`) | `q25_sensors` | Native Linux IIO driver for the 3 onboard sensors: **Silan SC7A20** 3-axis accelerometer (`0x18`), **MEMSIC MMC5603NJ** 3-axis magnetometer (`0x30`), and **TYHX HX32062SE** ambient light (ALS lux) & proximity (PS) sensor (`0x2b`). |
+| `q25_sensors.ko` + mainline `st_accel` | AP I2C1 (`GPIO132/133`) & I2C9 (`GPIO148/149`) | `q25_sensors`, `st_accel_i2c` | **Silan SC7A20** accelerometer (`0x18`, mainline st_accel), **MEMSIC MMC5603NJ** magnetometer (`0x30`) and **TYHX HX32062SE** raw ALS & proximity (`0x2b`) via `q25_sensors`. |
 
 ### Building the Kernel Modules (`drivers/`)
 

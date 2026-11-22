@@ -217,81 +217,26 @@ requested level, not a physical-light measurement. Check UPower's
 
 ## Accelerometer and iio-sensor-proxy
 
-The SC7A20 already exposes IIO raw XYZ and scale `0.009576806` m/s² per count.
-The missing driver metadata was `in_accel_mount_matrix`. It now uses
-`iio_read_mount_matrix()` and `IIO_MOUNT_MATRIX` ext_info. The driver binds to
-the DT `zinwa,q25-sensors` node; older DTs still get the existing platform-device
-fallback and IIO's identity default. The raw sensor samples are not transformed
-in-kernel, avoiding applying the mount matrix twice.
+Since 2026-11-22 the sensors are ordinary I2C clients of the AP I2C
+controllers on the pins the stock firmware hands to the SCP sensor hub:
+I2C1 (GPIO132/133: SC7A20 `0x18`, MMC5603NJ `0x30`) and I2C9 (GPIO148/149:
+HX32062SE `0x2b`). The SC7A20 uses mainline `st_accel` (`silan,sc7a20`, DT
+`mount-matrix`); `q25_sensors.ko` is an I2C driver for the MMC5603NJ and
+HX32062SE only. The earlier version bit-banged both buses through raw GPIO
+MMIO (bypassing pinctrl) with ~6 ms of busy-waiting per iio-sensor-proxy poll.
 
-### Orientation provenance — explicitly UNCALIBRATED
-
-The following bounded searches returned **no** accelerometer direction/remap:
-
-```sh
-grep -inE 'direction|accel|gsensor|sensorhub|sc7a|mount-matrix|axis.*map' \
-  ~/q25-work/stock/stock.dts ~/q25-work/q25-live.dts
-find ~/q25-work/q25_vendor_ramdisk -maxdepth 5 -type f \
-  \( -iname '*sensor*' -o -iname '*accel*' -o -iname '*sc7*' \)
-```
-
-`stock.dts` has 6,955 lines and `q25-live.dts` 8,402; the only sensor-name match
-was the unrelated camera `mediatek,imgsensor`. The extracted vendor ramdisk's
-`vendor/` directory is empty. The available factory `cust.dtsi` contains only
-its relative include-path text. There is no stock direction number to translate
-through MTK's `hwmsen_get_convert()` sign/axis table in these available files.
-After login was restored, the live vendor partition's
-`/var/lib/q25/android/vendor/etc/sensors/` was inspected: it contains only
-`hals.conf`, naming `android.hardware.sensors@2.X-subhal-mediatek.so`, and no
-axis/direction configuration. No stock-derived matrix can be justified from
-this evidence.
-
-Per supervisor approval, the DTS carries **identity as an explicitly
-UNCALIBRATED fallback**, not as a measured board orientation. Face-up Z sign and
-upright/left/right gravity readings still need measurement. A face-up stationary
-sample should yield approximately +9.81 m/s² on Z after the matrix. Do not claim
-correct auto-rotation until `monitor-sensor` and Phosh agree with physical poses.
-This hardware driver exposes an accelerometer, magnetometer and ALS/proximity;
-it does not expose or promise a separate gyroscope.
-
-`iio-sensor-proxy` is absent from the original repository package list; the
-image worker was asked to include it. The current staged ext4 rootfs already has
-3.9-1. Its stock `80-iio-sensor-proxy.rules` recognizes the raw XYZ attributes,
-tags the IIO device for systemd, and requests `iio-sensor-proxy.service`; the
-service is static and does not need `systemctl enable`.
-
-### Live baseline (old module and DT)
-
-```text
-$ systemctl status iio-sensor-proxy --no-pager
-Active: active (running), started during this boot
-$ cat /sys/bus/iio/devices/iio:device6/name
-sc7a20
-$ cat /sys/bus/iio/devices/iio:device6/in_accel_{x,y,z}_raw
--26
-31
-1060
-$ cat /sys/bus/iio/devices/iio:device6/in_accel_scale
-0.009576806
-$ timeout 4 monitor-sensor --accel
-+++ iio-sensor-proxy appeared
-Failed to claim accelerometer: ... AccessDenied: Not Authorized: Sensor claim not allowed
-```
-
-Z was positive, approximately +10.15 m/s²; the unattended phone's physical pose
-was not confirmed, so this is **not** a face-up calibration. The raw device and
-proxy exist, but the remote SSH sensor claim was denied by policy. Verify
-`monitor-sensor --accel` from the active local Phosh session, then test actual
-rotation after the new matrix-capable module/DT are installed. No rotated GUI
-or correct orientation result has been observed.
+SC7A20's interrupt is not wired in the DT, so it has no IIO trigger;
+`rootfs/etc/udev/rules.d/81-q25-sensors.rules` makes iio-sensor-proxy poll it
+and sets `PROXIMITY_NEAR_LEVEL=1500` (measured ~75 uncovered, 3600-4600
+covered; the stock 3800 flickered back to far while covered). Rotation and
+proximity verified on the phone.
 
 A standard local hwdb `ACCEL_MOUNT_MATRIX` override is available while
 calibrating: inspect the IIO device's parent modalias with `udevadm info -a`,
 match the `sensor:modalias:...` lookup used by `/usr/lib/udev/rules.d/60-sensor.rules`
 in `/etc/udev/hwdb.d/61-q25-sensor-local.hwdb`, and supply the measured nine-value
 matrix. Run `systemd-hwdb update`, trigger IIO uevents and restart
-`iio-sensor-proxy`. The DT node changes the parent modalias from
-`platform:q25-sensors` to an OF modalias; use the actual lookup, not a guessed
+`iio-sensor-proxy`. The parent is the I2C client `1-0018`; use the actual lookup, not a guessed
 DMI identifier. Do not install an unmeasured axis correction.
 
 ## Cellular — startup failure found; LTE not yet validated
