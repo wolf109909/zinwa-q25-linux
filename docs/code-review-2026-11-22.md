@@ -50,10 +50,12 @@ Kernel (from `0024`, earlier agent):
    before the MMU is up. Kernel and LK DTB disagree on memory size,
    reservations, kaslr/rng seed. Moving to the LK-passed DTB (or an overlay)
    is a boot-chain change: do it with the phone on the desk.
-2. **Generic arm64 code patched**: TOPRGU watchdog armed in `setup_arch` via a
-   borrowed `FIX_TEXT_POKE0` (never cleared → text patching later replaces a
-   live device PTE without break-before-make) and a lockless pmsg writer in
-   `printk_sprint`. `MEDIATEK_WATCHDOG` + ramoops already cover both; remove.
+2. ~~Generic arm64 code patched~~ **fixed (0032, kernel #49)**: printk -> raw
+   pmsg copy hook, its 16 fixmap slots, the head.S "Q250OK!" marker and the
+   TOPRGU arming through `FIX_TEXT_POKE0` are gone; ramoops + mtk_wdt cover
+   them. (A slot-b test first looked like a boot loop: LK does not boot slot
+   b after `fastboot set_active b` here, so test kernels go to boot_a, with
+   power + volume-up -> fastboot as recovery.)
 3. genpd core special-cases two out-of-tree compatibles (`power_on=false`);
    should be `dev_pm_domain_attach_by_id()` in those drivers.
 4. DISP domain always-on without taking its clocks; works only thanks to

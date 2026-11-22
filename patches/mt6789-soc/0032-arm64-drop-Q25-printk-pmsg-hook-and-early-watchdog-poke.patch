@@ -1,0 +1,140 @@
+From: Zinwa Q25 port <noreply@anthropic.com>
+Subject: [PATCH] arm64: drop Q25 printk pmsg hook and early watchdog poke
+
+0024 added board debugging aids to generic arm64/printk code:
+- every printk record was copied, without locking, into a raw buffer at
+  0x48160000 mapped through 16 extra fixmap slots, plus a "Q250OK!" marker
+  written from head.S before the MMU is up;
+- setup_arch() armed the TOPRGU watchdog through FIX_TEXT_POKE0 and never
+  cleared that slot, so later kernel text patching replaced a live device
+  mapping without break-before-make.
+
+ramoops (console + dmesg records) already preserves logs across resets and
+the mtk_wdt driver owns the watchdog (WATCHDOG_HANDLE_BOOT_ENABLED). Verified
+on kernel #49: boots normally, TOPRGU mode 0x7d / 31 s under mtk_wdt.
+The embedded DTB and the DBGC boot flag in head.S are kept.
+
+---
+diff --git a/arch/arm64/include/asm/fixmap.h b/arch/arm64/include/asm/fixmap.h
+index 333da882a..170c3502d 100644
+--- a/arch/arm64/include/asm/fixmap.h
++++ b/arch/arm64/include/asm/fixmap.h
+@@ -47,8 +47,6 @@ enum fixed_addresses {
+ 
+ 	FIX_EARLYCON_MEM_BASE,
+ 	FIX_TEXT_POKE0,
+-	FIX_Q25_PMSG_END,
+-	FIX_Q25_PMSG_BEGIN = FIX_Q25_PMSG_END + 15,
+ 
+ #ifdef CONFIG_KVM
+ 	/* One slot per CPU, mapping the guest's VNCR page at EL2. */
+diff --git a/arch/arm64/kernel/head.S b/arch/arm64/kernel/head.S
+index a434a1079..ad62aecc5 100644
+--- a/arch/arm64/kernel/head.S
++++ b/arch/arm64/kernel/head.S
+@@ -183,23 +183,6 @@ SYM_CODE_START_LOCAL(preserve_boot_args)
+ 	dc	civac, x1
+ 	dsb	sy
+ 
+-	movz	x1, #0x4816, lsl #16		// 0x48160000 (ramoops:pmsg)
+-	movz	w2, #0x4244
+-	movk	w2, #0x4347, lsl #16		// 0x43474244 ('DBGC')
+-	str	w2, [x1, #0]
+-	str	wzr, [x1, #4]
+-	mov	w2, #8
+-	str	w2, [x1, #8]
+-	movz	w2, #0x3251			// 'Q2'
+-	movk	w2, #0x3035, lsl #16		// '50'
+-	str	w2, [x1, #12]
+-	movz	w2, #0x4b4f			// 'OK'
+-	movk	w2, #0x0a21, lsl #16		// '!\n'
+-	str	w2, [x1, #16]
+-	dmb	sy
+-	dc	civac, x1
+-	dsb	sy
+-
+ 	cbnz	x19, 0f				// skip cache invalidation if MMU is on
+ 	dmb	sy				// needed before dc ivac with
+ 						// MMU off
+diff --git a/arch/arm64/kernel/setup.c b/arch/arm64/kernel/setup.c
+index 18169d26c..29c6100f0 100644
+--- a/arch/arm64/kernel/setup.c
++++ b/arch/arm64/kernel/setup.c
+@@ -54,42 +54,6 @@
+ #include <asm/efi.h>
+ #include <asm/xen/hypervisor.h>
+ #include <asm/mmu_context.h>
+-#include <asm/fixmap.h>
+-#include <asm/io.h>
+-
+-static bool q25_pmsg_ready;
+-
+-void q25_pmsg_write(const char *s, unsigned int len)
+-{
+-	u32 *hdr;
+-	char *data;
+-	u32 pos, i;
+-
+-	if (!q25_pmsg_ready || !s || !len)
+-		return;
+-
+-	hdr = (u32 *)__fix_to_virt(FIX_Q25_PMSG_BEGIN);
+-	data = (char *)(hdr + 3);
+-
+-	if (READ_ONCE(hdr[0]) != 0x43474244U) {
+-		WRITE_ONCE(hdr[0], 0x43474244U);
+-		WRITE_ONCE(hdr[1], 0);
+-		WRITE_ONCE(hdr[2], 0);
+-	}
+-
+-	pos = READ_ONCE(hdr[2]);
+-	if (pos >= 65000U)
+-		return;
+-
+-	for (i = 0; i < len && pos < 65500U; i++)
+-		WRITE_ONCE(data[pos++], s[i]);
+-	if (pos < 65520U)
+-		WRITE_ONCE(data[pos++], '\n');
+-
+-	WRITE_ONCE(hdr[2], pos);
+-	dsb(sy);
+-}
+-EXPORT_SYMBOL(q25_pmsg_write);
+ 
+ static int num_standard_resources;
+ static struct resource *standard_resources;
+@@ -324,19 +288,6 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
+ 
+ 	early_fixmap_init();
+ 	early_ioremap_init();
+-	for (int i = 0; i < 16; i++)
+-		__set_fixmap(FIX_Q25_PMSG_BEGIN - i, 0x48160000 + i * PAGE_SIZE,
+-			     __pgprot(PROT_NORMAL_NC));
+-	q25_pmsg_ready = true;
+-	{
+-		void __iomem *wdt;
+-		__set_fixmap(FIX_TEXT_POKE0, 0x10007000, FIXMAP_PAGE_IO);
+-		wdt = (void __iomem *)__fix_to_virt(FIX_TEXT_POKE0);
+-		writel_relaxed(0x7808, wdt + 0x04);
+-		writel_relaxed(0x1971, wdt + 0x08);
+-		writel_relaxed(0x22000005, wdt + 0x00);
+-		dsb(sy);
+-	}
+ 
+ 	setup_machine_fdt(__fdt_pointer);
+ 
+diff --git a/kernel/printk/printk.c b/kernel/printk/printk.c
+index 74c408ab7..bc3b9f6e4 100644
+--- a/kernel/printk/printk.c
++++ b/kernel/printk/printk.c
+@@ -2239,10 +2239,6 @@ static u16 printk_sprint(char *text, u16 size, int facility,
+ 	}
+ 
+ 	trace_console(text, text_len);
+-	{
+-		extern void q25_pmsg_write(const char *s, unsigned int len);
+-		q25_pmsg_write(text, text_len);
+-	}
+ 
+ 	return text_len;
+ }
