@@ -1,0 +1,41 @@
+From: Zinwa Q25 port <noreply@anthropic.com>
+Subject: [PATCH] drm/mediatek: dsi: program video timing on bootloader handoff
+
+When LK leaves DSI0 running in video mode, mtk_dsi_poweron() keeps the whole
+DSI/D-PHY state, including LK's porch word counts. LK sizes those for 60 fps
+at a slower link than the 652 Mbps it actually runs, so the Q25 panel scanned
+out at 73.5 Hz while the DRM mode said 60 Hz: compositor/GTK frame pacing then
+stalls and catches up periodically.
+
+Keep the running PHY, but recompute the PHY timing for the link rate implied
+by the mode and program the video timing from the mode. The panel mode must
+use a pixel clock matching LK's link rate (panel-q20: 54.333 MHz, stretched
+HFP for 60 Hz).
+
+---
+diff --git a/drivers/gpu/drm/mediatek/mtk_dsi.c b/drivers/gpu/drm/mediatek/mtk_dsi.c
+index 580fc8233..0b6a0638b 100644
+--- a/drivers/gpu/drm/mediatek/mtk_dsi.c
++++ b/drivers/gpu/drm/mediatek/mtk_dsi.c
+@@ -711,6 +711,21 @@ static int mtk_dsi_poweron(struct mtk_dsi *dsi)
+ 			       dsi->regs + dsi->driver_data->reg_shadow_dbg_off);
+ 		writel(0, dsi->regs + DSI_INTEN);
+ 		writel(0, dsi->regs + DSI_INTSTA);
++		/*
++		 * Keep the bootloader's running D-PHY, but take over the video
++		 * timing. The bootloader sizes its porches for a slower link than
++		 * the one it actually runs (the vendor kernel stretches them
++		 * later), so left alone the panel scans out faster than the mode
++		 * we advertise (73.5 Hz instead of 60 on the Zinwa Q25). The mode's
++		 * pixel clock must match the bootloader's link rate.
++		 */
++		ret = mipi_dsi_pixel_format_to_bpp(dsi->format);
++		if (ret > 0 && dsi->vm.pixelclock) {
++			dsi->data_rate = DIV_ROUND_UP_ULL(dsi->vm.pixelclock * ret,
++							  dsi->lanes);
++			mtk_dsi_phy_timconfig(dsi);
++			mtk_dsi_config_vdo_timing(dsi);
++		}
+ 		dsi->lanes_ready = true;
+ 		dsi->enabled = true;
+ 		return 0;

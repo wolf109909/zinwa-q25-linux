@@ -306,15 +306,27 @@ static int lcm_prepare(struct drm_panel *panel)
 }
 
 
-#define PCLK_MODE0_IN_KHZ \
-    ((FRAME_WIDTH + MODE_0_HFP + HSA + HBP)*(FRAME_HEIGHT + MODE_0_VFP + VSA + VBP)*(60)/1000)
+/*
+ * The bootloader leaves the DSI link running at the vendor rate (DATA_RATE,
+ * 652 Mbps nominal on 2 lanes) and mtk_dsi keeps that PHY on handoff. The
+ * vendor driver holds 60 fps at that rate by stretching horizontal blanking;
+ * with the nominal porches the panel scanned out at 73.5 Hz while the mode
+ * said 60 Hz. HFP is stretched so the measured refresh is 60.0 Hz on this
+ * link (calibrated from vblank timestamps: HFP 60 -> 73.5 Hz, 284 -> 58.5 Hz),
+ * and the pixel clock is derived from that so the mode reports what the panel
+ * really does.
+ */
+#define MODE_0_HFP_LINK		257
+#define MODE_0_HTOTAL		(FRAME_WIDTH + MODE_0_HFP_LINK + HSA + HBP)
+#define MODE_0_VTOTAL		(FRAME_HEIGHT + MODE_0_VFP + VSA + VBP)
+#define PCLK_MODE0_IN_KHZ	(MODE_0_HTOTAL * MODE_0_VTOTAL * MODE_0_FPS / 1000)
 
 static const struct drm_display_mode default_mode = {
 	.clock = PCLK_MODE0_IN_KHZ,
 	.hdisplay = FRAME_WIDTH,
-	.hsync_start = FRAME_WIDTH + MODE_0_HFP,
-	.hsync_end = FRAME_WIDTH + MODE_0_HFP + HSA,
-	.htotal = FRAME_WIDTH + MODE_0_HFP + HSA + HBP,
+	.hsync_start = FRAME_WIDTH + MODE_0_HFP_LINK,
+	.hsync_end = FRAME_WIDTH + MODE_0_HFP_LINK + HSA,
+	.htotal = MODE_0_HTOTAL,
 	.vdisplay = FRAME_HEIGHT,
 	.vsync_start = FRAME_HEIGHT + MODE_0_VFP,
 	.vsync_end = FRAME_HEIGHT + MODE_0_VFP + VSA,
