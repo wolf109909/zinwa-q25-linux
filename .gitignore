@@ -26,11 +26,6 @@ Module.symvers
 .cache.mk
 
 
-# realctx: share project memories (.pi/realctx) through git
-!/.pi/
-/.pi/*
-!/.pi/realctx/
-!/.pi/realctx/**
 
 # build outputs
 /out/

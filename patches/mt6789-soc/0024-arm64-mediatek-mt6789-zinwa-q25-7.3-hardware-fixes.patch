@@ -1,3 +1,14 @@
+From: Zinwa Q25 port <noreply@anthropic.com>
+Subject: [PATCH] arm64: mediatek: mt6789: Zinwa Q25 7.3 bring-up
+
+Board bring-up on top of the MT6789 series: clock parent fixes (I2C wrapper,
+img, mcu) and CLK_OPS_PARENT_ENABLE on infra gates; arch timer/GIC PPI fixes;
+MT6789 SCPSYS power domains; MFG gating for Panfrost; mediatek-drm/DSI support
+for the Q25 panel including bootloader handoff; Panfrost MT6789 match order;
+embedded Q25 DTB and DBGC boot flag in head.S. Later patches (0031, 0032)
+refine the DSI handoff and remove debug hooks this patch added.
+
+---
 diff --git a/arch/arm64/boot/dts/mediatek/mt6789.dtsi b/arch/arm64/boot/dts/mediatek/mt6789.dtsi
 index cf276a7f0..fea6a0226 100644
 --- a/arch/arm64/boot/dts/mediatek/mt6789.dtsi

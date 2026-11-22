@@ -2,7 +2,7 @@
 /*
  * Device Tree Source for Zinwa Q25 (Xelex Q20 v12 / MediaTek Helio G99 MT6789 / MT8781)
  *
- * Mainline Linux 7.0+ DeviceTree with full Q25 peripheral wiring:
+ * Linux 7.3.3 devicetree with full Q25 peripheral wiring:
  * - BBQX0 Physical QWERTY Keyboard + Optical Trackpad (&i2c6 @ 0x1f + pdrv_bbqX0kbd)
  * - Synaptics S2716B 720x720 Capacitive Touchscreen (&i2c0 @ 0x67)
  * - Q20 720x720 60Hz MIPI DSI Video Panel (&dsi0) + OCP2131 Bias IC (&i2c7 @ 0x3e)

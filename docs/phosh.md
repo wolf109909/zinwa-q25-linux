@@ -211,4 +211,4 @@ real non-root lock/unlock, logind and keyring behavior on the phone.
 5. Recheck Wi-Fi, APN/LTE data, SIM unlock, calls/SMS limitations, Bluetooth, audio,
    USB networking, notifications, sensor rotation and reboot persistence. Camera
    availability, telephony and haptics are hardware capabilities, not app-install
-   guarantees. Keep the existing hardware acceptance gates in `docs/validation-hw.md`.
+   guarantees. Keep the existing hardware acceptance gates in `docs/notes/validation-hw.md`.

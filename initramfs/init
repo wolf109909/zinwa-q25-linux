@@ -10,7 +10,7 @@
 # three boots in a row never reached multi-user.target and good-snapshot
 # recovery is unavailable/exhausted) a rescue environment is started instead:
 # USB NCM networking on 10.15.19.82 with a telnet root shell.
-# See build/BTRFS.md for recovery policy and the boot.img/modules safeguard.
+# See docs/storage.md for recovery policy and the boot.img/modules safeguard.
 #
 # Kernel command line knobs:
 #   root=PARTLABEL=<name>  root partition by GPT name   (default userdata)
@@ -143,7 +143,7 @@ mkdir -p "$BOOT_TOP/q25-boot/good"
 chmod 700 "$BOOT_TOP/q25-boot"
 [ -n "$RESCUE" ] && rescue "$RESCUE"
 until prepare_default_boot; do
-    rescue "default root unavailable/unsafe, or 3 failed boots; see build/BTRFS.md"
+    rescue "default root unavailable/unsafe, or 3 failed boots; see docs/storage.md"
 done
 umount "$BOOT_TOP"
 

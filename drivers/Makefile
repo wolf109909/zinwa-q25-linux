@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0
-# Zinwa Q25 Out-of-Tree Hardware Drivers for Mainline Linux 7.0+ (MT6789 / MT8781)
+# Zinwa Q25 Out-of-Tree Hardware Drivers for Linux 7.3.3 (MT6789 / MT8781)
 
 ifneq ($(KERNELRELEASE),)
 obj-m += keyboard/

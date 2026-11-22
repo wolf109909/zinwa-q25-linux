@@ -1,5 +1,5 @@
 # Root MUST use the btrfs default subvolume: snapper rollback changes it.
-# No subvol=@ on /, and no fsck. See build/BTRFS.md for boot recovery.
+# No subvol=@ on /, and no fsck. See docs/storage.md for boot recovery.
 PARTLABEL=userdata  /           btrfs  noatime,compress=zstd:1  0 0
 PARTLABEL=userdata  /home       btrfs  noatime,compress=zstd:1,subvol=@home  0 0
 PARTLABEL=userdata  /root       btrfs  noatime,compress=zstd:1,subvol=@root  0 0

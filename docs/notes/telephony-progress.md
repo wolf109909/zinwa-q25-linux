@@ -1,5 +1,10 @@
 # Native Q25 telephony investigation — updated 2026-11-10
 
+> Historical log. `experimental/` (oFono/ofono2mm) and `tools/ims-protocol-lab/`
+> were removed in November 2026 after SMS over IMS was implemented natively
+> (see [../telephony.md](../telephony.md)); they remain in git history.
+
+
 **SMS and calls are not fixed or end-to-end validated.** No investigator call, SMS, USSD, queued retry or private-message inspection was performed. Transmission restrictions remain. The user has since power-cycled the phone: old process IDs, runtime masks and client freezes must not be assumed to survive. Guard/client and network state require fresh verification after renewed hotel access.
 
 ## Current offline handoff

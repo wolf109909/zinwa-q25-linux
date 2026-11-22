@@ -1,3 +1,0 @@
-# Unified-diff context lines contain a required leading space, including blanks.
-# Preserve the verified patch bytes/checksums rather than stripping that prefix.
-*.patch -whitespace
