@@ -62,6 +62,15 @@ Kernel (from `0024`, earlier agent):
    `clk_ignore_unused` + `pd_ignore_unused` + `CLK_IGNORE_UNUSED` on all MM
    gates. Multimedia clock controllers (img/ipe/vdec/venc/cam, mfgcfg) have no
    `power-domains` → reading them with the domain off can hang the bus.
+   Measured on kernel #49: 234 of 365 clocks are on in hardware but claimed by
+   no driver (cam 19, afe 18, mdp 18, mm 18, univpll 17, ifrao 14, mainpll
+   14, apll*, ipe, aud, ...); they only stay on because of the ignore-unused
+   flags. Plan, one step per session, each tested on boot_a:
+   (a) measure battery drain at idle/screen-off to size the gain;
+   (b) display path: DISP domain clocks as consumers, DSI PHY balance (item 5);
+   (c) multimedia/camera blocks (mdp/img/ipe/cam + power-domains);
+   (d) audio, modem (md/ifrao), Wi-Fi (conn) last;
+   then drop clk_ignore_unused / pd_ignore_unused.
 5. DSI handoff path skips `phy_power_on` but poweroff calls `phy_power_off`
    (count goes negative); mmsys routes through the PQ chain while the declared
    path is OVL0→RDMA0→DSI0; several shared DRM/mutex changes apply to every
