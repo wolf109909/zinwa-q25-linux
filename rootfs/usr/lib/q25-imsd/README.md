@@ -55,9 +55,4 @@ Robustness:
   network stops routing SMS to a dead contact.
 - `Q25_IMSD_REREG=<s>` forces a short re-registration interval for testing.
 
-Earlier experiments left transmit guards on test phones
-(`/etc/dbus-1/system.d/90-q25-no-transmit.conf`,
-`/etc/polkit-1/rules.d/00-q25-no-transmit.rules`); they must not block
-`Messaging`. They are not part of the image.
-
 Tests: `python3 tests/test_q25_imsd_smspdu.py`.

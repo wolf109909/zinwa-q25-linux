@@ -88,11 +88,11 @@ built as-is any more** — Arch Linux ARM moved phosh/phoc to 0.59.0 while
 phone). Needs a phoc-q25 + keyboard bump to 0.59 and an on-device Phosh test.
 
 Userspace:
-- Transmit guards (`/etc/dbus-1/system.d/90-q25-no-transmit.conf`,
-  `/etc/polkit-1/rules.d/00-q25-no-transmit.rules`) exist only on this phone;
-  they now block only voice/USSD. Decide: ship or drop.
-- Hand-installed `webjetd` (TUN user) and old smoke-test binaries in
-  `/usr/local` are not part of the image.
+- Transmit guards (D-Bus/polkit rules from earlier experiments, only ever on
+  this phone): removed 2026-11-22 (backup in `/root/q25-backup-20261121/`).
+  Without VoLTE an outgoing call cannot reach the network anyway.
+- `webjetd` on the phone is the owner's personal VPN: intentionally not part
+  of the image. Old smoke-test binaries in `/usr/local` are not either.
 - `mm-ims-observer-mtk-ccci.c` (+ test) is superseded by q25-imsd.
 
 ## GPU
