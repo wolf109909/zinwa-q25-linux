@@ -80,12 +80,12 @@ Drivers:
   oca72xxx, q25_afe_pcm.
 - bbqX0kbd proc toggles are 0666 (left: userspace may rely on them).
 
-Fresh image (checked 2026-11-22 with a full `build-rootfs.sh` run into
-scratch dirs): every Q25 piece lands correctly, but **the image cannot be
-built as-is any more** — Arch Linux ARM moved phosh/phoc to 0.59.0 while
-`packages/phoc-q25` and `phosh-q25-keyboard` are pinned to 0.57.0
-(`depends=phosh=0.57.0`). The phone keeps 0.57 via IgnorePkg (now also on the
-phone). Needs a phoc-q25 + keyboard bump to 0.59 and an on-device Phosh test.
+Fresh image: was blocked by Arch Linux ARM moving phosh/phoc to 0.59.0 while
+the Q25 packages pinned 0.57.0. Resolved 2026-11-22: stock ALARM phoc 0.59 embeds
+wlroots without the layer-shell 0-height check, so `packages/phoc-q25` is gone;
+`phosh-q25-keyboard` rebuilt for 0.59.0. Phone upgraded (133 packages incl.
+systemd 262, Mesa 26.3.1); the previous agent's unused oFono/gbinder packages
+were removed because `libgbinder-radio` blocked the upgrade.
 
 Userspace:
 - Transmit guards (D-Bus/polkit rules from earlier experiments, only ever on

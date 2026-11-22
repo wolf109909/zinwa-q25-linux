@@ -13,7 +13,7 @@ choosing the package list. Use ARM sync databases (e.g. copy the staged root's
 `var/lib/pacman/sync/` into a temporary DB path): changing `Architecture` alone
 does **not** make a host's existing x86_64 sync databases into ARM databases.
 
-Checked versions: phosh/phoc **0.57.0-2**, phosh-mobile-settings **0.57.0-1**,
+Checked versions: phosh/phoc **0.59.0-1**, phosh-mobile-settings **0.59.0-1**,
 Stevia **0.58.0-1**, xdg-desktop-portal-phosh **0.58.0-1**. ARM packages provide:
 
 | Purpose | Packages / visible applications |
@@ -54,7 +54,7 @@ configuration. Btrfs Assistant remains as a desktop-neutral storage tool.
 
 Arch's phosh package ships `phosh-session`, the GNOME-session user units and
 `/etc/pam.d/phosh`, but **does not ship a system phosh.service**. The image installs
-the unmodified [upstream v0.57.0 system unit](https://gitlab.gnome.org/World/Phosh/phosh/-/blob/v0.57.0/data/phosh.service)
+the unmodified [upstream v0.59.0 system unit](https://gitlab.gnome.org/World/Phosh/phosh/-/blob/v0.59.0/data/phosh.service)
 in `/etc/systemd/system/phosh.service` (source URL in its header). The small
 `phosh.service.d/q25.conf` drop-in supplies the default user, `PAMName=phosh`,
 Wayland user-session class and device environment. It also excludes getty on

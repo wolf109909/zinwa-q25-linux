@@ -67,7 +67,7 @@ stage_packages() {
     # host pacman (like pacstrap): the staging dir is not a mountpoint, so
     # pacman inside arch-chroot cannot do its free-space check
     SNAP_PAC_SKIP=1 pacman --config "$REPO/build/pacman-build.conf" --root "$ROOT" \
-        --noconfirm --needed --ask 4 -U "${pkgs[@]}"   # 4 = yes, replace conflicting pkgs (phoc -> phoc-q25)
+        --noconfirm --needed --ask 4 -U "${pkgs[@]}"   # 4 = yes, replace conflicting pkgs
 }
 
 stage_overlay() {

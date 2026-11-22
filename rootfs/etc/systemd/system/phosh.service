@@ -1,5 +1,5 @@
-# Upstream Phosh v0.57.0 data/phosh.service (unmodified below).
-# https://gitlab.gnome.org/World/Phosh/phosh/-/blob/v0.57.0/data/phosh.service
+# Upstream Phosh v0.59.0 data/phosh.service (unmodified below; same as v0.57.0).
+# https://gitlab.gnome.org/World/Phosh/phosh/-/blob/v0.59.0/data/phosh.service
 [Unit]
 Description=Phosh, a shell for mobile phones (Development service)
 Documentation=https://gitlab.gnome.org/World/Phosh/phosh

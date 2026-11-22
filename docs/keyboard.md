@@ -43,7 +43,7 @@ mapping is retained. No kernel or firmware remapping was added.
 
 `packages/keyd-q25` pins upstream keyd 2.6.0 and adds one daemon patch plus a small
 state publisher. `packages/phosh-q25-keyboard` uses the upstream PhoshStatusIcon
-extension, pinned to Phosh 0.57.0. It does not replace/fork the shell, run an overlay,
+extension, pinned to Phosh 0.59.0. It does not replace/fork the shell, run an overlay,
 read input devices, invoke shell commands, or join the privileged `keyd` group.
 
 The separate Unix socket `/run/keyd-q25-state.sock` is root-created in root-owned
@@ -117,7 +117,7 @@ keyd control socket, or a physical display/session.
 
 ```sh
 KEYD_SOURCE=/private/keyd-2.6.0 \
-PHOSH_SOURCE=/private/phosh-0.57.0 \
+PHOSH_SOURCE=/private/phosh-0.59.0 \
 python3 -m unittest discover -s tests -v
 bash -n build/build-packages.sh packages/{keyd-q25,phosh-q25-keyboard}/PKGBUILD
 ```

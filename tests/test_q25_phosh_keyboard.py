@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Compile the plugin with real Phosh 0.57 widgets and test under private Xvfb.
+"""Compile the plugin with real Phosh 0.59 widgets and test under private Xvfb.
 
-Set PHOSH_SOURCE to the pinned 0.57.0 release source. No phone/session interaction.
+Set PHOSH_SOURCE to the pinned 0.59.0 release source. No phone/session interaction.
 """
 import os
 from pathlib import Path
@@ -14,7 +14,7 @@ REPO = Path(__file__).resolve().parents[1]
 SOURCE = os.environ.get("PHOSH_SOURCE")
 
 
-@unittest.skipUnless(SOURCE, "set PHOSH_SOURCE to Phosh 0.57.0 sources")
+@unittest.skipUnless(SOURCE, "set PHOSH_SOURCE to Phosh 0.59.0 sources")
 class PhoshKeyboardPlugin(unittest.TestCase):
     def test_real_widgets_lifecycle_order_and_credentials(self):
         source = Path(SOURCE)
