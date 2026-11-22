@@ -4,6 +4,49 @@ Complete hardware enablement, forward-ported **Mainline Linux 7.3 (`7.3.3`) & 7.
 
 ---
 
+## Hardware status
+
+Status on the current kernel (`7.3.3-cachyos-q25`, build #49) and image, checked on
+the phone in November 2026. **Ready** = works in daily use; **Partial** = works
+with a stated limitation; **TBD** = not working / not implemented yet.
+
+| Component | Status | Driver / notes |
+| :--- | :--- | :--- |
+| CPU (2x A76 + 6x A55), DVFS, BORE scheduler | ✅ Ready | `mtk-cpufreq-hw` |
+| RAM (12 GB) | ✅ Ready | |
+| UFS storage (256 GB) | ✅ Ready | `ufshcd-mtk`, btrfs root |
+| microSD | ✅ Ready | `mtk-msdc` (card detect + UHS fixed) |
+| Display 720x720 MIPI DSI, backlight | ✅ Ready | `mediatek-drm` + `panel-q20-hd720-lcm-dsi-vdo`; real 60 Hz scan-out (patch 0031) |
+| GPU Mali-G57 MC2 | ✅ Ready | Panfrost, OpenGL ES 3.1 / GL 3.1, DVFS 390–1100 MHz. **No Vulkan**: PanVK does not support Valhall v9 |
+| Touchscreen (Synaptics S2716B) | ✅ Ready | `synaptics_dsx_q25` |
+| QWERTY keyboard, trackpad, keyboard backlight | ✅ Ready | `bbqX0kbd` + `q20_keyboard` + `keyd`; Phosh status icons for Shift/Caps/Sym |
+| Power / volume / PTT buttons | ✅ Ready | `mtk-pmic-keys`, `gpio-keys` |
+| Speaker, earpiece | ✅ Ready | `q25_afe_pcm` (MT6358 codec) + OCA7255 PA; 48 kHz |
+| Headphone jack (output + plug detection), microphones | ✅ Ready | ACCDET driver (patch 0026); capture via VUL12/MTKAIF |
+| Charging, fuel gauge, battery temperature | ✅ Ready | `upm6922_charger`, `upm6722`, `q25_mt6358_gauge` |
+| Thermal zones | ✅ Ready | `mt6359-auxadc` + `generic-adc-thermal` |
+| Accelerometer (auto-rotate) | ✅ Ready | mainline `st_accel` (SC7A20) on AP I2C1 |
+| Proximity sensor | ✅ Ready | `q25_sensors` (HX32062SE), iio-sensor-proxy |
+| Magnetometer | ✅ Ready | `q25_sensors` (MMC5603NJ), raw + mount matrix |
+| Ambient light sensor | 🟡 Partial | raw channels only, no lux (vendor lux math lives in SCP firmware) → no auto-brightness |
+| Wi-Fi 802.11ac | ✅ Ready | MediaTek CONNSYS `wlan_drv_gen4m_6789` |
+| Bluetooth | 🟡 Partial | kernel drivers + `q25-bt-vhci` bridge exist; controller not up on the current image |
+| LTE mobile data | ✅ Ready | ECCCI / DPMAIF / CCMNI + ModemManager plugin |
+| SMS (send/receive, delivery reports) | ✅ Ready | over IMS: `q25-imsd` + ModemManager bridge → Chatty (tested on China Telecom) |
+| Voice calls (VoLTE), USSD | ⏳ TBD | needs IMS voice (SIP INVITE + RTP/AMR audio path) |
+| NFC | 🟡 Partial | `st21nfc` kernel driver works (`/dev/st21nfc`); no userspace NFC stack |
+| Torch / flash LED, vibration motor, RGB notification LED | ✅ Ready | `aw36518`, `flashlight-gpio-v4l2`, `leds-gpio` |
+| USB device mode (NCM networking), charging | 🟡 Partial | works; the NCM link breaks if the USB interface is taken down and up again |
+| Cameras | ⏳ TBD | no sensor/ISP driver |
+| GNSS / GPS | ⏳ TBD | no driver |
+| Suspend (s2idle / deep sleep) | ⏳ TBD | disabled system-wide for now |
+| Hardware video decode/encode | ⏳ TBD | vendor-only VCU firmware protocol |
+| Power management cleanup | ⏳ TBD | runs with `clk_ignore_unused` / `pd_ignore_unused`; plan in [docs/code-review-2026-11-22.md](docs/code-review-2026-11-22.md) |
+
+Known open items and review notes: [docs/code-review-2026-11-22.md](docs/code-review-2026-11-22.md),
+[docs/hardware-audit-2026-11.md](docs/hardware-audit-2026-11.md),
+[docs/telephony-progress.md](docs/telephony-progress.md).
+
 ## Current standalone phone image
 
 `build/build-all.sh` builds an Arch Linux ARM image with **stock Phosh as its only
@@ -19,8 +62,8 @@ session service, clean-build instructions, tests and remaining device checks.
 `Q25_USER` defaults to `alarm`; optional `Q25_PASSWORD` sets the initial account
 password / lock-screen PIN (otherwise the password equals the user name).
 A numeric password suits Phosh's keypad; alphanumeric hardware-keyboard input
-still works. Change the default before network use. This image has been checked
-offline; installation does not establish hardware-level app/telephony support.
+still works. Change the default before network use; with `SSH_KEY` set, SSH is
+key-only.
 
 The hardware results and hybrid `userspace/` tools below describe earlier port
 milestones. They are retained as reference, **not installed as the current image's
@@ -81,6 +124,10 @@ zinwa-q25-linux/
 
 ## Live On-Device Hardware Verification (`Linux 7.3.3-cachyos-q25`)
 
+> Early bring-up log (kernel #17). Some details below (LVM rootfs, dropbear/telnetd,
+> module list) predate the current image; see **Hardware status** above for the
+> current state.
+
 Booted and verified directly on the physical **Zinwa Q25** (`MT6789` / `MT8781`, 12 GB RAM, 256 GB UFS) over **USB NCM SSH (`10.15.19.82`)** with **0 kernel warnings**:
 
 ```text
@@ -138,7 +185,7 @@ All 11 hardware kernel modules from the vendor `5.10` kernel (`LineageOS/android
 | :--- | :--- | :--- | :--- |
 | `bbqX0kbd.ko` | `&i2c6` `@ 0x1f` | `wallComputer,bbqX0kbd` | Physical BlackBerry Q25 QWERTY keyboard, toolbelt keys, optical trackpad (arrow/mouse toggle), and keyboard/screen backlight control (`/proc/Guard_Event`). Ported to Linux 7.0 `i2c_driver` API; fixed vendor `irq-gpio` / `int-gpios` DT fallback bug. |
 | `q20_keyboard.ko` | Platform | `wallComputer,pdrv_bbqX0kbd` | Keyboard MCU power rail sequencing (`VDD` GPIO 159, `1V8` GPIO 157, `2V8` GPIO 158) and firmware download GPIO 47 (`/proc/q20_firmware_upgrade`). |
-| `synaptics_dsx_q25.ko` | `&i2c0` `@ 0x67` | `mediatek,cap_touch_synaptics` | Synaptics S2716B 720x720 capacitive touchscreen with 120Hz **One-Euro jitter filter** and commit `2a873a35` **stuck-touch release fix**. Decoupled from legacy MTK `tpd` framework to register a native Linux `input_dev` directly on Mainline. |
+| `synaptics_dsx_q25.ko` | `&i2c0` `@ 0x67` | `mediatek,cap_touch_synaptics` | Synaptics S2716B 720x720 capacitive touchscreen with an optional **One-Euro filter** (`one_euro_enable`, off by default) and commit `2a873a35` **stuck-touch release fix**. Decoupled from legacy MTK `tpd` framework to register a native Linux `input_dev` directly on Mainline. |
 | `ocp2131_drv.ko` | `&i2c7` `@ 0x3e` | `mediatek,mtk-gateic-drv-ocp2131` | OCP2131 ±5.8V LCD bias IC (`AVDD`/`AVEE`, gate-power GPIO 84). Fixed double-unregister bug on removal. |
 | `panel-q20-hd720-lcm-dsi-vdo.ko` | `&dsi0` `@ 0` | `mediatek,q20_panel_general,vdo` | Zinwa Q25 720x720@60Hz MIPI DSI video-mode DRM panel (`reset` GPIO 85, `AVDD` GPIO 156). Ported to Linux 7.0 `drm_panel`, `mipi_dsi_driver`, and `<linux/backlight.h>` APIs. |
 | `upm6922_charger.ko` | `&i2c5` `@ 0x6b` | `up,upm6922_charger` | Unisemipower UPM6922 primary switching charger (3A charge, BC1.2 detection, `upm6922-charger` `power_supply`, and `usb-otg-vbus` 5V/1.2A boost `regulator_dev`). Ported to Linux 7.0 `power_supply_config.fwnode` & bitmask `usb_types`. |
