@@ -40,7 +40,9 @@ Kernel `7.3.3-cachyos-q25` (build #49), checked on the device in November 2026.
 | Voice calls (VoLTE), USSD | ⏳ TBD | Needs IMS voice (SIP INVITE and an RTP/AMR audio path) |
 | NFC | 🟡 Partial | `st21nfc` kernel driver works; no userspace NFC stack |
 | Flash LED / torch, vibration motor, notification LED | ✅ Ready | `aw36518`, `flashlight-gpio-v4l2`, `leds-gpio` |
-| USB device mode (charging, NCM networking) | 🟡 Partial | The NCM link breaks if the USB interface is reset |
+| USB-C (detection, orientation, Power Delivery) | ✅ Ready | `tcpci_upm7610` + TCPM; 5 V contracts for now |
+| USB device mode (charging, NCM networking) | ✅ Ready | MUSB; recovers on replug |
+| USB host / OTG | ⏳ TBD | Works once per boot; afterwards device mode needs a reboot, so it is disabled (sink/device only) |
 | Cameras | ⏳ TBD | No sensor or ISP driver |
 | GNSS / GPS | ⏳ TBD | No driver |
 | Suspend | ⏳ TBD | Disabled system-wide |

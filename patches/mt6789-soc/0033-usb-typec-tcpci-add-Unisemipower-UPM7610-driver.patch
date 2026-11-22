@@ -1,0 +1,303 @@
+From: Zinwa Q25 port <noreply@anthropic.com>
+Subject: [PATCH] usb: typec: tcpci: add Unisemipower UPM7610 driver
+
+TCPCI glue for the UPM7610 Type-C/PD port controller on the Zinwa Q25 (I2C5 0x60):
+vendor reset, leave shutdown mode, disable the vendor VCONN OV fault, the
+vendor trim fix-up, and VBUS sourcing through an external OTG regulator
+("otg-vbus": a "vbus" supply on a child would also match i2c-mt65xx's own
+optional bus supply and defer the I2C adapter forever).
+
+---
+diff --git a/drivers/usb/typec/tcpm/Kconfig b/drivers/usb/typec/tcpm/Kconfig
+index 00baa7503..1e3dae977 100644
+--- a/drivers/usb/typec/tcpm/Kconfig
++++ b/drivers/usb/typec/tcpm/Kconfig
+@@ -27,6 +27,12 @@ config TYPEC_RT1711H
+ 	  Type-C Port Controller Manager to provide USB PD and USB
+ 	  Type-C functionalities.
+ 
++config TYPEC_UPM7610
++	tristate "Unisemipower UPM7610 Type-C chip driver"
++	help
++	  Unisemipower UPM7610 USB Type-C / Power Delivery port controller
++	  (TCPCI) driver, used with the Type-C Port Controller Manager.
++
+ config TYPEC_MT6360
+ 	tristate "Mediatek MT6360 Type-C driver"
+ 	depends on MFD_MT6360
+diff --git a/drivers/usb/typec/tcpm/Makefile b/drivers/usb/typec/tcpm/Makefile
+index 7a8cad0c0..7c3bf737d 100644
+--- a/drivers/usb/typec/tcpm/Makefile
++++ b/drivers/usb/typec/tcpm/Makefile
+@@ -5,6 +5,7 @@ obj-$(CONFIG_TYPEC_WCOVE)		+= typec_wcove.o
+ typec_wcove-y				:= wcove.o
+ obj-$(CONFIG_TYPEC_TCPCI)		+= tcpci.o
+ obj-$(CONFIG_TYPEC_RT1711H)		+= tcpci_rt1711h.o
++obj-$(CONFIG_TYPEC_UPM7610)		+= tcpci_upm7610.o
+ obj-$(CONFIG_TYPEC_MT6360)		+= tcpci_mt6360.o
+ obj-$(CONFIG_TYPEC_TCPCI_MT6370)	+= tcpci_mt6370.o
+ obj-$(CONFIG_TYPEC_TCPCI_MAXIM)		+= tcpci_maxim.o
+diff --git a/drivers/usb/typec/tcpm/tcpci_upm7610.c b/drivers/usb/typec/tcpm/tcpci_upm7610.c
+new file mode 100644
+index 000000000..447450f95
+--- /dev/null
++++ b/drivers/usb/typec/tcpm/tcpci_upm7610.c
+@@ -0,0 +1,258 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Unisemipower UPM7610 USB Type-C / PD port controller (TCPCI).
++ *
++ * The UPM7610 implements the standard TCPCI register set; this glue adds the
++ * vendor reset, the init sequence of the vendor driver (Hodafone/Zinwa
++ * 5.10 kernel, tcpc_upm7610.c 2.0.6) and VBUS sourcing through an external
++ * regulator (the charger's OTG boost on the Zinwa Q25).
++ */
++
++#include <linux/bits.h>
++#include <linux/delay.h>
++#include <linux/i2c.h>
++#include <linux/interrupt.h>
++#include <linux/kernel.h>
++#include <linux/module.h>
++#include <linux/regmap.h>
++#include <linux/regulator/consumer.h>
++#include <linux/usb/tcpci.h>
++#include <linux/usb/tcpm.h>
++
++#define UPM7610_DID			0x0100
++
++#define UPM7610_REG_CC_CTRL		0x92
++#define UPM7610_CC_CTRL_DISABLED_REQ	BIT(6)	/* shutdown (ship) mode */
++#define UPM7610_REG_RESET_CTRL		0xa0
++#define UPM7610_REG_HIDDEN_MODE		0xb0
++#define UPM7610_HIDDEN_MODE_KEY		0x6e
++#define UPM7610_REG_DEBUG_B9		0xb9
++#define UPM7610_REG_TRIM_C5		0xc5
++#define UPM7610_REG_TRIM_C6		0xc6
++
++#define UPM7610_FAULT_CTRL_DIS_VCONN_OV	BIT(7)	/* vendor bit, not in TCPCI 2.0 */
++
++struct upm7610_chip {
++	struct tcpci_data data;
++	struct tcpci *tcpci;
++	struct device *dev;
++	struct regulator *vbus;
++	bool src_en;
++	u16 did;
++};
++
++static struct upm7610_chip *tdata_to_upm7610(struct tcpci_data *tdata)
++{
++	return container_of(tdata, struct upm7610_chip, data);
++}
++
++static int upm7610_read16(struct upm7610_chip *chip, unsigned int reg, u16 *val)
++{
++	return regmap_raw_read(chip->data.regmap, reg, val, sizeof(u16));
++}
++
++static int upm7610_write16(struct upm7610_chip *chip, unsigned int reg, u16 val)
++{
++	return regmap_raw_write(chip->data.regmap, reg, &val, sizeof(u16));
++}
++
++static const struct regmap_config upm7610_regmap_config = {
++	.reg_bits = 8,
++	.val_bits = 8,
++	.max_register = 0xff,	/* 0x80..0xff are vendor defined */
++};
++
++/*
++ * Trim fix-up from the vendor driver ("optimization at 1101"): parts whose
++ * 0xB9[7:4] is not 1 get C5[2:0] = 3 and C6[1:0] = 2. The trim registers are
++ * only accessible in hidden mode.
++ */
++static int upm7610_trim(struct upm7610_chip *chip)
++{
++	struct regmap *map = chip->data.regmap;
++	unsigned int b9;
++	int ret, ret2;
++
++	ret = regmap_write(map, UPM7610_REG_HIDDEN_MODE, UPM7610_HIDDEN_MODE_KEY);
++	if (ret)
++		return ret;
++
++	ret = regmap_read(map, UPM7610_REG_DEBUG_B9, &b9);
++	if (!ret && ((b9 >> 4) & 0xf) != 1) {
++		ret = regmap_update_bits(map, UPM7610_REG_TRIM_C5, 0x07, 0x03);
++		if (!ret)
++			ret = regmap_update_bits(map, UPM7610_REG_TRIM_C6, 0x03, 0x02);
++	}
++
++	ret2 = regmap_write(map, UPM7610_REG_HIDDEN_MODE, 0);
++	return ret ? ret : ret2;
++}
++
++static int upm7610_init(struct tcpci *tcpci, struct tcpci_data *tdata)
++{
++	struct upm7610_chip *chip = tdata_to_upm7610(tdata);
++	struct regmap *map = chip->data.regmap;
++	int ret;
++
++	/* Leave shutdown mode */
++	ret = regmap_update_bits(map, UPM7610_REG_CC_CTRL,
++				 UPM7610_CC_CTRL_DISABLED_REQ, 0);
++	if (ret)
++		return ret;
++
++	if (chip->did == UPM7610_DID) {
++		ret = regmap_write(map, TCPC_FAULT_CTRL,
++				   UPM7610_FAULT_CTRL_DIS_VCONN_OV);
++		if (ret)
++			return ret;
++	}
++
++	ret = upm7610_trim(chip);
++	if (ret)
++		dev_warn(chip->dev, "trim fix-up failed: %d\n", ret);
++
++	usleep_range(1000, 2000);
++	return 0;
++}
++
++static int upm7610_set_vbus(struct tcpci *tcpci, struct tcpci_data *tdata,
++			    bool src, bool snk)
++{
++	struct upm7610_chip *chip = tdata_to_upm7610(tdata);
++	int ret;
++
++	if (chip->src_en == src)
++		return 0;
++
++	ret = src ? regulator_enable(chip->vbus) : regulator_disable(chip->vbus);
++	if (!ret)
++		chip->src_en = src;
++	return ret;
++}
++
++static irqreturn_t upm7610_irq(int irq, void *dev_id)
++{
++	struct upm7610_chip *chip = dev_id;
++
++	if (!chip->tcpci)
++		return IRQ_HANDLED;
++
++	return tcpci_irq(chip->tcpci);
++}
++
++static int upm7610_sw_reset(struct upm7610_chip *chip)
++{
++	int ret = regmap_write(chip->data.regmap, UPM7610_REG_RESET_CTRL, 1);
++
++	if (ret)
++		return ret;
++	usleep_range(1000, 2000);
++	return 0;
++}
++
++static void upm7610_unregister_port(void *tcpci)
++{
++	tcpci_unregister_port(tcpci);
++}
++
++static int upm7610_probe(struct i2c_client *client)
++{
++	const u16 alert_mask = TCPC_ALERT_TX_SUCCESS | TCPC_ALERT_TX_DISCARDED |
++			       TCPC_ALERT_TX_FAILED | TCPC_ALERT_RX_HARD_RST |
++			       TCPC_ALERT_RX_STATUS | TCPC_ALERT_POWER_STATUS |
++			       TCPC_ALERT_CC_STATUS | TCPC_ALERT_RX_BUF_OVF |
++			       TCPC_ALERT_FAULT;
++	struct device *dev = &client->dev;
++	struct upm7610_chip *chip;
++	u16 vid, pid;
++	int ret;
++
++	chip = devm_kzalloc(dev, sizeof(*chip), GFP_KERNEL);
++	if (!chip)
++		return -ENOMEM;
++	chip->dev = dev;
++
++	chip->data.regmap = devm_regmap_init_i2c(client, &upm7610_regmap_config);
++	if (IS_ERR(chip->data.regmap))
++		return PTR_ERR(chip->data.regmap);
++
++	ret = upm7610_read16(chip, TCPC_VENDOR_ID, &vid);
++	if (!ret)
++		ret = upm7610_read16(chip, TCPC_PRODUCT_ID, &pid);
++	if (!ret)
++		ret = upm7610_read16(chip, TCPC_BCD_DEV, &chip->did);
++	if (ret)
++		return dev_err_probe(dev, ret, "no response\n");
++	if (vid != 0x362f || pid != 0x7610)
++		return dev_err_probe(dev, -ENODEV, "unexpected id %04x:%04x\n",
++				     vid, pid);
++
++	i2c_set_clientdata(client, chip);
++
++	ret = upm7610_sw_reset(chip);
++	if (ret)
++		return ret;
++
++	/* No interrupts until the port is registered */
++	ret = upm7610_write16(chip, TCPC_ALERT_MASK, 0);
++	if (ret)
++		return ret;
++
++	/*
++	 * Not "vbus": the regulator core also searches child nodes, and the
++	 * I2C bus driver (i2c-mt65xx) asks for an optional "vbus" supply of its
++	 * own, which would then wait forever for this charger-provided rail.
++	 */
++	chip->vbus = devm_regulator_get(dev, "otg-vbus");
++	if (IS_ERR(chip->vbus))
++		return PTR_ERR(chip->vbus);
++
++	chip->data.init = upm7610_init;
++	chip->data.set_vbus = upm7610_set_vbus;
++	chip->tcpci = tcpci_register_port(dev, &chip->data);
++	if (IS_ERR_OR_NULL(chip->tcpci))
++		return chip->tcpci ? PTR_ERR(chip->tcpci) : -ENODEV;
++
++	ret = devm_add_action_or_reset(dev, upm7610_unregister_port, chip->tcpci);
++	if (ret)
++		return ret;
++
++	ret = devm_request_threaded_irq(dev, client->irq, NULL, upm7610_irq,
++					IRQF_ONESHOT | IRQF_TRIGGER_LOW,
++					dev_name(dev), chip);
++	if (ret)
++		return ret;
++
++	ret = upm7610_write16(chip, TCPC_ALERT_MASK, alert_mask);
++	if (ret)
++		return ret;
++
++	enable_irq_wake(client->irq);
++	dev_info(dev, "UPM7610 rev %04x\n", chip->did);
++	return 0;
++}
++
++static const struct of_device_id upm7610_of_match[] = {
++	{ .compatible = "unisemipower,upm7610" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, upm7610_of_match);
++
++static const struct i2c_device_id upm7610_id[] = {
++	{ "upm7610" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, upm7610_id);
++
++static struct i2c_driver upm7610_driver = {
++	.driver = {
++		.name = "upm7610",
++		.of_match_table = upm7610_of_match,
++	},
++	.probe = upm7610_probe,
++	.id_table = upm7610_id,
++};
++module_i2c_driver(upm7610_driver);
++
++MODULE_DESCRIPTION("Unisemipower UPM7610 USB Type-C port controller driver");
++MODULE_LICENSE("GPL");

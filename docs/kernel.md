@@ -42,6 +42,9 @@ Applied by `build/prepare-kernel.sh` in this order.
 | 0030 | pinctrl: mt6789: pull-type table covers all 222 pins |
 | 0031 | drm/mediatek: dsi: program video timing on bootloader handoff (real 60 Hz) |
 | 0032 | arm64: remove debug hooks from generic code (printk copy, early watchdog poke) |
+| 0033 | usb: typec: tcpci: Unisemipower UPM7610 USB-C/PD port controller |
+| 0034 | usb: musb: mediatek: role switching with forced PHY session signals |
+| 0035 | phy: mediatek: tphy: force BVALID/IDPULLUP like the vendor driver |
 
 The board devicetree itself is `devicetree/mt8781-zinwa-q25.dts`; the build copies
 it into the tree, so it is maintained there rather than as patches.
@@ -89,6 +92,7 @@ installed to `/lib/modules/<release>/updates/q25/`.
 | `snd-soc-oca72xxx` | MT6789 AFE PCM, MT6358 machine driver, ACCDET, OCA7255 amplifier | I2C3 `0x58` |
 | `upm6922_charger` | UPM6922 charger and OTG boost | I2C5 `0x6b` |
 | `upm6722` | UPM6722 charge pump | I2C5 `0x65` |
+| (in-tree, 0033) `tcpci_upm7610` | UPM7610 USB-C / PD controller | I2C5 `0x60` |
 | `q25_mt6358_gauge` | MT6366 fuel gauge (coulomb counter + vendor OCV table) | PMIC |
 | `q25_sensors` | MMC5603NJ magnetometer, HX32062SE light/proximity | I2C1 `0x30`, I2C9 `0x2b` |
 | `st21nfc` | ST21NFC NFC controller | I2C3 `0x08` |
@@ -111,5 +115,9 @@ in review.
   is unbalanced on the handoff path.
 - The genpd core special-cases the CONNSYS and modem nodes so their domains are
   not powered on at attach.
+- USB OTG: the MUSB controller enters host mode correctly (0034) but cannot
+  return to peripheral mode after a host session without a reboot, so the
+  connector is sink/device only. Fix in progress: port the vendor driver's
+  role-switch sequencing (controller restart, charger BC1.2 coordination).
 - The embedded DTB replaces LK's, so LK's runtime updates (memory size, KASLR
   seed) are not used.

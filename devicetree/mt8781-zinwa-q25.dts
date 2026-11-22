@@ -22,6 +22,7 @@
 #include <dt-bindings/pinctrl/mediatek,mt6789-pinfunc.h>
 #include <dt-bindings/thermal/thermal.h>
 #include "mt6789.dtsi"
+#include <dt-bindings/usb/pd.h>
 
 / {
 	model = "Zinwa Q25";
@@ -1125,8 +1126,15 @@
 
 &usb2 {
 	status = "okay";
-	dr_mode = "peripheral";
+	dr_mode = "otg";
 	maximum-speed = "high-speed";
+	usb-role-switch;	/* role set by the UPM7610 Type-C port (TCPM) */
+
+	port {
+		usb2_role: endpoint {
+			remote-endpoint = <&typec_hs>;
+		};
+	};
 };
 
 &u2phy {
@@ -1349,6 +1357,36 @@
 		upm6922_otg_vbus: otg {
 			regulator-compatible = "upm6922,otg-vbus";
 			regulator-name = "usb-otg-vbus";
+		};
+	};
+
+	/* UPM7610 USB Type-C / PD port controller (TCPCI) */
+	typec: usb-typec@60 {
+		compatible = "unisemipower,upm7610";
+		reg = <0x60>;
+		interrupts-extended = <&pio 35 IRQ_TYPE_LEVEL_LOW>;
+		/* OTG boost for the source role; not "vbus-supply", see driver */
+		otg-vbus-supply = <&upm6922_otg_vbus>;
+
+		connector {
+			compatible = "usb-c-connector";
+			label = "USB-C";
+			/*
+			 * Sink / device only for now: MUSB host mode works, but
+			 * after a host session the controller cannot become a
+			 * peripheral again until reboot (see docs/kernel.md).
+			 * 5 V only until fast charging (UPM6722) is coordinated.
+			 */
+			data-role = "device";
+			power-role = "sink";
+			sink-pdos = <PDO_FIXED(5000, 3000, PDO_FIXED_USB_COMM)>;
+			op-sink-microwatt = <10000000>;
+
+			port {
+				typec_hs: endpoint {
+					remote-endpoint = <&usb2_role>;
+				};
+			};
 		};
 	};
 
