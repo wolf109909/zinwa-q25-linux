@@ -95,6 +95,16 @@ Userspace:
   of the image. Old smoke-test binaries in `/usr/local` are not either.
 - `mm-ims-observer-mtk-ccci.c` (+ test) is superseded by q25-imsd.
 
+## Touch smoothness (measured 2026-11-22)
+
+S2716B reports at ~110 Hz (9 ms, steady) over a 400 kHz I2C bus it has to
+itself. During continuous drags no reports are dropped (0.1 % of intervals
+>20 ms, none >40 ms) and USB charging makes no difference. Path noise is
+~0.4 px rms still, 0.7-1.6 px rms moving (Y about twice X). The visible shake
+when dragging content is mostly 110 Hz input sampled by a 60 Hz compositor with
+no touch resampling (1 or 2 reports per frame). The driver's optional One Euro
+filter (`one_euro_enable`) reduces noise but users feel the lag; left off.
+
 ## GPU
 
 Mali-G57 MC2 is Valhall **v9, job-manager**. Panfrost GLES 3.1 / GL 3.1 is
