@@ -100,7 +100,7 @@ The SC7A20 accelerometer uses the mainline `st_accel` driver.
 
 The vendor MediaTek drivers under `drivers/mediatek/` are ports of the 5.10
 vendor kernel, with fixes for 7.3 APIs and memory-safety issues found in review
-(see [notes/code-review-2026-11-22.md](notes/code-review-2026-11-22.md)).
+in review.
 
 ## Known deviations from a clean mainline port
 

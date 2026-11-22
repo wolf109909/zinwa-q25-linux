@@ -45,7 +45,7 @@ Kernel `7.3.3-cachyos-q25` (build #49), checked on the device in November 2026.
 | GNSS / GPS | ⏳ TBD | No driver |
 | Suspend | ⏳ TBD | Disabled system-wide |
 | Hardware video decode / encode | ⏳ TBD | Vendor-only VCU firmware protocol |
-| Power management | ⏳ TBD | Boots with `clk_ignore_unused` / `pd_ignore_unused`; see [notes](docs/notes/code-review-2026-11-22.md) |
+| Power management | ⏳ TBD | Boots with `clk_ignore_unused` / `pd_ignore_unused`; see [kernel.md](docs/kernel.md#known-deviations-from-a-clean-mainline-port) |
 
 ## Quick start
 
@@ -86,7 +86,7 @@ Flashing, recovery and the A/B slot behaviour of this bootloader are described i
 | `build/` | Build, image and flashing scripts and their tests |
 | `tests/` | Host-side tests for drivers, helpers and packages |
 | `tools/` | Audio tuning generator, Windows fastboot driver installer |
-| `docs/` | Documentation; `docs/notes/` holds dated investigation logs |
+| `docs/` | Documentation |
 
 ## Documentation
 
@@ -96,7 +96,6 @@ Flashing, recovery and the A/B slot behaviour of this bootloader are described i
 - [Telephony](docs/telephony.md): modem, mobile data, SMS over IMS
 - [Phosh image](docs/phosh.md), [storage and snapshots](docs/storage.md), [package policy](docs/packages.md)
 - [Keyboard](docs/keyboard.md): layout and implementation
-- [Notes](docs/notes/): hardware audit, code review and bring-up logs
 
 ## Credits
 

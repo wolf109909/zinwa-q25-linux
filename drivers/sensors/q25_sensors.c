@@ -7,8 +7,7 @@
  * The SC7A20 accelerometer on I2C1 (0x18) uses the mainline st_accel driver.
  * The stock firmware reads all three from the SCP sensor hub; here they are
  * ordinary I2C clients of the AP I2C controllers on the same pins (see the
- * board DT). Register-level facts come from the stock SCP firmware notes in
- * docs/notes/validation-hw.md.
+ * board DT). Register-level facts come from the stock SCP sensor-hub firmware.
  */
 
 #include <linux/bits.h>

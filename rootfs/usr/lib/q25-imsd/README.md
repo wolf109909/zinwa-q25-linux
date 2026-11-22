@@ -1,8 +1,8 @@
 # q25-imsd — SMS over IMS
 
 Native IMS client for the Q25's MT6789 modem: no MediaTek IMS daemons, no Android
-userspace. Verified 2026-11-22 on China Telecom (46011): registration, receiving
-and sending SMS.
+userspace. Tested on China Telecom (46011): registration, receiving and sending
+SMS.
 
 How it works (3GPP TS 24.229 / 24.341 / 33.203):
 

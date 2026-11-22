@@ -52,19 +52,3 @@ blocked transmit/retry clients, a tested recovery timer, and an in-place package
 transaction while ModemManager is stopped. Preserve the working library/plugin
 and require LTE plus DNS/HTTPS recovery. No successful parser test authorizes
 sending a message or thawing queued clients.
-
-## Verified trial (2026-11-08)
-
-The aarch64 core package SHA-256 was
-`aba6e18f185ac8f632c87feedc7c1c24e6be607ccf1bc01595f1b65f490fe0ca`.
-All four upstream helper test targets and four Q25 helper tests passed. Linking
-the new spacing regression against the pristine helper reproduced the failure;
-the patched helper passed. Archive comparison found the same 239 installed
-paths, matching dynamic-symbol/dependency sets for all 56 ELF objects, and 86
-byte-identical non-ELF files.
-
-One normal-mode package trial preserved the original libmm-glib/Q25 plugin and
-restored registered/connected LTE plus system-route DNS/HTTPS (VPN still active;
-not an isolated LTE test). Public `DefaultStorage` changed from 3 to 1; this is
-metadata, not proof of private initialization. No SMS/call test was performed.
-Transmit guards and frozen clients were retained for explicit queue-retry review.

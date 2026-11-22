@@ -73,7 +73,7 @@ subvolume is unknown". There is no shipped default-ambit config override; use
 `--ambit classic`. This creates a writable snapshot and makes it the btrfs
 default; the next boot follows it without GRUB or another bootloader.
 Btrfs-assistant is installed for inspection/snapshot management; its restore UI
-is not claimed to implement this phone's boot-slot policy. Use the CLI above
+does not know this phone's boot setup. Use the CLI above
 for boot rollback.
 
 ## Good checkpoints and automatic fallback
@@ -154,17 +154,6 @@ Future A/B update transaction (not implemented in flash.sh):
 The current guard checks presence for the exact release, not module signatures,
 vermagic of every file, or corruption. Reusing the same release string for an
 ABI-incompatible rebuild defeats that check; do not do it.
-
-### Volume-Down picker: deferred
-
-A reliable "held during early boot" picker is **not implemented**. BusyBox can
-read evdev events with dd/hexdump, but cannot query `EVIOCGKEY`: a key already
-held before opening `/dev/input/event*` need not emit a new press. Device event
-numbers are unstable, and the built-in screen may not be usable before its
-modules load. A future tiny evdev ioctl/poll helper must identify gpio-keys,
-query initial state, debounce, time out, and present a tested console/display
-chooser. Do not claim an event-stream-only approximation supports holding the
-key. Today use classic rollback or the explicit rescue/default-selection path.
 
 ## Reproducible offline checks
 

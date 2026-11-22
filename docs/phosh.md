@@ -41,14 +41,10 @@ GTK/wlr fallbacks and the keyring Secret portal.
 `gnome-shell`/Mutter are unavoidable upstream Phosh/Settings dependencies in this
 repository snapshot, **not an enabled alternative desktop**; no GDM is enabled.
 Snapshot is an ordinary camera app, not camera enablement: expect a no-camera
-screen until a supported capture device exists. Calls/Chatty do not establish
-that voice/SMS or modem audio routing work on this port.
+screen until a supported capture device exists. Chatty handles SMS; Calls has
+no voice support yet (see [telephony.md](telephony.md)).
 
-Removed: SDDM, plasma-desktop/workspace/mobile/settings/nm/pa/keyboard/systemmonitor,
-KWin, PowerDevil, KScreen/KScreenLocker, Bluedevil, polkit-kde-agent, kde-gtk-config,
-breeze-gtk, xdg-desktop-portal-kde, Dolphin, KWrite (provided by Kate), Okular,
-Gwenview, Ark, Spectacle and KCalc, plus all their Q25-specific session/theme
-configuration. Btrfs Assistant remains as a desktop-neutral storage tool.
+Btrfs Assistant is included as a storage tool.
 
 ## Login, password and keyring
 
@@ -132,18 +128,16 @@ stock GNOME backgrounds satisfy Phosh's packaged wallpaper defaults.
 Idle blank/lock is two minutes, with password required and no lock grace. Phosh
 owns power-key blank/lock and its long-press menu; GNOME Settings Daemon must not
 also suspend on the key. Automatic suspend is disabled on AC and battery, and
-the existing logind/systemd sleep prohibitions are retained. **Suspend/resume is
-not claimed to work.** Mirrors, paru, package holds, btrfs/snapper, modem, USB,
+the existing logind/systemd sleep prohibitions are retained. **Suspend is not
+supported yet.** Mirrors, paru, package holds, btrfs/snapper, modem, USB,
 firmware, audio and all hardware services are unchanged.
 
 ## Clean build and validation
 
-This conversion must use a **fresh staging tree**: pacstrap is additive and does
-not uninstall Plasma or delete obsolete overlays from a reused root. Stop any
-build/chroot using it, check `findmnt` for mounts beneath it, then remove **only**
-`~/q25-work/rootfs` before building. Keep the host pacman cache, kernel tree and
-`mm-buildroot`. The generated image contains no old desktop packages or user
-configuration. This is an image replacement, not an in-place migration script.
+Build into a **fresh staging tree**: pacstrap is additive, so a reused root keeps
+packages and overlay files that were since removed. Make sure nothing is mounted
+beneath `~/q25-work/rootfs` (`findmnt`), remove it, then build. The host pacman
+cache and kernel tree can stay.
 
 ```sh
 bash -n build/build-rootfs.sh build/build-all.sh
@@ -158,7 +152,7 @@ sudo build/test-btrfs-checkpoint.sh
 
 The Phosh test strictly compiles a temporary copy of installed schemas (or
 `Q25_SCHEMA_DIR`), queries effective desktop-specific values, verifies app/MIME
-desktop IDs, UID 1000, PAM, the unit, target links, OSK and absence of Plasma.
+desktop IDs, UID 1000, PAM, the unit, target links and the OSK.
 Repository-only runs skip schema validation if target schemas are not available.
 The configured-root run must pass without those skips. For a different account,
 set `Q25_TEST_USER` to the build's `Q25_USER`.
@@ -167,48 +161,3 @@ Cross-architecture pacman hooks may need offline repair when qemu-user reports
 `Function not implemented`: run `systemd-tmpfiles --create` inside `arch-chroot`,
 and `systemd-hwdb --root=... update` with the host tool. These are staging repairs,
 not device hooks. Regenerate the image after any such repair.
-
-### Offline build result (2026-11-09)
-
-The full `BUILDROOT=$HOME/q25-work/mm-buildroot ./build/build-all.sh` run succeeded
-from a fresh staging directory. The image has **754 installed packages**, no
-Plasma/KWin/SDDM/KDE apps, enabled phosh.service and graphical.target, and all
-listed applications and Settings panel entries. `pacman -T` against the requested
-package set and `systemd-analyze --root=... --man=no verify phosh.service` passed.
-
-Outputs: `out/boot.img` **67,108,864 bytes**, `out/initramfs.cpio.gz` **8,388,608
-bytes**, `out/q25-rootfs.img` **10,776,215,552 bytes**, and **49** userdata sparse
-chunks. The image's btrfs read-only check passed. The log is
-`~/q25-work/build-all.log`. Nonfatal messages were arch-chroot's non-mountpoint
-warning, a package hook running before locale generation, and existing
-archlinuxcn key import warnings; configure/keyring and every build stage finished.
-
-The **21-test Python suite** passed with the staged root (20 passed, one
-image-layout skip covered separately on read-only mounts). All **9 Phosh tests
-and 4 btrfs layout tests** passed against the generated image. Native and target ARM BusyBox
-boot-policy tests and the native Snapper checkpoint/rollback test passed.
-Strict schema compilation passed both inside the build and in a host temporary
-copy with effective `Phosh:GNOME` defaults queried.
-
-A temporary PAM harness inside the ARM chroot accepted the default user's
-password and rejected a wrong password using the actual `phosh` PAM stack.
-It had to run as root: this host's qemu-aarch64 binfmt has `PF`, not `C`, flags,
-so a UID-1000 emulated `unix_chkpwd` cannot gain its required setuid credentials
-and reports `AUTHINFO_UNAVAIL`. The image's helper permissions and password are
-correct; host binfmt was not changed. This does **not** substitute for checking
-real non-root lock/unlock, logind and keyring behavior on the phone.
-
-### Device acceptance (supervisor; no flashing in this change)
-
-1. Cold boot to the PIN screen, verify no unlocked first frame; wrong/correct PIN,
-   password changes, restart, keyring and sudo. `loginctl show-session` must show
-   an active local seat0 user session on tty7, `Class=user`, `Type=wayland`.
-2. Check 1× output, Panfrost rendering, software cursor, touch alignment,
-   scale changes in Displays, all favorite/apps and every requested Settings panel.
-3. Type with physical/keyd keyboard without an unwanted OSK; explicitly show/hide
-   Stevia, including after switching apps and waking. Check CJK/emoji/kitty fonts.
-4. Check short/long power press and idle blank/lock/wake, without system suspend.
-5. Recheck Wi-Fi, APN/LTE data, SIM unlock, calls/SMS limitations, Bluetooth, audio,
-   USB networking, notifications, sensor rotation and reboot persistence. Camera
-   availability, telephony and haptics are hardware capabilities, not app-install
-   guarantees. Keep the existing hardware acceptance gates in `docs/notes/validation-hw.md`.
